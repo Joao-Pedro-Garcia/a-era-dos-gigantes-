@@ -458,7 +458,8 @@ export class Game {
       this.hud.notify(issues.length ? t('save.importRepaired', { n: issues.length }) : t('menu.imported'), issues.length ? 'warn' : 'good');
       this.startWorld(data);
     } catch (e) {
-      console.error(e);
+      // Expected for invalid files: reported to the player, logged as a warning for diagnosis.
+      console.warn('Import rejected:', e);
       const code = e instanceof SaveError ? e.code : 'json';
       this.hud.notify(`${t('menu.importFailed')}: ${t(`save.error.${code}`)}`, 'warn');
     }
@@ -519,8 +520,12 @@ export class Game {
 
   // ------------------------------------------------------------------ main loop
 
+  /** Frames rendered (diagnostics and automated tests). */
+  frames = 0;
+
   private loop = (now: number): void => {
     requestAnimationFrame(this.loop);
+    this.frames++;
     const rawDt = (now - this.last) / 1000;
     const dt = Math.min(0.1, rawDt);
     this.last = now;
@@ -1547,7 +1552,16 @@ export class Game {
       } else if (pl.reason) this.notify(`build.invalid.${pl.reason}`, {}, 'warn');
     }
     if (input.consume('demolish')) {
-      const target = this.buildingSys!.nearest(p.s.x + fx * 2.5, p.s.z + fz * 2.5, 3);
+      // The piece the player is looking at (closest in front, within 7 m).
+      let target: Piece | null = null;
+      let best = Infinity;
+      for (const pc of this.buildingSys!.pieces.values()) {
+        const d = this.actions.inFront(pc.x, pc.z, 7, 0.6, pc.y);
+        if (d !== null && d < best) {
+          best = d;
+          target = pc;
+        }
+      }
       if (target) {
         if (this.storageOpen?.id === target.id) this.storageOpen = null;
         const res = this.buildingSys!.demolish(target.id, this.inventory);

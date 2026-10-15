@@ -227,3 +227,34 @@ describe('tamed animals', () => {
     expect(new TamingController().packCapacity(eco, a.x + 5, a.z, env.state.time)).toBe(40);
   });
 });
+
+describe('herd behaviour while taming', () => {
+  it("herd-mates panicking at the player don't stampede an individual that trusts them", () => {
+    const { terrain, env, eco } = makeWorld(21);
+    const s = dryPlains(terrain);
+    const now = env.state.time;
+    const mk = (dx: number, progress: number) => {
+      const a = animal('parasaurolophus', now);
+      a.x = s.x + dx;
+      a.z = s.z;
+      a.groupId = 'herd';
+      a.hunger = a.thirst = a.fatigue = 0.1;
+      a.tameProgress = progress;
+      a.personality.flightiness = 1;
+      eco.animals.set(a.id, a);
+      return a;
+    };
+    const trusting = mk(0, 0.9);
+    const wild = mk(6, 0);
+    const p = player(s.x, s.z - 4);
+    let trustingFled = false;
+    let wildFled = false;
+    for (let i = 0; i < 80; i++) {
+      eco.update(0.1, ctx(p));
+      if (trusting.state === 'flee') trustingFled = true;
+      if (wild.state === 'flee') wildFled = true;
+    }
+    expect(wildFled).toBe(true);
+    expect(trustingFled).toBe(false);
+  });
+});

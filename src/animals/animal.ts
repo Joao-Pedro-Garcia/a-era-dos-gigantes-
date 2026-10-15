@@ -101,6 +101,8 @@ export interface AnimalData {
   tame: TameState | null;
   /** Game time until which a snare holds the animal in place. */
   heldUntil?: number;
+  /** The pending alarm was caused by the player (not a predator or hazard). */
+  alarmPlayer?: boolean;
 }
 
 export type LifeStage = 'juvenile' | 'subadult' | 'adult';

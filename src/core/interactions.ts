@@ -8,7 +8,7 @@ import { ITEMS } from '../inventory/items';
 import { language, t } from '../localization/i18n';
 import { DOC_BY_ID, Mysteries } from '../mysteries/mysteries';
 import { TAME_PROFILES } from '../taming/profiles';
-import { canMount, defaultName, foodValue, issueCommand, makeTame, offerFood } from '../taming/taming';
+import { canMount, defaultName, foodValue, isScared, issueCommand, makeTame, offerFood } from '../taming/taming';
 import { CAVE_Y, type Interactable, type ResourceNode } from '../world/sectors';
 import { VEG_YIELD } from '../world/vegetationModels';
 import { hash2 } from './rng';
@@ -125,6 +125,7 @@ export class Interactions {
     }
     const wild = this.animalInFront(5, (a) => a.alive && !a.tame && TAME_PROFILES[a.speciesId]?.method !== 'none');
     if (wild && held && foodValue(wild.speciesId, held.id) > 0) {
+      if (isScared(wild, now)) return { label: t('tame.scaredPrompt', { what: SPECIES[wild.speciesId].name[language()] }), run: () => {} };
       return { label: t('tame.offer', { key, food: t(`item.${held.id}`), what: SPECIES[wild.speciesId].name[language()] }), run: () => this.feed(wild, held) };
     }
     for (const n of g.eco!.nests.values()) {

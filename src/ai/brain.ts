@@ -48,7 +48,7 @@ export interface AIWorld {
   blocked(x: number, z: number, r: number): boolean;
   damagePlayer(amount: number, a: AnimalData): void;
   damageAnimal(target: AnimalData, amount: number, attacker: AnimalData): void;
-  alarm(a: AnimalData, x: number, z: number): void;
+  alarm(a: AnimalData, x: number, z: number, fromPlayer?: boolean): void;
   random(): number;
   /** Unit vector the wind blows toward (for scent). */
   wind?: { x: number; z: number };
@@ -202,8 +202,15 @@ export class AnimalBrain {
       return;
     }
 
+    // Herd-mates panicking at the player don't stampede an individual that already trusts them.
+    if (a.alarmAt > 0 && w.now >= a.alarmAt && a.alarmPlayer && (a.tameProgress > 0.5 || a.habituation > 0.7 || a.tame)) {
+      a.alarmAt = -1;
+      a.alarmPlayer = false;
+      if (!a.tame) this.setState(a, 'alert');
+    }
     if (a.alarmAt > 0 && w.now >= a.alarmAt) {
       a.alarmAt = -1;
+      a.alarmPlayer = false;
       remember(a, { kind: 'danger', x: a.alarmX, z: a.alarmZ, strength: 0.6 }, w.now);
       a.fear = Math.max(a.fear, 0.7);
       r.threatX = a.alarmX;
@@ -542,6 +549,11 @@ export class AnimalBrain {
     if (stage === 'juvenile') flight = Math.max(flight, 12) * 1.3;
     if (p.hasFire && !isPredator(sp)) flight *= 1.2;
     flight *= w.playerCalm ?? 1;
+    // Growing trust (taming) and a calm, crouched approach let the player come close enough to offer food.
+    flight *= Math.pow(1 - a.tameProgress, 1.5);
+    if (p.visibility < 0.75 && !hostileNow) flight *= 0.75;
+    // A mostly-trusting animal no longer startles at a calm player brushing past it.
+    if (a.tameProgress > 0.5 && !hostileNow && !p.running) flight = 0;
 
     // Predators: is the player food?
     if (isPredator(sp) && sp.huntsHumans && stage !== 'juvenile') {
@@ -589,7 +601,7 @@ export class AnimalBrain {
         this.setState(a, 'alert');
       } else {
         if (a.state !== 'flee') {
-          w.alarm(a, p.x, p.z);
+          w.alarm(a, p.x, p.z, true);
           if (hostileNow || threatMem > 0.5) remember(a, { kind: 'danger', x: p.x, z: p.z, strength: 0.3, subject: 'player' }, now);
         }
         this.setState(a, 'flee');

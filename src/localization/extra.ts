@@ -52,7 +52,7 @@ export const EXTRA_PT: Record<string, string> = {
   'trap.spikeReady': 'Armadilha armada ({n} usos)', 'trap.repair': '{key} Reparar armadilha (2 madeira, 1 sílex)', 'trap.snareArmed': 'Laço armado',
   'trap.rearm': '{key} Rearmar laço (1 corda)', 'trap.caught': 'Uma armadilha prendeu um {what}',
   // Taming
-  'tame.offer': '{key} Oferecer {food} ao {what}', 'tame.feedTamed': '{key} Dar {food} a {name}', 'tame.open': '{key} Cuidar de {name}',
+  'tame.scaredPrompt': '{what} está assustado: afaste-se, agache e espere ele se acalmar', 'tame.offer': '{key} Oferecer {food} ao {what}', 'tame.feedTamed': '{key} Dar {food} a {name}', 'tame.open': '{key} Cuidar de {name}',
   'tame.takeEgg': '{key} Pegar um ovo de {what} (os pais vão notar)', 'tame.accepted': '{what} aceitou a comida (confiança {n}%)',
   'tame.tamed': '{what} agora confia em você!', 'tame.fedTamed': '{name} comeu', 'tame.ready': 'Um {what} parece acostumado com você. Ofereça comida.',
   'tame.result.notHungry': '{what} não está com fome agora', 'tame.result.scared': '{what} está assustado demais para se aproximar',
@@ -206,7 +206,7 @@ export const EXTRA_EN: Record<string, string> = {
   'power.on': 'Powered', 'power.off': 'No power (build a wind generator within 40 m)', 'power.generator': 'Wind generator: {n}% output (depends on wind)',
   'trap.spikeReady': 'Trap armed ({n} uses)', 'trap.repair': '{key} Repair trap (2 wood, 1 flint)', 'trap.snareArmed': 'Snare armed',
   'trap.rearm': '{key} Re-arm snare (1 rope)', 'trap.caught': 'A trap caught a {what}',
-  'tame.offer': '{key} Offer {food} to the {what}', 'tame.feedTamed': '{key} Give {food} to {name}', 'tame.open': '{key} Care for {name}',
+  'tame.scaredPrompt': 'The {what} is frightened: back off, crouch and wait for it to calm down', 'tame.offer': '{key} Offer {food} to the {what}', 'tame.feedTamed': '{key} Give {food} to {name}', 'tame.open': '{key} Care for {name}',
   'tame.takeEgg': '{key} Take a {what} egg (the parents will notice)', 'tame.accepted': 'The {what} accepted the food (trust {n}%)',
   'tame.tamed': 'The {what} now trusts you!', 'tame.fedTamed': '{name} ate', 'tame.ready': 'A {what} seems used to you. Offer it food.',
   'tame.result.notHungry': 'The {what} is not hungry right now', 'tame.result.scared': 'The {what} is too scared to come closer',

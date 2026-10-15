@@ -384,7 +384,7 @@ export class Ecosystem {
         t.fear = 1;
         if (t.health <= 0) this.kill(t, attacker.speciesId);
       },
-      alarm: (a, x, z) => this.alarm(a, x, z),
+      alarm: (a, x, z, fromPlayer) => this.alarm(a, x, z, fromPlayer),
       random: () => this.rng.next(),
       wind: ctx.wind,
       playerCalm: ctx.playerCalm,
@@ -474,7 +474,7 @@ export class Ecosystem {
     }
   }
 
-  private alarm(a: AnimalData, x: number, z: number): void {
+  private alarm(a: AnimalData, x: number, z: number, fromPlayer = false): void {
     const sp = SPECIES[a.speciesId];
     const now = this.env.state.time;
     const radius = sp.senses.hearing * 0.8;
@@ -488,6 +488,7 @@ export class Ecosystem {
       o.alarmAt = now + 0.15 + d / 340 + this.rng.next() * 0.9 * (1.2 - o.personality.flightiness * 0.5);
       o.alarmX = x;
       o.alarmZ = z;
+      o.alarmPlayer = fromPlayer;
     }
   }
 

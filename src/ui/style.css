@@ -176,3 +176,12 @@ body.reduce-motion * { animation: none !important; transition: none !important; 
   .panel { inset: calc(6px + var(--safe-t)) calc(6px + var(--safe-r)) calc(6px + var(--safe-b)) calc(6px + var(--safe-l)); }
   .skill-grid { grid-template-columns: 1fr; }
 }
+/* Narrow portrait phones: stack the top buttons under the clock and the stats under them. */
+@media (max-width: 520px) {
+  body.touch-mode .ttop { top: calc(48px + var(--safe-t)); right: calc(6px + var(--safe-r)); gap: 4px; }
+  body.touch-mode .ttop .tbtn { width: 48px; height: 42px; font-size: 10px; }
+  body.touch-mode .bars { top: calc(98px + var(--safe-t)); width: 130px; }
+  body.touch-mode .notes { top: calc(240px + var(--safe-t)); max-width: 62vw; font-size: 12px; }
+  body.touch-mode .tbtns { grid-template-columns: repeat(3, 58px); }
+  body.touch-mode .tbtn { width: 58px; height: 58px; }
+}
