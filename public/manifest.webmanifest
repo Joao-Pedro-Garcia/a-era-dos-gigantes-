@@ -1,0 +1,10 @@
+{
+  "name": "Era dos Gigantes",
+  "short_name": "Gigantes",
+  "start_url": "./",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#1c1a16",
+  "theme_color": "#1c1a16",
+  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}
