@@ -157,6 +157,33 @@ export class Environment {
     return rain * (1 - this.state.drought * 0.75) * (0.75 + this.season * 0.25);
   }
 
+  /** Most likely next weather (same transition table as `update`, without using the RNG). */
+  forecast(): { next: WeatherKind; inSeconds: number } {
+    const s = this.state;
+    const wet = 0.5 + this.season * 0.15 - s.drought * 0.25;
+    const probs: Partial<Record<WeatherKind, number>> = {};
+    if (s.weather === 'storm') {
+      probs.rain = 0.6;
+      probs.cloudy = 0.4;
+    } else {
+      const clear = 0.36 * (1 - wet * 0.4);
+      probs.clear = clear;
+      probs.cloudy = 0.58 - clear;
+      probs.rain = 0.24 * wet;
+      const stormish = 0.08;
+      if (s.weather === 'rain' || s.weather === 'cloudy') probs.storm = stormish;
+      else probs.rain = (probs.rain ?? 0) + stormish;
+      probs.fog = 1 - Object.values(probs).reduce((a, b) => a + (b ?? 0), 0);
+    }
+    let next: WeatherKind = 'clear';
+    let best = -1;
+    for (const [k, v] of Object.entries(probs)) if ((v ?? 0) > best) {
+      best = v ?? 0;
+      next = k as WeatherKind;
+    }
+    return { next, inSeconds: Math.max(0, s.weatherUntil - s.time) };
+  }
+
   update(dt: number, px: number, pz: number, events: EnvEvent[]): void {
     const s = this.state;
     s.time += dt;

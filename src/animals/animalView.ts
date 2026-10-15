@@ -49,6 +49,8 @@ export interface AnimalView {
 const templates = new Map<string, Template>();
 const material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.78, metalness: 0.02 });
 const wingMaterial = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, side: THREE.DoubleSide });
+material.userData.shared = true;
+wingMaterial.userData.shared = true;
 
 function hash(x: number, y: number, z: number): number {
   const s = Math.sin(x * 12.9898 + y * 78.233 + z * 37.719) * 43758.5453;
@@ -294,6 +296,7 @@ function buildTemplate(sp: SpeciesDef): Template {
     const g = mergeGeometries(arr.map((x) => (x.index ? x.toNonIndexed() : x)))!;
     g.computeVertexNormals();
     g.computeBoundingSphere();
+    g.userData.shared = true;
     return g;
   };
   // Neck geometry is authored relative to the pivot (except for theropods where head was computed relative to pivot already).
@@ -312,7 +315,12 @@ function buildTemplate(sp: SpeciesDef): Template {
 
 function template(sp: SpeciesDef): Template {
   let t = templates.get(sp.id);
-  if (!t) templates.set(sp.id, (t = buildTemplate(sp)));
+  if (!t) {
+    t = buildTemplate(sp);
+    for (const l of t.legs) l.thigh.userData.shared = l.shin.userData.shared = true;
+    if (t.wings) t.wings.userData.shared = true;
+    templates.set(sp.id, t);
+  }
   return t;
 }
 

@@ -10,6 +10,8 @@ export interface Stack {
   qty: number;
   /** Remaining durability for tools/weapons. */
   dur?: number;
+  /** Species id for species-specific items (eggs). Stacks only with the same species. */
+  sp?: string;
 }
 
 export interface InventoryData {
@@ -30,16 +32,24 @@ export function createInventory(): InventoryData {
 export type ItemList = Record<string, number>;
 
 export class Inventory {
+  /** Extra carrying capacity from outside the inventory (pack animals). Not saved. */
+  extraCapacity = 0;
+
   constructor(public data: InventoryData = createInventory()) {}
 
   clone(): Inventory {
     return new Inventory(structuredClone(this.data));
   }
 
-  count(id: string): number {
+  /** Total quantity of an item; with `sp`, only that species' variant. */
+  count(id: string, sp?: string): number {
     let n = 0;
-    for (const s of this.data.slots) if (s && s.id === id) n += s.qty;
+    for (const s of this.data.slots) if (s && s.id === id && (sp === undefined || s.sp === sp)) n += s.qty;
     return n;
+  }
+
+  isFull(): boolean {
+    return this.data.slots.every((s) => s !== null);
   }
 
   has(items: ItemList): boolean {
@@ -54,7 +64,7 @@ export class Inventory {
   }
 
   capacity(): number {
-    let c = BASE_CAPACITY_KG;
+    let c = BASE_CAPACITY_KG + this.extraCapacity;
     for (const s of Object.values(this.data.equipment)) if (s) c += ITEMS[s.id].capacity ?? 0;
     return c;
   }
@@ -71,15 +81,17 @@ export class Inventory {
   }
 
   /** Adds items; returns quantity that did NOT fit (0 on full success). */
-  add(id: string, qty: number, dur?: number): number {
+  add(id: string, qty: number, dur?: number, sp?: string): number {
     const def = ITEMS[id];
     if (!def) throw new Error(`Unknown item ${id}`);
+    if (!Number.isFinite(qty) || qty <= 0) return 0;
+    qty = Math.floor(qty);
     let left = qty;
     const durable = def.durability !== undefined;
     if (!durable) {
       for (const s of this.data.slots) {
         if (left <= 0) break;
-        if (s && s.id === id && s.qty < def.maxStack) {
+        if (s && s.id === id && s.sp === sp && s.qty < def.maxStack) {
           const n = Math.min(left, def.maxStack - s.qty);
           s.qty += n;
           left -= n;
@@ -89,7 +101,7 @@ export class Inventory {
     for (let i = 0; i < this.data.slots.length && left > 0; i++) {
       if (this.data.slots[i]) continue;
       const n = durable ? 1 : Math.min(left, def.maxStack);
-      this.data.slots[i] = durable ? { id, qty: 1, dur: dur ?? def.durability } : { id, qty: n };
+      this.data.slots[i] = durable ? { id, qty: 1, dur: dur ?? def.durability } : sp ? { id, qty: n, sp } : { id, qty: n };
       left -= n;
     }
     return left;
@@ -120,13 +132,13 @@ export class Inventory {
   }
 
   /** Removes items; all-or-nothing. */
-  remove(id: string, qty: number): boolean {
-    if (this.count(id) < qty) return false;
+  remove(id: string, qty: number, sp?: string): boolean {
+    if (!Number.isFinite(qty) || qty < 0 || this.count(id, sp) < qty) return false;
     let left = qty;
     // Take from the smallest stacks first to keep the grid tidy.
     const idx = this.data.slots
       .map((s, i) => [s, i] as const)
-      .filter(([s]) => s && s.id === id)
+      .filter(([s]) => s && s.id === id && (sp === undefined || s.sp === sp))
       .sort((a, b) => a[0]!.qty - b[0]!.qty)
       .map(([, i]) => i);
     for (const i of idx) {
@@ -162,7 +174,7 @@ export class Inventory {
   moveSlot(from: number, to: number): void {
     const a = this.data.slots[from];
     const b = this.data.slots[to];
-    if (a && b && a.id === b.id && a.dur === undefined && b.dur === undefined) {
+    if (a && b && a.id === b.id && a.sp === b.sp && a.dur === undefined && b.dur === undefined) {
       const max = ITEMS[a.id].maxStack;
       const n = Math.min(a.qty, max - b.qty);
       b.qty += n;
@@ -206,11 +218,11 @@ export class Inventory {
     const merged: Stack[] = [];
     for (const s of items) {
       if (s.dur === undefined) {
-        const m = merged.find((x) => x.id === s.id && x.dur === undefined && x.qty < ITEMS[x.id].maxStack);
+        const m = merged.find((x) => x.id === s.id && x.sp === s.sp && x.dur === undefined && x.qty < ITEMS[x.id].maxStack);
         if (m) {
           const n = Math.min(s.qty, ITEMS[m.id].maxStack - m.qty);
           m.qty += n;
-          if (s.qty - n > 0) merged.push({ id: s.id, qty: s.qty - n });
+          if (s.qty - n > 0) merged.push({ ...s, qty: s.qty - n });
           continue;
         }
       }
@@ -270,7 +282,14 @@ export class Inventory {
         s.qty = def.maxStack;
       }
       s.qty = Math.floor(s.qty);
-      return s;
+      // Normalize: only known fields, durability within limits, species tag must be a string.
+      const out: Stack = { id: s.id, qty: s.qty };
+      if (def.durability !== undefined) {
+        out.qty = 1;
+        out.dur = Number.isFinite(s.dur) ? Math.max(1, Math.min(def.durability, s.dur!)) : def.durability;
+      }
+      if (typeof s.sp === 'string' && /^[a-z]+$/.test(s.sp)) out.sp = s.sp;
+      return out;
     });
     if (!Array.isArray(data.hotbar)) data.hotbar = [];
     data.hotbar = Array.from({ length: HOTBAR_SIZE }, (_, i) => {
@@ -279,7 +298,7 @@ export class Inventory {
     });
     data.equipment ??= {};
     for (const [k, s] of Object.entries(data.equipment)) {
-      if (!s || !ITEMS[s.id] || ITEMS[s.id].equip !== k) {
+      if (!s || !ITEMS[s.id] || ITEMS[s.id].equip !== k || !Number.isFinite(s.qty)) {
         delete data.equipment[k as EquipSlot];
         issues.push(`equip ${k}`);
       }

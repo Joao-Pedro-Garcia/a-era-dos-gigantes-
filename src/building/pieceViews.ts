@@ -11,7 +11,15 @@ const mats = {
   plant: new THREE.MeshStandardMaterial({ color: 0x5a8a32, roughness: 0.9 }),
   flame: new THREE.MeshBasicMaterial({ color: 0xffa040 }),
   water: new THREE.MeshStandardMaterial({ color: 0x3a6a80, roughness: 0.2 }),
+  cut: new THREE.MeshStandardMaterial({ color: 0x8a8478, roughness: 0.85 }),
+  metal: new THREE.MeshStandardMaterial({ color: 0x6a6e72, roughness: 0.5, metalness: 0.6 }),
+  glow: new THREE.MeshStandardMaterial({ color: 0xffe9b0, emissive: 0xffd27a, emissiveIntensity: 0 }),
+  wire: new THREE.MeshStandardMaterial({ color: 0x9a9a8a, roughness: 0.4, metalness: 0.5, emissive: 0x4a8aff, emissiveIntensity: 0 }),
+  egg: new THREE.MeshStandardMaterial({ color: 0xd8cfb8, roughness: 0.7 }),
 };
+
+// Materials are shared by every piece; geometries are per object and disposed with it.
+for (const m of Object.values(mats)) m.userData.shared = true;
 
 function mesh(geo: THREE.BufferGeometry, mat: THREE.Material, x = 0, y = 0, z = 0): THREE.Mesh {
   const m = new THREE.Mesh(geo, mat);
@@ -126,20 +134,190 @@ export function createPieceObject(type: PieceType): THREE.Group {
       g.add(plants);
       break;
     }
+    case 'stairs': {
+      const steps = 8;
+      for (let i = 0; i < steps; i++) {
+        const sh = ((i + 1) / steps) * h;
+        g.add(mesh(new THREE.BoxGeometry(w, 0.18, d / steps + 0.02), mats.wood, 0, sh - 0.09, -d / 2 + (i + 0.5) * (d / steps)));
+      }
+      for (const side of [-1, 1]) {
+        const rail = mesh(new THREE.BoxGeometry(0.1, 0.12, Math.hypot(d, h)), mats.darkWood, (side * w) / 2, h / 2 + 0.5, 0);
+        rail.rotation.x = -Math.atan2(h, d);
+        g.add(rail);
+      }
+      break;
+    }
+    case 'stone_foundation':
+      g.add(mesh(new THREE.BoxGeometry(w, 3, d), mats.cut, 0, -1.5, 0));
+      break;
+    case 'stone_wall':
+      for (let row = 0; row < 5; row++)
+        for (let i = 0; i < 4; i++) {
+          const off = row % 2 ? 0.5 : 0;
+          const bw = w / 4 - 0.04;
+          const x = -w / 2 + (i + 0.5 + off) * (w / 4);
+          if (x > w / 2) continue;
+          g.add(mesh(new THREE.BoxGeometry(bw, h / 5 - 0.04, d), row % 2 ? mats.cut : mats.stone, Math.min(x, w / 2 - bw / 2), (row + 0.5) * (h / 5), 0));
+        }
+      break;
+    case 'gate': {
+      for (const side of [-1, 1]) g.add(mesh(new THREE.CylinderGeometry(0.15, 0.18, h + 0.6, 7), mats.darkWood, (side * w) / 2, (h + 0.6) / 2, 0));
+      const leaf = new THREE.Group();
+      leaf.name = 'leaf';
+      leaf.position.set(-w / 2, 0, 0);
+      for (let i = 0; i < 7; i++) leaf.add(mesh(new THREE.BoxGeometry(0.12, h - 0.2, 0.12), mats.wood, 0.3 + i * ((w - 0.6) / 6), (h - 0.2) / 2 + 0.1, 0));
+      for (const y of [0.5, h - 0.4]) leaf.add(mesh(new THREE.BoxGeometry(w - 0.3, 0.14, 0.14), mats.darkWood, w / 2, y, 0));
+      g.add(leaf);
+      break;
+    }
+    case 'feeding_trough':
+      g.add(mesh(new THREE.BoxGeometry(w, 0.12, d), mats.darkWood, 0, 0.35, 0));
+      for (const side of [-1, 1]) {
+        g.add(mesh(new THREE.BoxGeometry(w, 0.4, 0.08), mats.wood, 0, 0.55, (side * d) / 2));
+        g.add(mesh(new THREE.BoxGeometry(0.08, 0.4, d), mats.wood, (side * w) / 2, 0.55, 0));
+        g.add(mesh(new THREE.BoxGeometry(0.12, 0.35, 0.12), mats.darkWood, (side * w) / 2.4, 0.17, 0));
+      }
+      {
+        const food = mesh(new THREE.BoxGeometry(w - 0.2, 0.2, d - 0.2), mats.plant, 0, 0.5, 0);
+        food.name = 'food';
+        g.add(food);
+      }
+      break;
+    case 'nest_box': {
+      const ring = mesh(new THREE.TorusGeometry(0.6, 0.22, 6, 14), mats.thatch, 0, 0.2, 0);
+      ring.rotation.x = -Math.PI / 2;
+      g.add(ring);
+      const egg = mesh(new THREE.SphereGeometry(0.22, 10, 8), mats.egg, 0, 0.3, 0);
+      egg.scale.y = 1.3;
+      egg.name = 'egg';
+      g.add(egg);
+      break;
+    }
+    case 'spike_trap':
+      g.add(mesh(new THREE.BoxGeometry(w, 0.08, d), mats.darkWood, 0, 0.04, 0));
+      for (let i = 0; i < 9; i++) g.add(mesh(new THREE.ConeGeometry(0.07, 0.45, 5), mats.stone, ((i % 3) - 1) * 0.6, 0.3, (Math.floor(i / 3) - 1) * 0.6));
+      break;
+    case 'snare_trap': {
+      const loop = mesh(new THREE.TorusGeometry(0.45, 0.03, 4, 16), mats.thatch, 0, 0.05, 0);
+      loop.rotation.x = -Math.PI / 2;
+      loop.name = 'loop';
+      g.add(loop);
+      g.add(mesh(new THREE.CylinderGeometry(0.04, 0.05, 1.2, 5), mats.darkWood, 0.6, 0.6, 0));
+      break;
+    }
+    case 'forge':
+      g.add(mesh(new THREE.CylinderGeometry(0.9, 1, 1.2, 10), mats.stone, 0, 0.6, 0));
+      g.add(mesh(new THREE.CylinderGeometry(0.3, 0.45, 0.8, 8), mats.stone, 0, 1.5, 0));
+      {
+        const fire = new THREE.Mesh(new THREE.SphereGeometry(0.35, 8, 6), mats.flame);
+        fire.position.set(0, 0.9, 0.7);
+        fire.name = 'flame';
+        g.add(fire);
+        const light = new THREE.PointLight(0xff7a2a, 30, 10, 1.8);
+        light.position.set(0, 1, 1);
+        light.name = 'light';
+        g.add(light);
+      }
+      break;
+    case 'wind_generator': {
+      g.add(mesh(new THREE.CylinderGeometry(0.12, 0.3, h, 6), mats.metal, 0, h / 2, 0));
+      const rotor = new THREE.Group();
+      rotor.name = 'rotor';
+      rotor.position.set(0, h, 0.35);
+      for (let i = 0; i < 3; i++) {
+        const blade = mesh(new THREE.BoxGeometry(0.25, 2.2, 0.04), mats.hide, 0, 1.1, 0);
+        const holder = new THREE.Group();
+        holder.rotation.z = (i * Math.PI * 2) / 3;
+        holder.add(blade);
+        rotor.add(holder);
+      }
+      g.add(rotor);
+      break;
+    }
+    case 'lamp': {
+      g.add(mesh(new THREE.CylinderGeometry(0.05, 0.08, h, 6), mats.metal, 0, h / 2, 0));
+      g.add(mesh(new THREE.SphereGeometry(0.2, 10, 8), mats.glow, 0, h, 0));
+      const light = new THREE.PointLight(0xffe0a0, 0, 18, 1.5);
+      light.position.y = h;
+      light.name = 'light';
+      g.add(light);
+      break;
+    }
+    case 'electric_fence':
+      for (let i = 0; i <= 2; i++) g.add(mesh(new THREE.CylinderGeometry(0.07, 0.09, h, 6), mats.darkWood, -w / 2 + (i * w) / 2, h / 2, 0));
+      for (const y of [0.4, 0.9, 1.4]) {
+        const wire = mesh(new THREE.CylinderGeometry(0.015, 0.015, w, 4), mats.wire, 0, y, 0);
+        wire.rotation.z = Math.PI / 2;
+        g.add(wire);
+      }
+      break;
+    case 'well':
+      g.add(mesh(new THREE.CylinderGeometry(0.9, 0.95, 0.9, 12, 1, true), mats.stone, 0, 0.45, 0));
+      g.add(mesh(new THREE.CircleGeometry(0.85, 12), mats.water, 0, 0.3, 0).rotateX(-Math.PI / 2));
+      for (const side of [-1, 1]) g.add(mesh(new THREE.BoxGeometry(0.1, 1.6, 0.1), mats.darkWood, side * 0.85, 1.2, 0));
+      g.add(mesh(new THREE.BoxGeometry(1.9, 0.1, 0.1), mats.darkWood, 0, 2, 0));
+      break;
+    case 'torch_post': {
+      g.add(mesh(new THREE.CylinderGeometry(0.05, 0.07, h, 5), mats.darkWood, 0, h / 2, 0));
+      const flame = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.3, 6), mats.flame);
+      flame.position.y = h + 0.15;
+      flame.name = 'flame';
+      g.add(flame);
+      const light = new THREE.PointLight(0xffa040, 25, 14, 1.6);
+      light.position.y = h + 0.3;
+      light.name = 'light';
+      g.add(light);
+      break;
+    }
   }
   return g;
+}
+
+/** Releases per-object geometries (shared materials and geometries are kept). */
+export function disposeObject(o: THREE.Object3D): void {
+  o.traverse((c) => {
+    if (c instanceof THREE.Mesh || c instanceof THREE.Points || c instanceof THREE.LineSegments) {
+      if (!c.geometry.userData.shared) c.geometry.dispose();
+      const ms = Array.isArray(c.material) ? c.material : [c.material];
+      for (const m of ms) if (!m.userData.shared) m.dispose();
+    }
+  });
 }
 
 /** Applies dynamic state (door open, crop growth, collector level, flicker). */
 export function syncPieceObject(o: THREE.Object3D, p: Piece, time: number): void {
   o.position.set(p.x, p.y, p.z);
   o.rotation.y = -p.rot;
-  if (p.type === 'door') {
+  if (p.type === 'door' || p.type === 'gate') {
     const leaf = o.getObjectByName('leaf');
     if (leaf) leaf.rotation.y += ((p.open ? -1.5 : 0) - leaf.rotation.y) * 0.2;
   } else if (p.type === 'crop_plot') {
     const plants = o.getObjectByName('plants');
-    if (plants) plants.scale.setScalar(0.15 + (p.growth ?? 0) * 0.85);
+    if (plants) {
+      plants.visible = !!p.crop;
+      plants.scale.setScalar(0.15 + (p.growth ?? 0) * 0.85);
+    }
+  } else if (p.type === 'nest_box') {
+    const egg = o.getObjectByName('egg');
+    if (egg) {
+      egg.visible = !!p.egg;
+      egg.rotation.z = p.egg && p.egg.progress > 0.8 ? Math.sin(time * 9) * 0.15 : 0;
+    }
+  } else if (p.type === 'feeding_trough') {
+    const food = o.getObjectByName('food');
+    if (food) food.visible = (p.storage ?? []).some((s) => s);
+  } else if (p.type === 'snare_trap') {
+    const loop = o.getObjectByName('loop');
+    if (loop) loop.visible = !!p.armed;
+  } else if (p.type === 'wind_generator') {
+    const rotor = o.getObjectByName('rotor');
+    if (rotor && p.powered) rotor.rotation.z += 0.08;
+  } else if (p.type === 'lamp') {
+    const l = o.getObjectByName('light') as THREE.PointLight | undefined;
+    if (l) l.intensity = p.powered ? 40 : 0;
+  } else if (p.type === 'forge' || p.type === 'torch_post') {
+    const f = o.getObjectByName('flame');
+    if (f) f.scale.setScalar(0.9 + Math.sin(time * 11 + p.z) * 0.1);
   } else if (p.type === 'water_collector') {
     const w = o.getObjectByName('water');
     if (w) w.position.y = 0.1 + Math.min(1, (p.water ?? 0) / 20) * 0.75;

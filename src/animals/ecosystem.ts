@@ -1,7 +1,9 @@
 import { WORLD } from '../core/config';
 import { clamp } from '../core/math';
 import { Rng, hash2 } from '../core/rng';
-import { AnimalBrain, PLAYER_ID, type AIWorld, type Hazard, type PlayerPercept } from '../ai/brain';
+import { AnimalBrain, PLAYER_ID, type AIWorld, type Hazard, type PlayerPercept, type TroughAccess } from '../ai/brain';
+import { resolveDamage } from '../combat/combat';
+import { hurtByPlayer, makeTame } from '../taming/taming';
 import { pruneMemory, remember } from '../ai/memory';
 import { BIOMES } from '../world/biomes';
 import type { Environment } from '../world/environment';
@@ -50,7 +52,15 @@ export interface EcoContext {
   maxActive: number;
   blocked(x: number, z: number, r: number): boolean;
   damagePlayer(amount: number, a: AnimalData): void;
+  wind?: { x: number; z: number };
+  playerCalm?: number;
+  companionTarget?: string | null;
+  troughFood?(a: AnimalData): TroughAccess | null;
 }
+
+export type EcoEvent =
+  | { type: 'tameLeft'; id: string; speciesId: string; name: string }
+  | { type: 'tamedKilled'; id: string; speciesId: string; name: string; by: string };
 
 const DAY = WORLD.dayLengthSeconds;
 const ACTIVE_RADIUS = 230;
@@ -79,6 +89,10 @@ export class Ecosystem {
   private leaders = new Map<string, AnimalData>();
   private sectorIndex = new Map<string, AnimalData[]>();
   private hazards: Hazard[] = [];
+  /** Accumulated time for animals updated at a reduced rate (far from the player). */
+  private lodAcc = new Map<string, number>();
+  private frame = 0;
+  onEvent: (e: EcoEvent) => void = () => {};
 
   constructor(state: EcosystemState, private terrain: Terrain, private env: Environment, private seed: number) {
     for (const a of state.animals) this.animals.set(a.id, a);
@@ -258,6 +272,9 @@ export class Ecosystem {
     const now = this.env.state.time;
     if (!target.alive) return;
     target.health -= damage;
+    const tame = target.tame;
+    if (hurtByPlayer(target, now) === 'left' && tame) this.onEvent({ type: 'tameLeft', id: target.id, speciesId: target.speciesId, name: tame.name });
+    this.brain.onHurt(target, px, pz, true, now);
     remember(target, { kind: 'injured', x: px, z: pz, strength: 1, subject: 'player' }, now);
     remember(target, { kind: 'threat', x: px, z: pz, strength: 1, subject: 'player' }, now);
     target.trustPlayer = clamp(target.trustPlayer - 0.35, -1, 1);
@@ -278,6 +295,8 @@ export class Ecosystem {
 
   kill(a: AnimalData, cause: string): void {
     if (!a.alive) return;
+    if (a.tame) this.onEvent({ type: 'tamedKilled', id: a.id, speciesId: a.speciesId, name: a.tame.name, by: cause });
+    a.tame = null;
     a.alive = false;
     a.health = 0;
     a.diedAt = this.env.state.time;
@@ -292,6 +311,40 @@ export class Ecosystem {
     const taken = Math.min(a.meat, kg);
     a.meat -= taken;
     return taken;
+  }
+
+  /**
+   * Takes one egg from a wild nest. Parents that are close enough to notice
+   * remember the theft and may come to defend the nest.
+   */
+  takeEgg(nestId: string, px: number, pz: number): string | null {
+    const n = this.nests.get(nestId);
+    if (!n || n.eggs <= 0) return null;
+    n.eggs--;
+    if (n.eggs <= 0) this.nests.delete(nestId);
+    const now = this.env.state.time;
+    for (const a of this.active) {
+      if (!a.alive || a.tame || a.speciesId !== n.speciesId) continue;
+      if (Math.hypot(a.x - n.x, a.z - n.z) > SPECIES[a.speciesId].senses.sight * 0.6) continue;
+      remember(a, { kind: 'threat', x: px, z: pz, strength: 1.2, subject: 'player' }, now);
+      a.trustPlayer = clamp(a.trustPlayer - 0.3, -1, 1);
+      if (SPECIES[a.speciesId].reproduction.parentalCare > 0.3 && lifeStage(a, now) === 'adult') {
+        a.targetId = PLAYER_ID;
+        this.brain.setState(a, 'defend');
+      }
+    }
+    return n.speciesId;
+  }
+
+  /** A hatchling raised by the player bonds with them (imprinting). */
+  hatchTamed(speciesId: string, x: number, z: number, name: string): AnimalData {
+    const now = this.env.state.time;
+    const a = createAnimal({ id: this.newId('a'), speciesId, x, z, bornAt: now, groupId: 'tame', rng: this.rng });
+    a.y = this.terrain.height(x, z);
+    makeTame(a, name, now, true, x, z);
+    a.tame!.command = 'stay';
+    this.animals.set(a.id, a);
+    return a;
   }
 
   // ------------------------------------------------------------------ simulation
@@ -325,18 +378,37 @@ export class Ecosystem {
       blocked: ctx.blocked,
       damagePlayer: ctx.damagePlayer,
       damageAnimal: (t, dmg, attacker) => {
-        t.health -= dmg;
+        t.health -= resolveDamage(t, dmg, 'bite');
+        this.brain.onHurt(t, attacker.x, attacker.z, false, now);
         remember(t, { kind: 'injured', x: attacker.x, z: attacker.z, strength: 1, subject: attacker.speciesId }, now);
         t.fear = 1;
         if (t.health <= 0) this.kill(t, attacker.speciesId);
       },
       alarm: (a, x, z) => this.alarm(a, x, z),
       random: () => this.rng.next(),
+      wind: ctx.wind,
+      playerCalm: ctx.playerCalm,
+      companionTarget: ctx.companionTarget,
+      troughFood: ctx.troughFood,
     };
 
+    // Distant active animals think and move at a reduced rate (accumulated time keeps them consistent).
+    this.frame++;
     for (const a of this.active) {
       if (!a.alive) continue;
-      this.brain.update(a, world, dt);
+      const d = Math.hypot(a.x - ctx.player.x, a.z - ctx.player.z);
+      const every = a.tame?.ridden ? 1 : d > 170 ? 4 : d > 100 ? 2 : 1;
+      let step = dt;
+      if (every > 1) {
+        const acc = (this.lodAcc.get(a.id) ?? 0) + dt;
+        if ((this.frame + a.id.length) % every !== 0) {
+          this.lodAcc.set(a.id, acc);
+          continue;
+        }
+        step = Math.min(acc, 0.5);
+        this.lodAcc.delete(a.id);
+      }
+      this.brain.update(a, world, step);
       if (!a.alive && a.cause === '') this.kill(a, 'unknown');
     }
     this.separate();
@@ -358,14 +430,19 @@ export class Ecosystem {
     for (const a of this.animals.values()) {
       const d2 = (a.x - px) ** 2 + (a.z - pz) ** 2;
       if (d2 > r2) continue;
-      if (a.alive) living.push([d2, a]);
+      // Tamed animals near the player are always simulated first.
+      if (a.alive) living.push([a.tame ? d2 * 0.01 : d2, a]);
       else dead.push(a);
     }
     living.sort((p, q) => p[0] - q[0]);
     const prev = new Set(this.active);
     this.active = living.slice(0, ctx.maxActive).map((p) => p[1]).concat(dead);
     const now = new Set(this.active);
-    for (const a of prev) if (!now.has(a)) this.brain.forget(a.id);
+    for (const a of prev)
+      if (!now.has(a)) {
+        this.brain.forget(a.id);
+        this.lodAcc.delete(a.id);
+      }
   }
 
   /** Gentle push so bodies don't interpenetrate. */
@@ -492,6 +569,19 @@ export class Ecosystem {
     const now = this.env.state.time;
     AnimalBrain.updateNeeds(a, sp, dt, 0);
     const eco = this.sectorEco(a.x, a.z);
+    if (a.tame) {
+      // Tamed animals left at the base: drink if water is near, graze/rest, stay around their anchor.
+      if (a.thirst > 0.45 && eco.water) a.thirst = Math.max(0, a.thirst - 0.4);
+      if (a.hunger > 0.45 && !isPredator(sp) && eco.cap > 0) a.hunger = Math.max(0, a.hunger - 0.2 * (eco.forage / eco.cap));
+      const t = a.tame;
+      if (t.command !== 'follow' && Math.hypot(a.x - t.anchorX, a.z - t.anchorZ) > 20) {
+        a.x += (t.anchorX - a.x) * 0.2;
+        a.z += (t.anchorZ - a.z) * 0.2;
+        a.y = this.terrain.height(a.x, a.z);
+      }
+      a.state = a.fatigue > 0.7 ? 'rest' : 'idle';
+      return;
+    }
 
     // Thirst: water in this or adjacent sectors.
     if (a.thirst > 0.45) {
@@ -574,7 +664,7 @@ export class Ecosystem {
         for (const o of list) {
           if (!o.alive || o.groupId === a.groupId || o.speciesId === a.speciesId) continue;
           const osp = SPECIES[o.speciesId];
-          if (isPredator(osp) || osp.locomotion.flies) continue;
+          if (isPredator(osp) || osp.locomotion.flies || o.tame) continue;
           const om = effectiveMass(o, now);
           const pack = sp.social.type === 'pack' ? 3 : 1;
           if (om < myMass * 1.1 * pack && om > myMass * 0.004) {
@@ -616,7 +706,7 @@ export class Ecosystem {
   }
 
   private maybeBreed(a: AnimalData, sp: SpeciesDef, now: number): void {
-    if (a.sex !== 'f' || lifeStage(a, now) !== 'adult') return;
+    if (a.tame || a.sex !== 'f' || lifeStage(a, now) !== 'adult') return;
     const doy = this.env.dayOfYear;
     const [s0, s1] = sp.reproduction.season;
     if (doy < s0 || doy > s1) return;

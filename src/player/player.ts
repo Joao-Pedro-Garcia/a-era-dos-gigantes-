@@ -32,6 +32,12 @@ export interface MoveEnv {
   biomeMul: number;
   /** Extra circles to collide with (large animals). */
   dynamic: { x: number; z: number; r: number }[];
+  /** Flat floor height replacing the terrain (cave interiors). */
+  groundOverride?: number;
+  /** Keep the player inside this circle (cave interiors). */
+  bounds?: { x: number; z: number; r: number };
+  /** Max climbable rise per metre (skills). */
+  slopeLimit?: number;
 }
 
 export const PLAYER_RADIUS = 0.38;
@@ -89,10 +95,11 @@ export class PlayerController {
 
     // Slope limit: steep uphill movement is slowed and you slide back.
     const t = env.terrain;
-    const h0 = t.height(s.x, s.z);
-    const ahead = t.height(s.x + this.vx * 0.2, s.z + this.vz * 0.2);
+    const ground = (x: number, z: number) => env.groundOverride ?? t.height(x, z);
+    const h0 = ground(s.x, s.z);
+    const ahead = ground(s.x + this.vx * 0.2, s.z + this.vz * 0.2);
     const rise = (ahead - h0) / Math.max(0.05, Math.hypot(this.vx, this.vz) * 0.2);
-    if (rise > 1.1 && this.onGround) {
+    if (rise > (env.slopeLimit ?? 1.1) && this.onGround) {
       this.vx *= 0.2;
       this.vz *= 0.2;
     }
@@ -107,15 +114,24 @@ export class PlayerController {
         nz += p[1];
       }
     }
+    if (env.bounds) {
+      const dx = nx - env.bounds.x;
+      const dz = nz - env.bounds.z;
+      const d = Math.hypot(dx, dz);
+      if (d > env.bounds.r) {
+        nx = env.bounds.x + (dx / d) * env.bounds.r;
+        nz = env.bounds.z + (dz / d) * env.bounds.r;
+      }
+    }
     s.x = nx;
     s.z = nz;
 
     // Vertical: ground is the terrain or a walkable surface (floors, foundations).
-    const terrainY = t.height(s.x, s.z);
+    const terrainY = ground(s.x, s.z);
     const surf = env.collision.surfaceAt(s.x, s.z, s.y + 0.6);
     const groundY = Math.max(terrainY, surf);
     const swimY = env.waterLevel - 1.25;
-    this.swimming = groundY < swimY;
+    this.swimming = env.groundOverride === undefined && groundY < swimY;
 
     if (this.swimming) {
       this.vy = 0;

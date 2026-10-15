@@ -39,7 +39,19 @@ export interface SurvivalContext {
 
 const DAY = WORLD.dayLengthSeconds;
 
+/** Multipliers from skills and equipment, applied on top of difficulty. */
+export interface SurvivalMods {
+  needs: number;
+  damage: number;
+  heal: number;
+  stamina: number;
+  /** Raw food can't make you sick. */
+  ironStomach: boolean;
+}
+
 export class Survival {
+  mods: SurvivalMods = { needs: 1, damage: 1, heal: 1, stamina: 1, ironStomach: false };
+
   constructor(public d: SurvivalData, public difficulty: DifficultyProfile) {}
 
   get alive(): boolean {
@@ -53,7 +65,7 @@ export class Survival {
 
   update(dt: number, c: SurvivalContext): void {
     const d = this.d;
-    const rate = this.difficulty.needsRate;
+    const rate = this.difficulty.needsRate * this.mods.needs;
     const heat = Math.max(0, d.bodyTemp - 37.5);
     d.food = clamp(d.food - (dt * 100 * rate * (1 + c.exertion * 0.25 + d.sickness * 0.5)) / (DAY * 1.4), 0, 100);
     d.water = clamp(d.water - (dt * 100 * rate * (1 + c.exertion * 0.35 + heat * 0.8)) / (DAY * 0.95), 0, 100);
@@ -61,7 +73,7 @@ export class Survival {
     else d.energy = clamp(d.energy - (dt * 100 * rate * (1 + c.exertion * 0.4 + c.overweight)) / (DAY * 1.6), 0, 100);
 
     const maxStamina = 40 + d.energy * 0.6;
-    if (c.sprinting) d.stamina = clamp(d.stamina - dt * (14 + c.overweight * 10), 0, maxStamina);
+    if (c.sprinting) d.stamina = clamp(d.stamina - dt * (14 + c.overweight * 10) * this.mods.stamina, 0, maxStamina);
     else d.stamina = clamp(d.stamina + dt * (c.exertion > 0 ? 9 : 16), 0, maxStamina);
 
     // Body temperature drifts toward a target set by the felt temperature.
@@ -79,7 +91,7 @@ export class Survival {
     if (d.bodyTemp < 35) dmg += (35 - d.bodyTemp) * 0.35;
     if (d.bodyTemp > 39.5) dmg += (d.bodyTemp - 39.5) * 0.35;
     dmg += d.bleeding * 0.8 + d.sickness * 0.08;
-    d.health = clamp(d.health - dmg * dt * this.difficulty.damageTaken, 0, 100);
+    d.health = clamp(d.health - dmg * dt * this.difficulty.damageTaken * this.mods.damage, 0, 100);
 
     // Wounds evolve.
     d.bleeding = clamp(d.bleeding - dt * 0.004, 0, 1);
@@ -105,7 +117,7 @@ export class Survival {
 
   damage(amount: number, armor: number, kind: 'bite' | 'impact' | 'fall' | 'burn' | 'other'): number {
     const d = this.d;
-    const taken = amount * this.difficulty.damageTaken * (1 - clamp(armor, 0, 0.6));
+    const taken = amount * this.difficulty.damageTaken * this.mods.damage * (1 - clamp(armor, 0, 0.6));
     d.health = clamp(d.health - taken, 0, 100);
     if (kind === 'bite' && taken > 8) d.bleeding = clamp(d.bleeding + taken / 60, 0, 1);
     if ((kind === 'impact' || kind === 'fall') && taken > 25) d.fracture = clamp(d.fracture + taken / 50, 0, 1);
@@ -117,7 +129,7 @@ export class Survival {
     d.food = clamp(d.food + food.hunger * 100, 0, 100);
     if (food.thirst) d.water = clamp(d.water + food.thirst * 100, 0, 100);
     if (food.health) d.health = clamp(d.health + food.health, 0, 100);
-    if (food.sickChance && roll < food.sickChance) {
+    if (food.sickChance && !this.mods.ironStomach && roll < food.sickChance) {
       d.sickness = clamp(d.sickness + 0.4, 0, 1);
       return true;
     }
@@ -128,8 +140,10 @@ export class Survival {
     this.d.water = clamp(this.d.water + amount, 0, 100);
   }
 
-  treat(heal: number, stopsBleeding: boolean): void {
-    this.d.health = clamp(this.d.health + heal, 0, 100);
+  treat(heal: number, stopsBleeding: boolean, extra: { fracture?: boolean; sickness?: boolean } = {}): void {
+    this.d.health = clamp(this.d.health + heal * this.mods.heal, 0, 100);
     if (stopsBleeding) this.d.bleeding = 0;
+    if (extra.fracture) this.d.fracture = Math.max(0, this.d.fracture - 0.7);
+    if (extra.sickness) this.d.sickness = 0;
   }
 }

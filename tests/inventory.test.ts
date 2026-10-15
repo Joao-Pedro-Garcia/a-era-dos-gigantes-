@@ -100,7 +100,7 @@ describe('crafting', () => {
   });
   it('enforces stations and unlocks', () => {
     const inv = new Inventory();
-    inv.addAll({ wood: 10, fiber: 20, hide: 5, obsidian: 5 });
+    inv.addAll({ wood: 10, fiber: 20, hide: 5, obsidian: 5, rope: 3 });
     const c = new Crafting();
     expect(c.start('bow', inv, new Set(stations))).toBe('station');
     expect(c.start('obsidian_spear', inv, new Set(['hand', 'workbench']))).toBe('locked');
@@ -121,5 +121,46 @@ describe('crafting', () => {
       expect(ITEMS[r.output], r.id).toBeDefined();
       for (const k of Object.keys(r.inputs)) expect(ITEMS[k], `${r.id}:${k}`).toBeDefined();
     }
+  });
+});
+
+describe('v0.2 inventory and crafting rules', () => {
+  it('eggs of different species never merge', () => {
+    const inv = new Inventory();
+    inv.add('dino_egg', 1, undefined, 'triceratops');
+    inv.add('dino_egg', 1, undefined, 'velociraptor');
+    inv.add('dino_egg', 1, undefined, 'triceratops');
+    expect(inv.data.slots.filter(Boolean).length).toBe(2);
+    expect(inv.count('dino_egg', 'triceratops')).toBe(2);
+    expect(inv.remove('dino_egg', 2, 'velociraptor')).toBe(false);
+    expect(inv.remove('dino_egg', 1, 'velociraptor')).toBe(true);
+  });
+  it('rejects invalid quantities', () => {
+    const inv = new Inventory();
+    expect(inv.add('wood', Number.NaN)).toBe(0);
+    expect(inv.add('wood', -5)).toBe(0);
+    expect(inv.count('wood')).toBe(0);
+    expect(inv.remove('wood', -1)).toBe(false);
+  });
+  it('recipes can require a tool that is not consumed', () => {
+    const inv = new Inventory();
+    inv.addAll({ hide: 2, fiber: 4 });
+    const c = new Crafting();
+    expect(c.start('waterskin', inv, new Set(['hand']))).toBe('tool');
+    inv.add('stone_knife', 1);
+    expect(c.start('waterskin', inv, new Set(['hand']))).toBeNull();
+    expect(inv.count('stone_knife')).toBe(1);
+  });
+  it('the artisan skill shortens crafting and thrifty can refund materials', () => {
+    const inv = new Inventory();
+    inv.add('fiber', 12);
+    const c = new Crafting();
+    c.timeMultiplier = 0.5;
+    c.refundChance = 1;
+    c.random = () => 0;
+    c.start('bandage', inv, new Set(['hand']));
+    expect(c.queue[0].remaining).toBe(1.5);
+    c.update(2, inv);
+    expect(inv.count('fiber')).toBe(7);
   });
 });

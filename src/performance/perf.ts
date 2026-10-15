@@ -32,8 +32,9 @@ export class PerfMonitor {
       this.badFor = 0;
       this.goodFor = 0;
     }
+    // Auto never escalates to ultra on its own; that is an explicit choice.
     const order: QualityLevel[] = ['low', 'medium', 'high'];
-    const i = order.indexOf(this.level);
+    const i = Math.max(0, order.indexOf(this.level === 'ultra' ? 'high' : this.level));
     if (this.badFor >= 3 && i > 0) {
       this.badFor = 0;
       return (this.level = order[i - 1]);

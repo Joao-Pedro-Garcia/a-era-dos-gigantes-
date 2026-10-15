@@ -8,6 +8,9 @@ import { createEnvState } from '../src/world/environment';
 import { createEcosystemState } from '../src/animals/ecosystem';
 import { createAnimal } from '../src/animals/animal';
 import { Rng } from '../src/core/rng';
+import { createProgression } from '../src/progression/skills';
+import { createExploration } from '../src/exploration/exploration';
+import { createMysteries } from '../src/mysteries/mysteries';
 
 function sample(): SaveData {
   return {
@@ -21,6 +24,9 @@ function sample(): SaveData {
     eco: createEcosystemState(1),
     building: { pieces: [], nextId: 1 },
     world: { harvested: {}, bags: [], nextBagId: 1, discovered: [] },
+    progression: createProgression(),
+    exploration: createExploration(),
+    mysteries: createMysteries(),
   };
 }
 

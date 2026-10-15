@@ -164,7 +164,10 @@ export function vegetationGeometries(): Record<VegetationKind, THREE.BufferGeome
       conifer: conifer(), broadleaf: broadleaf(), palm: palm(), cycad: cycad(), fern: fern(), bush: bush(),
       deadTree: deadTree(), rock: rock(0.8), boulder: rock(2.6), reeds: reeds(), grass: grass(),
     };
-    for (const [k, g] of Object.entries(cache)) if (k !== 'grass') g.computeVertexNormals();
+    for (const [k, g] of Object.entries(cache)) {
+      if (k !== 'grass') g.computeVertexNormals();
+      g.userData.shared = true;
+    }
   }
   return cache;
 }

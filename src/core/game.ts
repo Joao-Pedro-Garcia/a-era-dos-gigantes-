@@ -1,59 +1,54 @@
 import * as THREE from 'three';
-import { AudioSystem } from '../audio/audio';
-import { type AIState } from '../animals/animal';
-import { growthScale, lifeStage } from '../animals/animal';
+import { AudioSystem, type Surface } from '../audio/audio';
+import { growthScale, lifeStage, type AIState, type AnimalData, type TameCommand } from '../animals/animal';
 import { createAnimalView, createNestView, poseAnimalView, type AnimalView } from '../animals/animalView';
-import { Ecosystem, createEcosystemState, type EcoContext } from '../animals/ecosystem';
+import { Ecosystem, createEcosystemState, type EcoContext, type EcoEvent } from '../animals/ecosystem';
 import { SPECIES } from '../animals/species';
 import { Building, PIECES, type Piece, type PieceType } from '../building/building';
-import { createGhost, createPieceObject, syncPieceObject } from '../building/pieceViews';
+import { createGhost, createPieceObject, disposeObject, syncPieceObject } from '../building/pieceViews';
+import { resolveDamage, snareable } from '../combat/combat';
 import { Crafting } from '../crafting/crafting';
 import { RECIPES, type Station } from '../crafting/recipes';
+import { Exploration, createExploration } from '../exploration/exploration';
 import { Input } from '../input/input';
 import { Inventory, createInventory, type ItemList, type Stack } from '../inventory/inventory';
 import { ITEMS, type EquipSlot } from '../inventory/items';
 import { language, setLanguage, t } from '../localization/i18n';
+import { Mysteries, createMysteries } from '../mysteries/mysteries';
 import { PerfMonitor } from '../performance/perf';
 import { CameraRig } from '../player/cameraRig';
 import { PlayerController } from '../player/player';
 import { PlayerView } from '../player/playerView';
-import { SAVE_VERSION, type ItemBag, type SaveData } from '../save/saveData';
-import { exportSave, importSave, readSave, writeSave } from '../save/storage';
+import { Progression, SKILLS, TREES, createProgression, type Tree } from '../progression/skills';
+import { SAVE_VERSION, SaveError, type ItemBag, type SaveData } from '../save/saveData';
+import { deleteSave, exportSave, importSave, loadWithFallback, readSave, writeSave } from '../save/storage';
 import { Survival, createSurvival } from '../survival/survival';
-import { Hud, type GameApi } from '../ui/hud';
+import { TAME_PROFILES } from '../taming/profiles';
+import { release } from '../taming/taming';
+import { TamingController } from '../taming/tamingController';
+import { Hud, type MapMarker, type PanelTab } from '../ui/hud';
 import { BIOMES, type BiomeId } from '../world/biomes';
 import { CollisionWorld } from '../world/collision';
 import { Environment, createEnvState, type EnvEvent } from '../world/environment';
 import { EnvironmentView } from '../world/environmentView';
-import { SectorManager, type ResourceNode } from '../world/sectors';
+import { CAVE_RADIUS, CAVE_Y, SectorManager } from '../world/sectors';
 import { PLANNED_SITES, SPAWN, Terrain, VOLCANO } from '../world/terrain';
-import { VEG_YIELD } from '../world/vegetationModels';
-import { DIFFICULTY, QUALITY, loadSettings, saveSettings, type QualityLevel, type Settings } from './config';
+import { DIFFICULTY, effectiveQuality, loadSettings, saveSettings, type QualityLevel, type QualityProfile, type Settings } from './config';
+import { Interactions, type Interaction } from './interactions';
 import { clamp } from './math';
 import { Rng } from './rng';
 
-type GameState = 'menu' | 'loading' | 'playing' | 'paused' | 'dead';
+type GameState = 'menu' | 'loading' | 'playing' | 'paused' | 'dead' | 'ending';
 const SAVE_SLOT = 'main';
-
-interface Projectile {
-  mesh: THREE.Mesh;
-  pos: THREE.Vector3;
-  vel: THREE.Vector3;
-  damage: number;
-  life: number;
-}
-
-interface Interaction {
-  label: string;
-  run: () => void;
-}
+const FOOTPRINT_MAX = 400;
 
 /**
  * Top-level orchestrator: owns the renderer, the main loop and every system,
- * and implements the API the UI uses. Gameplay rules live in the systems; this
- * class wires them together.
+ * and implements the API the UI uses. Gameplay rules live in the systems;
+ * this class wires them together. Player-facing interactions live in
+ * `Interactions`, domestication glue in `TamingController`.
  */
-export class Game implements GameApi {
+export class Game {
   readonly renderer: THREE.WebGLRenderer;
   readonly scene = new THREE.Scene();
   readonly camera = new THREE.PerspectiveCamera(65, 1, 0.1, 3000);
@@ -80,13 +75,24 @@ export class Game implements GameApi {
   survival: Survival | null = null;
   inventory = new Inventory();
   crafting = new Crafting();
-  private worldRoot = new THREE.Group();
+  progression = new Progression(createProgression());
+  exploration!: Exploration;
+  mysteries = new Mysteries(createMysteries());
+  taming = new TamingController();
+  actions: Interactions;
+  worldRoot = new THREE.Group();
   private animalViews = new Map<string, AnimalView>();
   private nestViews = new Map<string, THREE.Object3D>();
   private pieceViews = new Map<string, THREE.Object3D>();
   private bagViews = new Map<string, THREE.Object3D>();
-  private projectiles: Projectile[] = [];
   private lastStates = new Map<string, AIState>();
+  private flares: { light: THREE.PointLight; until: number }[] = [];
+  private footprints: THREE.InstancedMesh | null = null;
+  private tracks = new Map<string, [number, number, number][]>();
+  private shockCooldown = new Map<string, number>();
+  private trapCooldown = new Map<string, number>();
+  private lastStride = 0;
+  private animalSteps = new Map<string, number>();
   bags: ItemBag[] = [];
   private nextBagId = 1;
   discovered = new Set<string>();
@@ -99,8 +105,8 @@ export class Game implements GameApi {
   private ghost: THREE.Group | null = null;
   private ghostType: PieceType | null = null;
   private storageOpen: Piece | null = null;
-  private hostileUntil = 0;
-  private attackCooldown = 0;
+  hostileUntil = 0;
+  attackCooldown = 0;
   private respawnPoint: { x: number; z: number; pieceId?: string } | null = null;
   private deaths = 0;
   private lastBiome: BiomeId | null = null;
@@ -110,18 +116,27 @@ export class Game implements GameApi {
   private sleeping = false;
   private lastDamageSource = 'other';
   private needWarned = { food: false, water: false };
-  private qualityLevel: QualityLevel;
+  qualityLevel: QualityLevel;
   private last = performance.now();
   private interaction: Interaction | null = null;
   private time = 0;
   private showPerf = false;
-  private rng = new Rng(Date.now() & 0xffffffff);
+  rng = new Rng(Date.now() & 0xffffffff);
+  inCave: string | null = null;
+  mountedId: string | null = null;
+  private companionTarget: { id: string; until: number } | null = null;
+  private lastDay = -1;
+  private xpToast = new Map<Tree, number>();
+  private xpToastTimer = 0;
+  focusAnimal: string | null = null;
 
   constructor(canvas: HTMLCanvasElement) {
     this.settings = loadSettings();
     setLanguage(this.settings.language);
     this.input = new Input(canvas);
+    this.actions = new Interactions(this);
     this.hud = new Hud(this);
+    this.hud.applyAccessibility(this.settings);
     this.input.onModeChange = (m) => this.hud.setTouchMode(m === 'touch');
     this.qualityLevel = this.settings.quality === 'auto' ? PerfMonitor.initialGuess() : this.settings.quality;
     this.perf = new PerfMonitor(this.qualityLevel);
@@ -134,6 +149,9 @@ export class Game implements GameApi {
     this.scene.add(this.worldRoot);
     this.rig = new CameraRig(this.camera);
     this.applyQuality();
+    this.audio.setVolumes(this.settings.volume);
+    this.audio.onCaption = (text, x, z) => this.caption(text, x, z);
+    this.progression.onLevel = (tree, level) => this.onLevelUp(tree, level);
     addEventListener('resize', () => this.resize());
     this.resize();
     document.addEventListener('visibilitychange', () => {
@@ -149,6 +167,11 @@ export class Game implements GameApi {
         e.preventDefault();
       }
     });
+    canvas.addEventListener('webglcontextlost', (e) => {
+      e.preventDefault();
+      void this.save(true);
+      this.hud.fatal(t('error.contextLost'));
+    });
     (window as unknown as { __edg: Game }).__edg = this;
   }
 
@@ -156,12 +179,62 @@ export class Game implements GameApi {
     try {
       this.hasSave = !!(await readSave(SAVE_SLOT));
     } catch {
-      this.hasSave = false;
+      // A corrupted main slot may still have a usable backup.
+      this.hasSave = !!(await readSave(`${SAVE_SLOT}.backup`).catch(() => null));
     }
     this.hud.mainMenu();
     this.hud.setGameplayVisible(false);
     requestAnimationFrame(this.loop);
   }
+
+  // ------------------------------------------------------------------ helpers used by modules
+
+  notify(key: string, params: Record<string, string | number> = {}, kind: 'info' | 'warn' | 'good' = 'info'): void {
+    this.hud.notify(t(key, params), kind);
+  }
+
+  xp(tree: Tree, amount: number): void {
+    this.progression.gain(tree, amount);
+    this.xpToast.set(tree, (this.xpToast.get(tree) ?? 0) + amount);
+  }
+
+  private onLevelUp(tree: Tree, level: number): void {
+    this.notify('skill.levelUp', { tree: t(`tree.${tree}`), n: level }, 'good');
+    this.audio.sfx('craft');
+  }
+
+  learnSkill(id: string): void {
+    if (this.progression.learn(id)) {
+      this.notify('skill.learned', { what: t(`skill.${id}.name`) }, 'good');
+      for (const u of this.progression.unlocks()) this.unlock(u);
+    }
+  }
+
+  scanning(): boolean {
+    return this.heldItem()?.id === 'research_scanner';
+  }
+
+  setCompanionTarget(id: string): void {
+    this.companionTarget = { id, until: (this.env?.state.time ?? 0) + 20 };
+  }
+
+  addFlare(x: number, y: number, z: number): void {
+    const light = new THREE.PointLight(0xff4a3a, 300, 60, 1.5);
+    light.position.set(x, y, z);
+    this.worldRoot.add(light);
+    this.flares.push({ light, until: this.time + 20 });
+  }
+
+  private caption(text: string, x: number, z: number): void {
+    if (!this.settings.captions || !this.player) return;
+    const p = this.player.s;
+    const ang = Math.atan2(x - p.x, z - p.z) - p.yaw;
+    const a = Math.atan2(Math.sin(ang), Math.cos(ang));
+    const dir = Math.abs(a) < 0.6 ? t('dir.front') : Math.abs(a) > 2.5 ? t('dir.behind') : a > 0 ? t('dir.left') : t('dir.right');
+    this.hud.caption(`🔊 ${text} — ${dir}`);
+  }
+
+  // ------------------------------------------------------------------ rendering setup
 
   private resize(): void {
     const w = innerWidth;
@@ -171,11 +244,17 @@ export class Game implements GameApi {
     this.camera.updateProjectionMatrix();
   }
 
+  quality(): QualityProfile {
+    return effectiveQuality(this.qualityLevel, this.settings.graphics);
+  }
+
   private applyQuality(): void {
-    const q = QUALITY[this.qualityLevel];
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio, q.pixelRatioCap));
+    const q = this.quality();
+    this.renderer.setPixelRatio(Math.min(devicePixelRatio, q.pixelRatioCap) * q.resolutionScale);
     this.renderer.shadowMap.enabled = q.shadows;
+    this.renderer.shadowMap.type = q.effects ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
     this.envView?.applyQuality(q);
+    this.sectors?.setTextureQuality(q.textures, this.renderer.capabilities.getMaxAnisotropy());
     this.camera.far = (q.loadRadius + 1) * 128 * 1.5;
     this.camera.updateProjectionMatrix();
   }
@@ -199,7 +278,10 @@ export class Game implements GameApi {
       env: createEnvState(seed),
       eco: createEcosystemState(seed),
       building: { pieces: [], nextId: 1 },
-      world: { harvested: {}, bags: [], nextBagId: 1, discovered: [] },
+      world: { harvested: {}, bags: [], nextBagId: 1, discovered: [], seen: [], flags: [], inCave: null },
+      progression: createProgression(),
+      exploration: createExploration(),
+      mysteries: createMysteries(),
     };
   }
 
@@ -209,29 +291,60 @@ export class Game implements GameApi {
 
   async continueGame(): Promise<void> {
     try {
-      const res = await readSave(SAVE_SLOT);
+      const res = await loadWithFallback(SAVE_SLOT);
       if (!res) return this.newGame(Date.now() % 1e6);
+      if (res.fromBackup) this.notify('save.usedBackup', {}, 'warn');
       if (res.issues.length) console.warn('Save repaired:', res.issues);
       this.startWorld(res.data);
     } catch (e) {
       console.error(e);
-      this.hud.notify(t('menu.importFailed'), 'warn');
+      this.hud.notify(`${t('save.loadFailed')} (${e instanceof SaveError ? e.code : 'erro'})`, 'warn');
     }
   }
 
+  async restoreBackup(): Promise<void> {
+    try {
+      const b = await readSave(`${SAVE_SLOT}.backup`);
+      if (!b) return this.notify('save.noBackup', {}, 'warn');
+      this.startWorld(b.data);
+    } catch (e) {
+      console.error(e);
+      this.notify('save.loadFailed', {}, 'warn');
+    }
+  }
+
+  async deleteSave(): Promise<void> {
+    await deleteSave(SAVE_SLOT);
+    this.hasSave = false;
+    this.hud.mainMenu();
+  }
+
+  /** Releases every GPU resource of the previous world. */
   private teardown(): void {
+    this.dismount(true);
     this.sectors?.dispose();
-    this.worldRoot.clear();
+    this.actions.clear();
     for (const v of this.animalViews.values()) v.root.removeFromParent();
     this.animalViews.clear();
+    for (const o of [...this.nestViews.values(), ...this.pieceViews.values(), ...this.bagViews.values()]) disposeObject(o);
     this.nestViews.clear();
     this.pieceViews.clear();
     this.bagViews.clear();
-    this.projectiles = [];
     this.lastStates.clear();
+    this.tracks.clear();
+    for (const f of this.flares) f.light.removeFromParent();
+    this.flares = [];
+    if (this.footprints) {
+      this.footprints.geometry.dispose();
+      (this.footprints.material as THREE.Material).dispose();
+      this.footprints = null;
+    }
+    if (this.ghost) disposeObject(this.ghost);
+    this.worldRoot.traverse((o) => o !== this.worldRoot && disposeObject(o));
+    this.worldRoot.clear();
     this.collision = new CollisionWorld();
     if (this.envView) {
-      // Rebuild the scene to drop environment objects.
+      this.scene.traverse((o) => o !== this.worldRoot && o !== this.scene && disposeObject(o));
       this.scene.clear();
       this.scene.add(this.worldRoot);
       this.envView = null;
@@ -239,6 +352,8 @@ export class Game implements GameApi {
     this.ghost = null;
     this.ghostType = null;
     this.building = false;
+    this.inCave = null;
+    this.renderer.renderLists.dispose();
   }
 
   private startWorld(save: SaveData): void {
@@ -247,14 +362,19 @@ export class Game implements GameApi {
     const terrain = (this.terrain = new Terrain(save.seed));
     this.env = new Environment(save.env, terrain);
     this.envView = new EnvironmentView(this.scene, this.env);
-    this.envView.applyQuality(QUALITY[this.qualityLevel]);
-    this.sectors = new SectorManager(terrain, this.collision, save.seed, save.world.harvested);
+    this.sectors = new SectorManager(terrain, this.collision, save.seed, save.world.harvested, new Set(save.world.flags ?? []));
     this.worldRoot.add(this.sectors.root);
     this.eco = new Ecosystem(save.eco, terrain, this.env, save.seed);
+    this.eco.onEvent = (e) => this.onEcoEvent(e);
     this.buildingSys = new Building(save.building, this.collision);
     this.inventory = new Inventory(save.inventory);
-    this.crafting = new Crafting(new Set(save.crafting.unlocked));
+    this.progression = new Progression(save.progression);
+    this.progression.onLevel = (tree, level) => this.onLevelUp(tree, level);
+    this.crafting = new Crafting(new Set([...save.crafting.unlocked, ...this.progression.unlocks()]));
     this.crafting.queue = save.crafting.queue ?? [];
+    this.exploration = new Exploration(save.exploration, terrain);
+    this.exploration.onReveal = (n) => this.xp('exploration', Math.min(n, 20) * 0.5);
+    this.mysteries = new Mysteries(save.mysteries);
     this.survival = new Survival(save.player.survival, DIFFICULTY[this.settings.difficulty]);
     this.player = new PlayerController({ x: save.player.x, y: save.player.y, z: save.player.z, yaw: save.player.yaw, pitch: -0.15 });
     this.playerView = new PlayerView();
@@ -265,9 +385,14 @@ export class Game implements GameApi {
     this.nextBagId = save.world.nextBagId;
     this.discovered = new Set(save.world.discovered);
     this.seenSpecies = new Set(save.world.seen ?? []);
+    this.inCave = save.world.inCave ?? null;
+    this.envView.indoor = !!this.inCave;
     for (const p of this.buildingSys.pieces.values()) this.addPieceView(p);
+    this.applyQuality();
     this.lastBiome = null;
+    this.lastDay = this.env.day;
     this.state = 'loading';
+    this.hud.closePanel();
     this.hud.setGameplayVisible(false);
     this.hud.loading(0);
   }
@@ -290,7 +415,12 @@ export class Game implements GameApi {
         nextBagId: this.nextBagId,
         discovered: [...this.discovered],
         seen: [...this.seenSpecies],
+        flags: [...this.sectors!.flags],
+        inCave: this.inCave,
       },
+      progression: this.progression.d,
+      exploration: this.exploration.serialize(),
+      mysteries: this.mysteries.d,
     };
   }
 
@@ -299,18 +429,20 @@ export class Game implements GameApi {
     try {
       this.sectors!.pruneHarvested(this.env!.state.time);
       // structuredClone detaches the snapshot from live objects mutated during the async write.
-      await writeSave(SAVE_SLOT, structuredClone(this.snapshot()));
+      const snap = structuredClone(this.snapshot());
+      for (const a of snap.eco.animals) if (a.tame) a.tame.ridden = false;
+      await writeSave(SAVE_SLOT, snap);
       this.hasSave = true;
       if (!silent) this.hud.notify(t('menu.saved'), 'good');
     } catch (e) {
       console.error(e);
-      this.hud.notify(t('menu.saveFailed'), 'warn');
+      this.hud.notify(`${t('menu.saveFailed')}: ${e instanceof Error ? e.message : String(e)}`, 'warn');
     }
   }
 
   exportSave(): void {
     if (!this.player) return;
-    const blob = exportSave(this.snapshot());
+    const blob = exportSave(structuredClone(this.snapshot()));
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = `era-dos-gigantes-${new Date().toISOString().slice(0, 10)}.json`;
@@ -320,14 +452,15 @@ export class Game implements GameApi {
 
   async importSave(f: File): Promise<void> {
     try {
-      const data = await importSave(f);
+      const { data, issues } = await importSave(f);
       await writeSave(SAVE_SLOT, data);
       this.hasSave = true;
-      this.hud.notify(t('menu.imported'), 'good');
+      this.hud.notify(issues.length ? t('save.importRepaired', { n: issues.length }) : t('menu.imported'), issues.length ? 'warn' : 'good');
       this.startWorld(data);
     } catch (e) {
       console.error(e);
-      this.hud.notify(t('menu.importFailed'), 'warn');
+      const code = e instanceof SaveError ? e.code : 'json';
+      this.hud.notify(`${t('menu.importFailed')}: ${t(`save.error.${code}`)}`, 'warn');
     }
   }
 
@@ -347,6 +480,7 @@ export class Game implements GameApi {
       this.hud.closePanel();
       this.hud.setGameplayVisible(false);
       this.hud.mainMenu();
+      this.audio.setMusicMood('off');
     });
   }
 
@@ -360,6 +494,7 @@ export class Game implements GameApi {
 
   resume(): void {
     this.hud.closePanel();
+    this.hud.closeDocument();
     this.storageOpen = null;
     if (this.state === 'paused') {
       this.state = 'playing';
@@ -376,8 +511,10 @@ export class Game implements GameApi {
     if (s.quality) {
       this.qualityLevel = s.quality === 'auto' ? this.perf.level : s.quality;
       this.perf.level = this.qualityLevel;
-      this.applyQuality();
     }
+    if (s.quality || s.graphics) this.applyQuality();
+    if (s.volume) this.audio.setVolumes(s.volume);
+    this.hud.applyAccessibility(this.settings);
   }
 
   // ------------------------------------------------------------------ main loop
@@ -396,12 +533,23 @@ export class Game implements GameApi {
       this.qualityLevel = adj;
       this.applyQuality();
     }
-    this.hud.setPerf(this.showPerf ? `${t('perf.fps', { fps: Math.round(this.perf.fps), q: this.qualityLevel })} · ${this.renderer.info.render.calls} dc · ${this.eco?.active.length ?? 0}/${this.eco?.animals.size ?? 0} 🦖` : null);
+    const mem = this.renderer.info.memory;
+    this.hud.setPerf(
+      this.showPerf
+        ? `${t('perf.fps', { fps: Math.round(this.perf.fps), q: this.qualityLevel })} · ${this.renderer.info.render.calls} dc · ${mem.geometries} geo · ${mem.textures} tex · ${this.eco?.active.length ?? 0}/${this.eco?.animals.size ?? 0} 🦖`
+        : null,
+    );
 
-    if (this.state === 'loading') this.updateLoading();
-    else if (this.state === 'playing') this.update(dt);
-    else if (this.state === 'paused') {
-      if (this.input.consume('pause')) this.resume();
+    try {
+      if (this.state === 'loading') this.updateLoading();
+      else if (this.state === 'playing') this.update(dt);
+      else if (this.state === 'paused' || this.state === 'ending') {
+        if (this.input.consume('pause') && this.state === 'paused') this.resume();
+      }
+    } catch (e) {
+      // Keep the loop alive and report; a broken frame should never silently freeze the game.
+      console.error(e);
+      this.hud.notify(`${t('error.frame')}: ${e instanceof Error ? e.message : String(e)}`, 'warn');
     }
     this.input.clearPresses();
     if (this.player && this.envView) this.renderer.render(this.scene, this.camera);
@@ -413,21 +561,25 @@ export class Game implements GameApi {
 
   private updateLoading(): void {
     const p = this.player!;
-    this.sectors!.update(p.s.x, p.s.z, QUALITY[this.qualityLevel], this.env!.state.time, 40);
+    const q = this.quality();
+    this.sectors!.update(p.s.x, p.s.z, q, this.env!.state.time, 40);
     this.eco!.seedAround(p.s.x, p.s.z);
-    const q = QUALITY[this.qualityLevel];
     const total = (q.loadRadius * 2 + 1) ** 2;
     this.hud.loading(Math.min(1, this.sectors!.loadedCount / total));
-    this.rig.update(0.016, p, this.settings.firstPerson, this.terrain!, this.collision);
+    this.rig.update(0.016, p, this.settings.firstPerson, this.groundFn(), this.collision);
     this.envView!.update(0.016, this.camera, new THREE.Vector3(p.s.x, p.s.y, p.s.z), false);
     if (this.sectors!.isReady && this.sectors!.pending === 0) {
-      // Settle the player on the ground now that colliders exist.
-      p.s.y = Math.max(p.s.y, this.terrain!.height(p.s.x, p.s.z));
+      if (!this.inCave) p.s.y = Math.max(p.s.y, this.terrain!.height(p.s.x, p.s.z));
       this.state = 'playing';
       this.hud.hideMenu();
       this.hud.setGameplayVisible(true);
       this.hud.renderHotbar();
+      this.audio.setMusicMood('calm');
     }
+  }
+
+  private groundFn(): (x: number, z: number) => number {
+    return this.inCave ? () => CAVE_Y : (x, z) => this.terrain!.height(x, z);
   }
 
   private update(realDt: number): void {
@@ -436,7 +588,9 @@ export class Game implements GameApi {
     const surv = this.survival!;
     const input = this.input;
     const terrain = this.terrain!;
-    const panel = this.hud.panelOpen;
+    const prog = this.progression;
+    const panel = this.hud.panelOpen || this.hud.documentOpen;
+    const q = this.quality();
 
     // --- UI toggles.
     if (input.consume('pause')) {
@@ -453,7 +607,7 @@ export class Game implements GameApi {
       if (panel && this.hud.tab === 'map') this.resume();
       else this.openPanel('map');
     }
-    if (input.consume('build') && !panel) this.toggleBuild();
+    if (input.consume('build') && !panel && !this.mountedId && !this.inCave) this.toggleBuild();
     if (input.consume('camera')) this.applySettings({ firstPerson: !this.settings.firstPerson });
     for (let i = 0; i < 6; i++) if (input.consume(`hot${i + 1}` as 'hot1')) this.selectedHotbar = i;
     if (input.wheel) {
@@ -470,6 +624,12 @@ export class Game implements GameApi {
       p.s.pitch -= look.y * sens * (this.settings.invertY ? -1 : 1);
     }
 
+    // --- Skill effects into the systems.
+    surv.mods = { needs: prog.needsRate(), damage: prog.damageTaken(), heal: prog.healMultiplier(), stamina: prog.staminaDrain(), ironStomach: prog.has('iron_stomach') };
+    this.crafting.timeMultiplier = prog.craftTime();
+    this.crafting.refundChance = prog.refundChance();
+    this.crafting.random = () => this.rng.next();
+
     // --- Time (sleeping accelerates time).
     if (this.sleeping) {
       const done = (env.dayFraction > 0.27 && env.dayFraction < 0.5 && surv.d.energy > 60) || surv.d.energy >= 99;
@@ -480,63 +640,44 @@ export class Game implements GameApi {
     const events: EnvEvent[] = [];
     env.update(dt, p.s.x, p.s.z, events);
     this.handleEnvEvents(events);
+    if (env.day !== this.lastDay) {
+      this.lastDay = env.day;
+      prog.d.daysSurvived++;
+      this.xp('survival', 20);
+    }
 
-    // --- Player movement.
+    // --- Player movement (on foot or mounted).
     const sample = terrain.sample(p.s.x, p.s.z);
-    const biome = this.sectors!.biomeCoarse(p.s.x, p.s.z);
+    const biome = this.inCave ? 'mountain' : this.sectors!.biomeCoarse(p.s.x, p.s.z);
+    this.inventory.extraCapacity = this.taming.packCapacity(this.eco!, p.s.x, p.s.z, env.state.time);
     const weight = this.inventory.weight();
     const cap = this.inventory.capacity();
     const overweight = Math.max(0, weight / cap - 1);
-    let biomeMul = BIOMES[biome].movement;
-    if (env.flooding && sample.height < env.waterLevel + 0.5) biomeMul *= 0.6;
-    const dynamic: { x: number; z: number; r: number }[] = [];
-    for (const a of this.eco!.active) {
-      const sp = SPECIES[a.speciesId];
-      if (!a.alive || sp.lengthM < 2 || Math.abs(a.x - p.s.x) > 20 || Math.abs(a.z - p.s.z) > 20) continue;
-      if (Math.abs(a.y - p.s.y) > sp.hipHeightM * 2 + 2) continue;
-      dynamic.push({ x: a.x, z: a.z, r: sp.lengthM * 0.14 * growthScale(a, env.state.time) });
-    }
-    const moveEnabled = !panel && !this.sleeping;
-    p.update(
-      realDt,
-      {
-        x: moveEnabled ? input.move.x : 0,
-        y: moveEnabled ? input.move.y : 0,
-        sprint: input.held('sprint'),
-        crouch: input.held('crouch'),
-        jump: moveEnabled && input.consume('jump'),
-      },
-      {
-        terrain,
-        collision: this.collision,
-        waterLevel: env.waterLevel,
-        speedMul: surv.speedMultiplier() * (overweight > 0 ? Math.max(0.35, 1 - overweight * 1.5) : 1),
-        canSprint: surv.canSprint() && overweight < 0.3,
-        biomeMul,
-        dynamic,
-      },
-      this.settings.firstPerson,
-    );
-    p.s.x = clamp(p.s.x, -5100, 5100);
-    p.s.z = clamp(p.s.z, -5100, 5100);
+    const mount = this.mountedId ? this.eco!.get(this.mountedId) : undefined;
+    if (this.mountedId && (!mount || !mount.alive || !mount.tame)) this.dismount();
+    if (mount && mount.tame) this.rideUpdate(mount, panel);
+    else this.walkUpdate(realDt, panel, biome, sample.height, overweight);
     if (p.landingImpact > 0) {
-      surv.damage((p.landingImpact - 11) * 6, this.armor(), 'fall');
-      this.lastDamageSource = 'fall';
+      const threshold = prog.has('climber') ? 14 : 11;
+      if (p.landingImpact > threshold) {
+        surv.damage((p.landingImpact - threshold) * 6, this.armor(), 'fall');
+        this.lastDamageSource = 'fall';
+        this.flash();
+      }
       p.landingImpact = 0;
-      this.hud.damageFlash();
     }
 
     // --- Survival.
-    const airTemp = env.temperatureAt(sample.temperature, biome);
+    const airTemp = this.inCave ? 12 : env.temperatureAt(sample.temperature, biome);
     const held = this.heldItem();
-    const nearCampfire = !!this.buildingSys!.nearest(p.s.x, p.s.z, 4.5, (pc) => pc.type === 'campfire');
+    const nearCampfire = !!this.buildingSys!.nearest(p.s.x, p.s.z, 4.5, (pc) => pc.type === 'campfire' || pc.type === 'forge' || pc.type === 'torch_post');
     const nearWildfire = env.state.fires.some((f) => Math.hypot(f.x - p.s.x, f.z - p.s.z) < f.r + 15);
-    const sheltered = this.buildingSys!.sheltered(p.s.x, p.s.z, p.s.y);
+    const sheltered = !!this.inCave || this.buildingSys!.sheltered(p.s.x, p.s.z, p.s.y);
     const ctx = {
       airTemp,
-      insulation: this.insulation(),
+      insulation: this.insulation() + prog.insulationBonus(),
       exertion: p.sprinting ? 2 : p.horizontalSpeed > 0.5 ? 1 : 0,
-      sprinting: p.sprinting && p.horizontalSpeed > 1,
+      sprinting: !mount && p.sprinting && p.horizontalSpeed > 1,
       inWater: p.swimming,
       nearFire: nearCampfire || held?.id === 'torch' || nearWildfire,
       sheltered,
@@ -544,11 +685,11 @@ export class Game implements GameApi {
       overweight,
     };
     surv.update(dt, ctx);
-    if (env.state.fires.some((f) => Math.hypot(f.x - p.s.x, f.z - p.s.z) < f.r * 0.8)) {
+    if (!this.inCave && env.state.fires.some((f) => Math.hypot(f.x - p.s.x, f.z - p.s.z) < f.r * 0.8)) {
       surv.damage(6 * realDt, 0, 'burn');
       this.lastDamageSource = 'fire';
     }
-    if (env.eruptionActive && Math.hypot(p.s.x - VOLCANO.x, p.s.z - VOLCANO.z) < 520) {
+    if (!this.inCave && env.eruptionActive && Math.hypot(p.s.x - VOLCANO.x, p.s.z - VOLCANO.z) < 520) {
       surv.damage(4 * realDt, 0, 'burn');
       this.lastDamageSource = 'fire';
     }
@@ -556,62 +697,94 @@ export class Game implements GameApi {
     if (surv.d.bodyTemp > 40) this.lastDamageSource = 'heat';
     if (surv.d.food <= 0) this.lastDamageSource = 'starvation';
     if (surv.d.water <= 0) this.lastDamageSource = 'thirst';
-    if (surv.d.bleeding > 0.2) this.lastDamageSource = this.lastDamageSource.startsWith('animal:') ? this.lastDamageSource : 'bleeding';
+    if (surv.d.bleeding > 0.2 && !this.lastDamageSource.startsWith('animal:')) this.lastDamageSource = 'bleeding';
     this.warnNeeds();
 
     // --- Actions.
     this.attackCooldown -= realDt;
     if (this.building) this.updateBuild();
-    else if (!panel) this.updateActions(realDt);
+    else if (!panel) this.actions.update(this.interaction);
     if (!panel && input.consume('eat')) this.useHeld();
-    this.updateProjectiles(realDt);
+    this.actions.updateProjectiles(realDt);
 
     // --- Ecosystem (sub-stepped while sleeping).
+    const companion = this.companionTarget && this.companionTarget.until > env.state.time ? this.companionTarget.id : null;
+    const wind = { x: Math.cos(env.state.windDir), z: Math.sin(env.state.windDir) };
+    const visibility = (p.crouching ? 0.5 : 1) * (env.isNight ? (held?.id === 'torch' ? 1 : 0.5) : 1) * (biome === 'jungle' ? 0.65 : biome === 'swamp' ? 0.8 : 1);
     const ecoCtx: EcoContext = {
       player: {
         x: p.s.x,
         z: p.s.z,
-        alive: surv.alive,
-        noiseRadius: this.sleeping ? 2 : p.noiseRadius(),
+        alive: surv.alive && !this.inCave,
+        noiseRadius: (this.sleeping ? 2 : p.noiseRadius()) * prog.noise(),
         hostileUntil: this.hostileUntil,
-        visibility: (p.crouching ? 0.5 : 1) * (env.isNight ? (held?.id === 'torch' ? 1 : 0.5) : 1),
+        visibility,
         running: p.sprinting,
         hasFire: held?.id === 'torch' || nearCampfire,
       },
       predatorBoldness: DIFFICULTY[this.settings.difficulty].predatorBoldness,
-      maxActive: QUALITY[this.qualityLevel].maxActiveAnimals,
-      blocked: (x, z, r) => this.collision.query(x, z, r + 1).some((c) => (c.kind === 'box' ? c.enabled : c.r > 1.5) && CollisionWorld.penetration(c, x, z, r) !== null),
-      damagePlayer: (amount, a) => this.onAnimalHitsPlayer(amount, a.speciesId),
+      maxActive: q.maxActiveAnimals,
+      blocked: (x, z, r) => this.collision.query(x, z, r + 1).some((c) => (c.kind === 'box' ? c.enabled && !c.ramp : c.r > 1.5) && CollisionWorld.penetration(c, x, z, r) !== null),
+      damagePlayer: (amount, a) => this.onAnimalHitsPlayer(amount, a),
+      wind,
+      playerCalm: prog.has('naturalist') ? 0.8 : 1,
+      companionTarget: companion,
+      troughFood: (a) => this.taming.troughFor(this.buildingSys!, a),
     };
     const steps = this.sleeping ? 6 : 1;
     for (let i = 0; i < steps; i++) this.eco!.update(Math.min(dt / steps, 0.5), ecoCtx);
     this.eco!.seedAround(p.s.x, p.s.z);
+    this.taming.update(dt, {
+      eco: this.eco!,
+      building: this.buildingSys!,
+      progression: prog,
+      now: env.state.time,
+      player: { x: p.s.x, z: p.s.z, quiet: p.crouching || p.horizontalSpeed < 0.3, hostile: env.state.time < this.hostileUntil, alive: surv.alive },
+      language: language(),
+      notify: (k, params, kind) => this.notify(k, params, kind),
+      xp: (tree, n) => this.xp(tree, n),
+      reveal: (x, z, r) => this.exploration.reveal(x, z, r),
+    });
+    this.updateTraps(env.state.time);
 
     // --- Crafting & base processes.
     const res = this.crafting.update(dt, this.inventory);
-    for (const id of res.completed) this.hud.notify(t('craft.done', { what: t(`item.${RECIPES.find((r) => r.id === id)!.output}`) }), 'good');
+    for (const id of res.completed) {
+      const r = RECIPES.find((x) => x.id === id)!;
+      this.notify('craft.done', { what: t(`item.${r.output}`) }, 'good');
+      this.audio.sfx('craft');
+      this.xp('crafting', r.time * 2);
+    }
     if (res.completed.length) this.inventory.autoHotbar();
     this.dropOverflow(res.overflow);
-    this.buildingSys!.tick(dt, env.state.weather === 'rain' || env.state.weather === 'storm', env.growthFactor);
+    const tick = this.buildingSys!.tick(dt, {
+      now: env.state.time,
+      raining: env.state.weather === 'rain' || env.state.weather === 'storm',
+      growth: env.growthFactor,
+      windSpeed: env.state.windSpeed,
+      warm: (x, z) => !!this.buildingSys!.nearest(x, z, 6, (pc) => pc.type === 'campfire' || pc.type === 'forge') || env.temperatureAt(terrain.temperatureBase(x, z, terrain.height(x, z)), this.sectors!.biomeCoarse(x, z)) >= 22,
+      incubationSeconds: (sp) => SPECIES[sp].reproduction.incubationDays * 1200 * prog.incubation(),
+    });
+    for (const box of tick.hatched) this.taming.hatch(this.tamingHost(), box.id);
 
     // --- Streaming & visuals.
-    this.sectors!.update(p.s.x, p.s.z, QUALITY[this.qualityLevel], env.state.time);
+    this.sectors!.update(p.s.x, p.s.z, q, env.state.time);
+    this.sectors!.syncInteractables((id) => this.mysteries.d.taken.includes(id), this.scanning(), !!this.mysteries.d.ending);
     this.syncViews(realDt);
     const focus = new THREE.Vector3(p.s.x, p.s.y, p.s.z);
+    this.envView!.indoor = !!this.inCave;
     this.envView!.update(realDt, this.camera, focus, ctx.airTemp < 0 || biome === 'snow');
     this.envView!.groundFires((x, z) => terrain.height(x, z));
-    this.rig.update(realDt, p, this.settings.firstPerson, terrain, this.collision);
+    this.rig.update(realDt, p, this.settings.firstPerson, this.groundFn(), this.collision, this.inCave ? 3.5 : mount ? 9 : Infinity);
     this.playerView!.setHeld(held && ['tool', 'weapon'].includes(ITEMS[held.id].category) ? held.id : '');
-    this.playerView!.update(realDt, p, this.settings.firstPerson);
+    this.playerView!.update(realDt, p, this.settings.firstPerson || false);
+    if (mount) this.playerView!.root.position.y = mount.y + SPECIES[mount.speciesId].hipHeightM * growthScale(mount, env.state.time) * 1.15;
+    this.updateFlares();
 
     // --- Audio.
-    const [fx, fz] = p.forward();
-    this.audio.setListener(this.camera.position.x, this.camera.position.y, this.camera.position.z, fx, fz);
-    const precip = env.state.weather === 'rain' || env.state.weather === 'storm' ? env.state.intensity : 0;
-    this.audio.ambience(env.state.windSpeed * (sheltered ? 0.3 : 1), precip * (sheltered ? 0.5 : 1));
-    if (env.lightning) this.audio.thunder(Math.hypot(env.lightning.x - p.s.x, env.lightning.z - p.s.z));
+    this.updateAudio(p, held?.id, sheltered, biome);
 
-    // --- Slow checks (discoveries, biome changes).
+    // --- Slow checks (discoveries, biome changes, map).
     this.slowTimer -= realDt;
     if (this.slowTimer <= 0) {
       this.slowTimer = 0.5;
@@ -622,22 +795,216 @@ export class Game implements GameApi {
     this.uiTimer -= realDt;
     if (this.uiTimer <= 0) {
       this.uiTimer = 0.1;
-      this.hud.updateStats(surv.d, surv.feltTemp(ctx), overweight > 0);
-      this.hud.updateTop(env.day, env.dayFraction, env.state.weather, biome, p.s.yaw);
-      this.hud.renderHotbar();
-      this.interaction = this.building || panel ? null : this.findInteraction();
-      this.hud.prompt(this.interaction?.label ?? this.observePrompt());
-      if (this.hud.panelOpen && (this.hud.tab === 'crafting' || this.hud.tab === 'inventory') && this.crafting.queue.length) this.hud.renderPanel();
+      this.updateHud(ctx, overweight > 0, biome);
+    }
+    this.xpToastTimer -= realDt;
+    if (this.xpToastTimer <= 0) {
+      this.xpToastTimer = 2;
+      const parts = [...this.xpToast.entries()].filter(([, v]) => v >= 1).map(([k, v]) => `+${Math.round(v)} ${t(`tree.${k}`)}`);
+      if (parts.length) this.hud.xpToast(parts.join(' · '));
+      this.xpToast.clear();
     }
 
-    // --- Death.
     if (!surv.alive) this.die();
 
-    // --- Autosave.
     this.autosave += realDt;
     if (this.autosave > 120) {
       this.autosave = 0;
       void this.save(true);
+    }
+  }
+
+  private walkUpdate(realDt: number, panel: boolean, biome: BiomeId, groundH: number, overweight: number): void {
+    const p = this.player!;
+    const env = this.env!;
+    const surv = this.survival!;
+    const input = this.input;
+    let biomeMul = BIOMES[biome].movement;
+    if (env.flooding && groundH < env.waterLevel + 0.5) biomeMul *= 0.6;
+    const dynamic: { x: number; z: number; r: number }[] = [];
+    if (!this.inCave)
+      for (const a of this.eco!.active) {
+        const sp = SPECIES[a.speciesId];
+        if (!a.alive || sp.lengthM < 2 || Math.abs(a.x - p.s.x) > 20 || Math.abs(a.z - p.s.z) > 20) continue;
+        if (Math.abs(a.y - p.s.y) > sp.hipHeightM * 2 + 2) continue;
+        dynamic.push({ x: a.x, z: a.z, r: sp.lengthM * 0.14 * growthScale(a, env.state.time) });
+      }
+    const moveEnabled = !panel && !this.sleeping;
+    const sprintHeld = this.settings.toggleSprint && input.mode === 'keyboard' ? this.sprintToggled(input.consume('sprint')) : input.held('sprint');
+    const site = this.inCave ? PLANNED_SITES.find((s) => s.id === this.inCave) : undefined;
+    p.update(
+      realDt,
+      {
+        x: moveEnabled ? input.move.x : 0,
+        y: moveEnabled ? input.move.y : 0,
+        sprint: sprintHeld,
+        crouch: input.held('crouch'),
+        jump: moveEnabled && input.consume('jump'),
+      },
+      {
+        terrain: this.terrain!,
+        collision: this.collision,
+        waterLevel: env.waterLevel,
+        speedMul: surv.speedMultiplier() * (overweight > 0 ? Math.max(0.35, 1 - overweight * 1.5) : 1),
+        canSprint: surv.canSprint() && overweight < 0.3,
+        biomeMul,
+        dynamic,
+        groundOverride: this.inCave ? CAVE_Y : undefined,
+        bounds: site ? { x: site.x, z: site.z, r: CAVE_RADIUS - 1.2 } : undefined,
+        slopeLimit: this.progression.slopeLimit(),
+      },
+      this.settings.firstPerson,
+    );
+    p.s.x = clamp(p.s.x, -5100, 5100);
+    p.s.z = clamp(p.s.z, -5100, 5100);
+  }
+
+  private sprintOn = false;
+  private sprintToggled(pressed: boolean): boolean {
+    if (pressed) this.sprintOn = !this.sprintOn;
+    if (this.input.move.y <= 0) this.sprintOn = false;
+    return this.sprintOn;
+  }
+
+  // ------------------------------------------------------------------ riding
+
+  mount(a: AnimalData): void {
+    if (!a.tame) return;
+    this.mountedId = a.id;
+    a.tame.ridden = true;
+    this.notify('tame.mounted', { name: a.tame.name }, 'good');
+  }
+
+  dismount(silent = false): void {
+    if (!this.mountedId) return;
+    const a = this.eco?.get(this.mountedId);
+    this.mountedId = null;
+    if (a?.tame) {
+      a.tame.ridden = false;
+      this.eco!.brain.setRide(a, null);
+      a.tame.command = 'stay';
+      a.tame.anchorX = a.x;
+      a.tame.anchorZ = a.z;
+    }
+    const p = this.player;
+    if (p && a) {
+      p.s.x = a.x + Math.cos(a.heading) * (SPECIES[a.speciesId].lengthM * 0.3 + 1.2);
+      p.s.z = a.z - Math.sin(a.heading) * (SPECIES[a.speciesId].lengthM * 0.3 + 1.2);
+      p.s.y = this.terrain!.height(p.s.x, p.s.z) + 0.2;
+      p.vx = p.vz = p.vy = 0;
+    }
+    if (!silent) this.notify('tame.dismounted');
+  }
+
+  private rideUpdate(a: AnimalData, panel: boolean): void {
+    const p = this.player!;
+    const input = this.input;
+    const prof = TAME_PROFILES[a.speciesId];
+    const forward = panel ? 0 : Math.max(0, input.move.y);
+    const speed = TamingController.mountSpeed(a, forward, input.held('sprint'), prof.mountSpeed ?? 0.8, this.env!.state.time);
+    const heading = p.s.yaw + (panel ? 0 : -input.move.x * 0.9);
+    this.eco!.brain.setRide(a, { heading, speed });
+    p.s.x = a.x;
+    p.s.z = a.z;
+    p.s.y = a.y;
+    p.vx = p.vz = p.vy = 0;
+    p.horizontalSpeed = 0;
+    p.bodyYaw = a.heading;
+    p.swimming = false;
+  }
+
+  // ------------------------------------------------------------------ caves
+
+  enterCave(siteId: string): void {
+    const site = PLANNED_SITES.find((s) => s.id === siteId);
+    if (!site || this.mountedId) return;
+    this.inCave = siteId;
+    const p = this.player!;
+    p.s.x = site.x;
+    p.s.z = site.z + 9;
+    p.s.y = CAVE_Y;
+    p.s.yaw = Math.PI;
+    p.vx = p.vz = p.vy = 0;
+    this.envView!.indoor = true;
+    this.notify('cave.entered', { what: t(`site.${siteId}`) });
+    this.audio.setMusicMood('cave');
+  }
+
+  exitCave(): void {
+    const site = PLANNED_SITES.find((s) => s.id === this.inCave);
+    this.inCave = null;
+    this.envView!.indoor = false;
+    if (!site) return;
+    const p = this.player!;
+    p.s.x = site.x;
+    p.s.z = site.z + 6;
+    p.s.y = this.terrain!.height(p.s.x, p.s.z) + 0.3;
+    p.s.yaw = 0;
+    p.vx = p.vz = p.vy = 0;
+    this.audio.setMusicMood('calm');
+  }
+
+  // ------------------------------------------------------------------ ending
+
+  showEnding(): void {
+    this.state = 'ending';
+    document.exitPointerLock?.();
+    this.hud.closePanel();
+    this.hud.endingScreen(
+      () => {
+        this.mysteries.d.ending = 'cross';
+        void this.save(true);
+        this.hud.endingText(t('ending.crossText'), () => this.quitToMenu());
+      },
+      () => {
+        this.mysteries.d.ending = 'stay';
+        void this.save(true);
+        this.hud.endingText(t('ending.stayText'), () => {
+          this.state = 'playing';
+          this.hud.hideMenu();
+          this.hud.setGameplayVisible(true);
+        });
+      },
+    );
+  }
+
+  // ------------------------------------------------------------------ traps & defences
+
+  private updateTraps(now: number): void {
+    const traps = [...this.buildingSys!.pieces.values()].filter((pc) => pc.type === 'spike_trap' || pc.type === 'snare_trap' || (pc.type === 'electric_fence' && pc.powered));
+    if (!traps.length) return;
+    for (const a of this.eco!.active) {
+      if (!a.alive || a.tame) continue;
+      const sp = SPECIES[a.speciesId];
+      const r = sp.lengthM * 0.15 * growthScale(a, now) + 0.4;
+      for (const tp of traps) {
+        const d = Math.hypot(a.x - tp.x, a.z - tp.z);
+        if (tp.type === 'spike_trap' && d < 1.2 + r && (tp.uses ?? 0) > 0) {
+          const key = `${tp.id}:${a.id}`;
+          if ((this.trapCooldown.get(key) ?? 0) > now) continue;
+          this.trapCooldown.set(key, now + 3);
+          tp.uses = (tp.uses ?? 0) - 1;
+          a.health -= resolveDamage(a, 30, 'trap');
+          this.eco!.brain.onHurt(a, tp.x, tp.z, false, now);
+          this.eco!.brain.onScare(a, tp.x, tp.z, now);
+          if (a.health <= 0) this.eco!.kill(a, 'trap');
+          this.audio.sfx('hit', [tp.x, tp.y, tp.z]);
+        } else if (tp.type === 'snare_trap' && tp.armed && d < 0.9 + r && snareable(a)) {
+          tp.armed = false;
+          a.heldUntil = now + 40;
+          this.audio.sfx('snap', [tp.x, tp.y, tp.z]);
+          if (Math.hypot(tp.x - this.player!.s.x, tp.z - this.player!.s.z) < 200) this.notify('trap.caught', { what: sp.name[language()] }, 'good');
+        } else if (tp.type === 'electric_fence') {
+          const c = this.buildingSys!.colliderFor(tp);
+          if (!c || !CollisionWorld.penetration(c, a.x, a.z, r + 0.3)) continue;
+          if ((this.shockCooldown.get(a.id) ?? 0) > now) continue;
+          this.shockCooldown.set(a.id, now + 2);
+          a.health -= resolveDamage(a, 12, 'shock');
+          this.eco!.brain.onScare(a, tp.x, tp.z, now);
+          if (a.health <= 0) this.eco!.kill(a, 'shock');
+          this.audio.sfx('shock', [tp.x, tp.y + 1, tp.z]);
+        }
+      }
     }
   }
 
@@ -665,384 +1032,265 @@ export class Game implements GameApi {
     return p && this.buildingSys ? this.buildingSys.stationsNear(p.s.x, p.s.z) : new Set<Station>(['hand']);
   }
 
-  private openPanel(tab: 'inventory' | 'crafting' | 'map' | 'storage'): void {
+  openPanel(tab: PanelTab): void {
     this.hud.openPanel(tab);
     this.input.uiCapture = true;
     document.exitPointerLock?.();
+  }
+
+  openAnimalPanel(id: string): void {
+    this.focusAnimal = id;
+    this.openPanel('animals');
+  }
+
+  private flash(): void {
+    if (!this.settings.reduceMotion) this.hud.damageFlash();
+  }
+
+  wearHeld(): void {
+    const i = this.heldSlotIndex();
+    if (i === null) return;
+    const s = this.inventory.data.slots[i];
+    if (!s || s.dur === undefined) return;
+    if (this.inventory.wear(i, 1)) this.notify('notify.toolBroke', { what: t(`item.${s.id}`) }, 'warn');
+  }
+
+  dropOverflow(overflow: ItemList, sp?: string): void {
+    const stacks = Object.entries(overflow)
+      .filter(([, q]) => q > 0)
+      .map(([id, qty]) => (sp ? { id, qty, sp } : { id, qty }));
+    if (!stacks.length) return;
+    this.notify('notify.full', {}, 'warn');
+    this.createBag(stacks, 'drop');
   }
 
   private warnNeeds(): void {
     const d = this.survival!.d;
     if (d.food < 20 && !this.needWarned.food) {
       this.needWarned.food = true;
-      this.hud.notify(t('notify.needFood'), 'warn');
+      this.notify('notify.needFood', {}, 'warn');
     } else if (d.food > 30) this.needWarned.food = false;
     if (d.water < 20 && !this.needWarned.water) {
       this.needWarned.water = true;
-      this.hud.notify(t('notify.needWater'), 'warn');
+      this.notify('notify.needWater', {}, 'warn');
     } else if (d.water > 30) this.needWarned.water = false;
   }
 
   private handleEnvEvents(events: EnvEvent[]): void {
     for (const e of events) {
-      if (e.type === 'weather' && e.weather !== 'cloudy') this.hud.notify(t(`notify.weather.${e.weather}`));
-      else if (e.type === 'fireStarted') this.hud.notify(t('notify.fire'), 'warn');
-      else if (e.type === 'eruption' && e.active) this.hud.notify(t('notify.eruption'), 'warn');
-      else if (e.type === 'flood') this.hud.notify(t(e.active ? 'notify.flood' : 'notify.floodEnd'), e.active ? 'warn' : 'info');
-      else if (e.type === 'drought') this.hud.notify(t(e.active ? 'notify.drought' : 'notify.droughtEnd'), e.active ? 'warn' : 'info');
+      if (e.type === 'weather' && e.weather !== 'cloudy') {
+        this.notify(`notify.weather.${e.weather}`);
+        if (!this.inCave) this.xp('environment', 3);
+      } else if (e.type === 'fireStarted') this.notify('notify.fire', {}, 'warn');
+      else if (e.type === 'eruption' && e.active) this.notify('notify.eruption', {}, 'warn');
+      else if (e.type === 'flood') this.notify(e.active ? 'notify.flood' : 'notify.floodEnd', {}, e.active ? 'warn' : 'info');
+      else if (e.type === 'drought') this.notify(e.active ? 'notify.drought' : 'notify.droughtEnd', {}, e.active ? 'warn' : 'info');
     }
   }
 
-  private onAnimalHitsPlayer(amount: number, speciesId: string): void {
+  private onEcoEvent(e: EcoEvent): void {
+    if (e.type === 'tameLeft') this.notify('tame.left', { name: e.name }, 'warn');
+    else if (e.type === 'tamedKilled') {
+      this.notify('tame.died', { name: e.name }, 'warn');
+      if (this.mountedId === e.id) this.dismount(true);
+    }
+  }
+
+  private onAnimalHitsPlayer(amount: number, a: AnimalData): void {
+    if (this.inCave) return;
     const surv = this.survival!;
+    // A mount takes half of what is aimed at its rider.
+    const mount = this.mountedId ? this.eco!.get(this.mountedId) : undefined;
+    if (mount && mount !== a) {
+      mount.health -= amount * 0.5;
+      amount *= 0.5;
+    }
     surv.damage(amount, this.armor(), 'bite');
-    this.lastDamageSource = `animal:${speciesId}`;
+    this.lastDamageSource = `animal:${a.speciesId}`;
     this.sleeping = false;
-    this.hud.damageFlash();
-    this.audio.hit();
+    if (!a.tame) this.setCompanionTarget(a.id);
+    this.flash();
+    this.audio.sfx('hit');
+    this.xp('combat', 2);
   }
 
   private slowChecks(biome: BiomeId): void {
     const p = this.player!;
-    if (biome !== this.lastBiome) {
-      if (this.lastBiome) this.hud.notify(t('notify.biome', { biome: t(`biome.${biome}`) }));
-      this.lastBiome = biome;
-      if (biome === 'snow') this.unlock('visited_snow');
-    }
-    for (const s of PLANNED_SITES) {
-      if (this.discovered.has(s.id)) continue;
-      if (Math.hypot(s.x - p.s.x, s.z - p.s.z) < s.radius + 40) {
-        this.discovered.add(s.id);
-        this.hud.notify(t('notify.discovered', { what: t(`site.${s.id}`) }), 'good');
-        if (s.kind === 'research') this.unlock('found_research_site');
+    const prog = this.progression;
+    if (!this.inCave) {
+      if (biome !== this.lastBiome) {
+        if (this.lastBiome) this.notify('notify.biome', { biome: t(`biome.${biome}`) });
+        if (!this.exploration.d.biomeCells[biome]) this.xp('exploration', 30);
+        this.lastBiome = biome;
+        if (biome === 'snow') this.unlock('visited_snow');
       }
-    }
-    // Species sightings: close enough and roughly in view.
-    const [fx, fz] = [Math.sin(p.s.yaw), Math.cos(p.s.yaw)];
-    for (const a of this.eco!.active) {
-      if (!a.alive || this.seenSpecies.has(a.speciesId)) continue;
-      const dx = a.x - p.s.x;
-      const dz = a.z - p.s.z;
-      const d = Math.hypot(dx, dz);
-      if (d < 80 && (dx * fx + dz * fz) / Math.max(1, d) > 0.4) {
-        this.seenSpecies.add(a.speciesId);
-        const sp = SPECIES[a.speciesId];
-        this.hud.notify(t('notify.discovered', { what: `${sp.name[language()]} (${sp.scientificName})` }), 'good');
-      }
-    }
-    if (this.inventory.count('obsidian') > 0) this.unlock('found_obsidian');
-  }
-
-  private unlock(flag: string): void {
-    if (this.crafting.unlocked.has(flag)) return;
-    this.crafting.unlocked.add(flag);
-    for (const r of RECIPES) if (r.unlock === flag) this.hud.notify(t('notify.unlock', { what: t(`item.${r.output}`) }), 'good');
-  }
-
-  // ------------------------------------------------------------------ interaction
-
-  private inFront(x: number, z: number, maxDist: number, minDot = 0.35): number | null {
-    const p = this.player!;
-    const dx = x - p.s.x;
-    const dz = z - p.s.z;
-    const d = Math.hypot(dx, dz);
-    if (d > maxDist) return null;
-    if (d < 1.2) return d;
-    const dot = (dx * Math.sin(p.s.yaw) + dz * Math.cos(p.s.yaw)) / d;
-    return dot > minDot ? d : null;
-  }
-
-  private nodeInFront(): ResourceNode | null {
-    const p = this.player!;
-    let best: ResourceNode | null = null;
-    let bd = Infinity;
-    for (const n of this.sectors!.nodesNear(p.s.x, p.s.z, 4)) {
-      const reach = 2.2 + (n.kind === 'boulder' ? 2.4 : n.kind === 'rock' ? 0.6 : 0.3) * n.scale;
-      const d = this.inFront(n.x, n.z, reach);
-      if (d !== null && d < bd) {
-        bd = d;
-        best = n;
-      }
-    }
-    return best;
-  }
-
-  private keyLabel(): string {
-    return this.input.mode === 'touch' ? '' : this.input.mode === 'gamepad' ? '[X]' : `[${this.input.keys.interact[0].replace('Key', '')}]`;
-  }
-
-  private findInteraction(): Interaction | null {
-    const p = this.player!;
-    const key = this.keyLabel();
-    // Item bags.
-    for (const b of this.bags) {
-      if (Math.hypot(b.x - p.s.x, b.z - p.s.z) < 2.5) return { label: t('prompt.bag', { key }), run: () => this.pickupBag(b) };
-    }
-    // Building pieces.
-    const piece = this.buildingSys!.nearest(p.s.x, p.s.z, 3.2, (pc) => ['door', 'bed', 'storage', 'water_collector', 'crop_plot'].includes(pc.type) && this.inFront(pc.x, pc.z, 3.2, 0.2) !== null);
-    if (piece) {
-      if (piece.type === 'door') return { label: t('prompt.door', { key }), run: () => this.buildingSys!.toggleDoor(piece.id) };
-      if (piece.type === 'bed') return { label: t('prompt.sleep', { key }), run: () => this.sleepIn(piece) };
-      if (piece.type === 'storage') return { label: t('prompt.storage', { key }), run: () => this.openStorage(piece) };
-      if (piece.type === 'water_collector' && (piece.water ?? 0) >= 1)
-        return { label: t('prompt.collector', { key, n: Math.floor(piece.water ?? 0) }), run: () => this.drinkCollector(piece) };
-      if (piece.type === 'crop_plot') {
-        if ((piece.growth ?? 0) >= 1) return { label: t('prompt.crop', { key }), run: () => this.harvestCrop(piece) };
-        return { label: t('prompt.cropGrowing', { n: Math.floor((piece.growth ?? 0) * 100) }), run: () => {} };
-      }
-    }
-    // Carcasses.
-    for (const a of this.eco!.active) {
-      if (a.alive || a.meat <= 0) continue;
-      const sp = SPECIES[a.speciesId];
-      if (this.inFront(a.x, a.z, 2.2 + sp.lengthM * 0.45 * growthScale(a, this.env!.state.time), 0.1) !== null)
-        return { label: t('prompt.butcher', { key, what: sp.name[language()] }), run: () => this.butcher(a.id) };
-    }
-    // Resource nodes.
-    const n = this.nodeInFront();
-    if (n) return { label: t('prompt.harvest', { key, what: this.nodeName(n) }), run: () => this.harvest(n) };
-    // Water.
-    const [fx, fz] = p.forward();
-    const wx = p.s.x + fx * 1.6;
-    const wz = p.s.z + fz * 1.6;
-    const env = this.env!;
-    if (p.swimming || this.terrain!.height(wx, wz) < env.waterLevel - 0.15) {
-      const salty = this.terrain!.continentMask(wx, wz) < 0.85;
-      if (!salty) {
-        const skin = this.inventory.data.slots.findIndex((s) => s?.id === 'waterskin');
-        if (this.heldItem()?.id === 'waterskin' && skin >= 0) return { label: t('prompt.fill', { key }), run: () => this.fillWaterskin(skin) };
-        return { label: t('prompt.drink', { key }), run: () => this.survival!.drink(25) };
-      }
-    }
-    return null;
-  }
-
-  private observePrompt(): string | null {
-    const p = this.player!;
-    let best: { name: string; state: string } | null = null;
-    let bd = 35;
-    for (const a of this.eco!.active) {
-      const d = this.inFront(a.x, a.z, bd, 0.9);
-      if (d === null) continue;
-      bd = d;
-      const sp = SPECIES[a.speciesId];
-      const stage = lifeStage(a, this.env!.state.time);
-      best = { name: `${sp.name[language()]}${stage === 'juvenile' ? ' (filhote)' : ''}`, state: a.alive ? t(`ai.${a.state}`) : t('ai.dead') };
-    }
-    void p;
-    return best ? t('prompt.observe', { what: best.name, state: best.state }) : null;
-  }
-
-  private nodeName(n: ResourceNode): string {
-    const def = VEG_YIELD[n.kind as keyof typeof VEG_YIELD];
-    if (n.kind === 'crate' || n.kind === 'scrap') return t('item.metal_scrap');
-    return def ? t(`item.${Object.keys(def.drops)[0]}`) : n.kind;
-  }
-
-  private updateActions(dt: number): void {
-    void dt;
-    if (this.input.consume('interact') && this.interaction) this.interaction.run();
-    const wantsAttack = this.input.consume('attack') || (this.input.mode === 'touch' && this.input.held('attack'));
-    if (wantsAttack && this.attackCooldown <= 0) this.attack();
-  }
-
-  private attack(): void {
-    const p = this.player!;
-    const held = this.heldItem();
-    this.attackCooldown = held?.id === 'bow' ? 0.9 : 0.6;
-    this.playerView!.attackSwing();
-    if (held?.id === 'bow') {
-      if (!this.inventory.remove('arrow', 1)) {
-        this.hud.notify(t('notify.noArrows'), 'warn');
-        return;
-      }
-      this.fireArrow();
-      this.wearHeld();
-      return;
-    }
-    const def = held ? ITEMS[held.id] : null;
-    const reach = held?.id.includes('spear') ? 3.2 : held ? 2.4 : 1.8;
-    const now = this.env!.state.time;
-    let target = null;
-    let bd = Infinity;
-    for (const a of this.eco!.active) {
-      if (!a.alive) continue;
-      const sp = SPECIES[a.speciesId];
-      const r = sp.lengthM * 0.3 * growthScale(a, now);
-      if (Math.abs(a.y + sp.hipHeightM * growthScale(a, now) - p.s.y) > sp.hipHeightM * 2 + 2.5) continue;
-      const d = this.inFront(a.x, a.z, reach + r, 0.5);
-      if (d !== null && d < bd) {
-        bd = d;
-        target = a;
-      }
-    }
-    if (target) {
-      const dmg = def?.damage ?? 4;
-      this.eco!.playerAttack(target, dmg, p.s.x, p.s.z);
-      this.hostileUntil = now + 10;
-      this.audio.hit();
-      this.wearHeld();
-      return;
-    }
-    const n = this.nodeInFront();
-    if (n) this.harvest(n);
-  }
-
-  private fireArrow(): void {
-    const dir = new THREE.Vector3();
-    this.camera.getWorldDirection(dir);
-    const p = this.player!;
-    const pos = new THREE.Vector3(p.s.x, p.s.y + 1.5, p.s.z).addScaledVector(dir, 0.8);
-    const mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.8, 4), new THREE.MeshStandardMaterial({ color: 0x6a4a2a }));
-    this.worldRoot.add(mesh);
-    this.projectiles.push({ mesh, pos, vel: dir.multiplyScalar(45), damage: ITEMS.arrow.damage ?? 20, life: 4 });
-  }
-
-  private updateProjectiles(dt: number): void {
-    const now = this.env!.state.time;
-    for (const pr of this.projectiles) {
-      const prev = pr.pos.clone();
-      pr.vel.y -= 9.8 * dt;
-      pr.pos.addScaledVector(pr.vel, dt);
-      pr.life -= dt;
-      pr.mesh.position.copy(pr.pos);
-      pr.mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), pr.vel.clone().normalize());
-      if (pr.pos.y < this.terrain!.height(pr.pos.x, pr.pos.z)) pr.life = 0;
-      for (const a of this.eco!.active) {
-        if (!a.alive || pr.life <= 0) continue;
-        const sp = SPECIES[a.speciesId];
-        const g = growthScale(a, now);
-        const center = new THREE.Vector3(a.x, a.y + sp.hipHeightM * g, a.z);
-        const seg = new THREE.Line3(prev, pr.pos);
-        const closest = new THREE.Vector3();
-        seg.closestPointToPoint(center, true, closest);
-        if (closest.distanceTo(center) < Math.max(0.4, sp.lengthM * 0.22 * g)) {
-          this.eco!.playerAttack(a, pr.damage, this.player!.s.x, this.player!.s.z);
-          this.hostileUntil = now + 10;
-          this.audio.hit();
-          pr.life = 0;
+      // Map knowledge: higher ground lets you see further.
+      const around = (this.terrain!.height(p.s.x + 60, p.s.z) + this.terrain!.height(p.s.x - 60, p.s.z) + this.terrain!.height(p.s.x, p.s.z + 60) + this.terrain!.height(p.s.x, p.s.z - 60)) / 4;
+      const high = p.s.y - around > 25 ? 150 : 0;
+      this.exploration.reveal(p.s.x, p.s.z, (110 + high) * prog.revealMultiplier());
+      this.exploration.track(p.s.x, p.s.z);
+      for (const s of PLANNED_SITES) {
+        if (this.discovered.has(s.id)) continue;
+        if (Math.hypot(s.x - p.s.x, s.z - p.s.z) < s.radius + 40) {
+          this.discovered.add(s.id);
+          this.notify('notify.discovered', { what: t(`site.${s.id}`) }, 'good');
+          this.xp('exploration', 50);
+          if (s.kind === 'research') this.unlock('found_research_site');
         }
       }
     }
-    this.projectiles = this.projectiles.filter((pr) => {
-      if (pr.life > 0) return true;
-      pr.mesh.removeFromParent();
-      pr.mesh.geometry.dispose();
+    // Species sightings and quiet observation.
+    const [fx, fz] = [Math.sin(p.s.yaw), Math.cos(p.s.yaw)];
+    for (const a of this.eco!.active) {
+      if (!a.alive || this.inCave) continue;
+      const dx = a.x - p.s.x;
+      const dz = a.z - p.s.z;
+      const d = Math.hypot(dx, dz);
+      const inView = d < 80 && (dx * fx + dz * fz) / Math.max(1, d) > 0.4;
+      if (!inView) continue;
+      if (!this.seenSpecies.has(a.speciesId)) {
+        this.seenSpecies.add(a.speciesId);
+        const sp = SPECIES[a.speciesId];
+        this.notify('notify.discovered', { what: `${sp.name[language()]} (${sp.scientificName})` }, 'good');
+        this.xp('tracking', 40);
+      } else if (d < 40 && a.state !== 'flee') this.xp('tracking', 0.25);
+    }
+    if (this.inventory.count('obsidian') > 0) this.unlock('found_obsidian');
+    if (prog.has('tracker')) this.updateFootprints();
+  }
+
+  unlock(flag: string): void {
+    if (this.crafting.unlocked.has(flag)) return;
+    this.crafting.unlocked.add(flag);
+    for (const r of RECIPES) if (r.unlock === flag) this.notify('notify.unlock', { what: t(`item.${r.output}`) }, 'good');
+    for (const [type, def] of Object.entries(PIECES)) if (def.unlock === flag) this.notify('notify.unlockPiece', { what: t(`piece.${type}`) }, 'good');
+  }
+
+  recordFossil(id: string, speciesId: string): void {
+    const ex = this.exploration.d;
+    if (!ex.fossilsFound.includes(id)) ex.fossilsFound.push(id);
+    const known = ex.fossilSpecies.includes(speciesId);
+    if (!known) ex.fossilSpecies.push(speciesId);
+    this.notify('explore.fossil', { what: SPECIES[speciesId].name[language()] }, 'good');
+    this.xp('exploration', 25);
+    this.xp('tracking', 10);
+  }
+
+  // ------------------------------------------------------------------ HUD & audio per frame
+
+  private updateHud(ctx: { airTemp: number }, overweight: boolean, biome: BiomeId): void {
+    const env = this.env!;
+    const p = this.player!;
+    const surv = this.survival!;
+    const felt = surv.feltTemp({ ...ctx, insulation: this.insulation() + this.progression.insulationBonus() } as Parameters<Survival['feltTemp']>[0]);
+    this.hud.updateStats(surv.d, felt, overweight);
+    // Orientation: compass gives exact heading; otherwise only the sun (daytime, clear sky).
+    const dirMode = this.inventory.count('compass') > 0 ? 'exact' : !this.inCave && !env.isNight && env.state.intensity < 0.6 ? 'sun' : 'none';
+    const forecast = this.progression.has('weather_sense') ? env.forecast() : null;
+    this.hud.updateTop(env.day, env.dayFraction, env.state.weather, this.inCave ? 'cave' : biome, p.s.yaw, dirMode, forecast);
+    this.hud.renderHotbar();
+    this.interaction = this.building || this.hud.panelOpen ? null : this.actions.find();
+    this.hud.prompt(this.interaction?.label ?? this.actions.observePrompt());
+    this.hud.radio(this.radioReading());
+    if (this.hud.panelOpen && ['crafting', 'inventory', 'animals'].includes(this.hud.tab)) this.hud.renderPanel(true);
+  }
+
+  /** Radio receiver: bearing and strength toward the nearest unvisited station. */
+  private radioReading(): { strength: number; bearing: number } | null {
+    if (this.heldItem()?.id !== 'radio_receiver' || this.inCave) {
+      this.audio.radioSignal(null);
+      return null;
+    }
+    const p = this.player!;
+    const targets = Mysteries.radioTargets(this.discovered);
+    if (!targets.length) {
+      this.audio.radioSignal(0);
+      return { strength: 0, bearing: 0 };
+    }
+    let best = targets[0];
+    for (const t2 of targets) if (Math.hypot(t2.x - p.s.x, t2.z - p.s.z) < Math.hypot(best.x - p.s.x, best.z - p.s.z)) best = t2;
+    const d = Math.hypot(best.x - p.s.x, best.z - p.s.z);
+    const strength = clamp(1 - d / 4000, 0.05, 1);
+    const ang = Math.atan2(best.x - p.s.x, best.z - p.s.z) - p.s.yaw;
+    this.audio.radioSignal(strength);
+    return { strength, bearing: Math.atan2(Math.sin(ang), Math.cos(ang)) };
+  }
+
+  private updateAudio(p: PlayerController, heldId: string | undefined, sheltered: boolean, biome: BiomeId): void {
+    const env = this.env!;
+    const [fx, fz] = p.forward();
+    this.audio.setListener(this.camera.position.x, this.camera.position.y, this.camera.position.z, fx, fz);
+    const precip = env.state.weather === 'rain' || env.state.weather === 'storm' ? env.state.intensity : 0;
+    let water = 0;
+    if (!this.inCave) {
+      for (const [dx, dz] of [[25, 0], [-25, 0], [0, 25], [0, -25], [12, 12], [-12, -12]]) if (this.terrain!.height(p.s.x + dx, p.s.z + dz) < env.waterLevel) water += 1 / 6;
+    }
+    this.audio.ambience({ wind: env.state.windSpeed, rain: precip, biome, night: env.isNight, water, indoor: this.inCave ? 'cave' : sheltered ? 'sheltered' : 'open' });
+    if (env.lightning && !this.inCave) this.audio.thunder(Math.hypot(env.lightning.x - p.s.x, env.lightning.z - p.s.z));
+    // Footsteps follow the stride (no fixed timer).
+    if (!this.mountedId && p.onGround && Math.floor(p.stride) !== Math.floor(this.lastStride) && p.horizontalSpeed > 0.5) {
+      const surface: Surface = this.inCave ? 'rock' : p.swimming ? 'water' : biome === 'snow' ? 'snow' : biome === 'beach' ? 'sand' : biome === 'swamp' ? 'mud' : biome === 'mountain' || biome === 'volcanic' || biome === 'ruins' ? 'rock' : this.collision.surfaceAt(p.s.x, p.s.z, p.s.y + 0.3) > -Infinity ? 'wood' : 'grass';
+      this.audio.footstep(surface, p.crouching ? 0.3 : p.sprinting ? 1.4 : 0.8);
+    }
+    this.lastStride = p.stride;
+    // Music mood: tension when something is hunting the player.
+    const hunted = this.eco!.active.some((a) => a.alive && a.state === 'hunt' && a.targetId === '__player__');
+    this.audio.setMusicMood(this.inCave ? 'cave' : hunted ? 'tension' : env.isNight ? 'night' : 'calm');
+    void heldId;
+  }
+
+  private updateFlares(): void {
+    this.flares = this.flares.filter((f) => {
+      if (this.time < f.until) {
+        f.light.intensity = 250 + Math.sin(this.time * 30) * 50;
+        return true;
+      }
+      f.light.removeFromParent();
       return false;
     });
   }
 
-  private wearHeld(): void {
-    const i = this.heldSlotIndex();
-    if (i === null) return;
-    const s = this.inventory.data.slots[i];
-    if (!s || s.dur === undefined) return;
-    if (this.inventory.wear(i, 1)) this.hud.notify(t('notify.toolBroke', { what: t(`item.${s.id}`) }), 'warn');
-  }
-
-  private give(items: ItemList): void {
-    const overflow: ItemList = {};
-    for (const [id, q] of Object.entries(items)) {
-      if (q <= 0) continue;
-      const left = this.inventory.add(id, q);
-      if (q - left > 0) this.hud.notify(t('notify.got', { n: q - left, what: t(`item.${id}`) }));
-      if (left > 0) overflow[id] = left;
-    }
-    this.inventory.autoHotbar();
-    this.dropOverflow(overflow);
-  }
-
-  private dropOverflow(overflow: ItemList): void {
-    const stacks = Object.entries(overflow).filter(([, q]) => q > 0).map(([id, qty]) => ({ id, qty }));
-    if (!stacks.length) return;
-    this.hud.notify(t('notify.full'), 'warn');
-    this.createBag(stacks, 'drop');
-  }
-
-  private harvest(n: ResourceNode): void {
-    const held = this.heldItem();
-    const def = VEG_YIELD[n.kind as keyof typeof VEG_YIELD];
+  /** Tracker skill: recent footprints of nearby animals. */
+  private updateFootprints(): void {
     const now = this.env!.state.time;
-    this.attackCooldown = 0.45;
-    this.playerView!.attackSwing();
-    if (n.kind === 'crate' || n.kind === 'scrap') {
-      const loot: ItemList = n.kind === 'crate' ? { metal_scrap: 3, bandage: 2 } : { metal_scrap: 2 };
-      if (n.kind === 'crate' && this.rng.chance(0.5)) loot.sulfur = 2;
-      this.sectors!.hitNode(n, now, 99);
-      this.give(loot);
-      return;
+    if (!this.footprints) {
+      const geo = new THREE.CircleGeometry(0.25, 8);
+      geo.rotateX(-Math.PI / 2);
+      this.footprints = new THREE.InstancedMesh(geo, new THREE.MeshBasicMaterial({ color: 0x2a2018, transparent: true, opacity: 0.55, depthWrite: false }), FOOTPRINT_MAX);
+      this.footprints.frustumCulled = false;
+      this.worldRoot.add(this.footprints);
     }
-    if (!def) return;
-    const tool = held ? ITEMS[held.id].gather?.[def.tool] ?? 0 : 0;
-    const power = tool > 0 ? tool : def.tool === 'fiber' ? 1 : 0.5;
-    const drops: ItemList = {};
-    for (const [k, q] of Object.entries(def.drops)) drops[k] = Math.max(1, Math.round(q * (tool > 0 ? 1 : 0.5)));
-    // Regional extras make different biomes worth visiting.
-    const r = this.rng;
-    if (n.kind === 'rock' || n.kind === 'boulder') {
-      if (n.biome === 'volcanic') {
-        if (r.chance(0.35)) drops.obsidian = 1;
-        if (r.chance(0.25)) drops.sulfur = 1;
-      } else if (n.biome === 'mountain' && r.chance(0.3)) drops.metal_ore = 1;
-      else if (n.biome === 'snow' && r.chance(0.25)) drops.ice = 1;
-      if ((n.biome === 'plains' || n.biome === 'beach' || n.biome === 'mountain') && r.chance(0.45)) drops.flint = 1;
+    for (const a of this.eco!.active) {
+      if (!a.alive || SPECIES[a.speciesId].locomotion.flies) continue;
+      const list = this.tracks.get(a.id) ?? [];
+      const last = list[list.length - 1];
+      if (!last || Math.hypot(last[0] - a.x, last[1] - a.z) > 2.5) list.push([a.x, a.z, growthScale(a, now) * Math.min(3, SPECIES[a.speciesId].lengthM * 0.15 + 0.4)]);
+      if (list.length > 12) list.shift();
+      this.tracks.set(a.id, list);
     }
-    if (n.kind === 'reeds' && n.biome === 'swamp' && r.chance(0.35)) drops.clay = 1;
-    if ((n.kind === 'bush' || n.kind === 'fern') && (n.biome === 'jungle' || n.biome === 'swamp') && r.chance(0.35)) drops.herb = 1;
-    this.give(drops);
-    if (tool > 0) this.wearHeld();
-    this.sectors!.hitNode(n, now, power);
-    // Gathering makes noise.
-    this.hostileUntil = Math.max(this.hostileUntil, 0);
+    const m = new THREE.Matrix4();
+    let i = 0;
+    const p = this.player!.s;
+    for (const list of this.tracks.values())
+      for (const [x, z, s] of list) {
+        if (i >= FOOTPRINT_MAX || Math.hypot(x - p.x, z - p.z) > 60) continue;
+        m.makeScale(s, 1, s * 1.4).setPosition(x, this.terrain!.height(x, z) + 0.05, z);
+        this.footprints.setMatrixAt(i++, m);
+      }
+    this.footprints.count = i;
+    this.footprints.instanceMatrix.needsUpdate = true;
+    for (const id of this.tracks.keys()) if (!this.eco!.get(id)) this.tracks.delete(id);
   }
 
-  private butcher(id: string): void {
-    const a = this.eco!.get(id);
-    if (!a) return;
-    const held = this.heldItem();
-    const knife = held ? ITEMS[held.id].gather?.meat ?? 0 : 0;
-    const kg = this.eco!.harvestCarcass(a, 4 + knife * 4);
-    if (kg <= 0) return;
-    const sp = SPECIES[a.speciesId];
-    const items: ItemList = { raw_meat: Math.max(1, Math.round(kg / 3)) };
-    if (this.rng.chance(knife > 0 ? 0.7 : 0.3)) items.hide = 1;
-    if (this.rng.chance(0.35)) items.bone = 1;
-    if (sp.diet === 'piscivore' && this.rng.chance(0.3)) items.raw_fish = 1;
-    this.give(items);
-    if (knife > 0) this.wearHeld();
-    this.playerView!.attackSwing();
-  }
-
-  private fillWaterskin(slot: number): void {
-    const s = this.inventory.data.slots[slot];
-    if (!s || s.id !== 'waterskin') return;
-    this.inventory.data.slots[slot] = { id: 'waterskin_full', qty: 1 };
-  }
+  // ------------------------------------------------------------------ inventory API (UI)
 
   useHeld(): void {
     const i = this.heldSlotIndex();
-    if (i !== null) this.useSlot(i);
+    if (i !== null) this.actions.useSlot(i);
   }
 
   useSlot(i: number): void {
-    const s = this.inventory.data.slots[i];
-    if (!s) return;
-    const def = ITEMS[s.id];
-    const surv = this.survival!;
-    if (s.id === 'waterskin_full') {
-      surv.drink(50);
-      this.inventory.data.slots[i] = { id: 'waterskin', qty: 1 };
-      return;
-    }
-    if (def.food) {
-      if (!this.inventory.remove(s.id, 1)) return;
-      if (surv.eat(def.food, this.rng.next())) this.hud.notify(t('notify.sick'), 'warn');
-      return;
-    }
-    if (def.heal !== undefined) {
-      if (!this.inventory.remove(s.id, 1)) return;
-      surv.treat(def.heal, !!def.stopsBleeding);
-    }
+    this.actions.useSlot(i);
   }
 
   dropSlot(i: number): void {
@@ -1055,7 +1303,7 @@ export class Game implements GameApi {
   }
 
   unequip(slot: EquipSlot): void {
-    this.inventory.unequip(slot);
+    if (!this.inventory.unequip(slot)) this.notify('notify.full', {}, 'warn');
   }
 
   moveSlot(a: number, b: number): void {
@@ -1074,40 +1322,26 @@ export class Game implements GameApi {
 
   craft(id: string): void {
     const err = this.crafting.start(id, this.inventory, this.stations());
-    if (err === 'materials') this.hud.notify(t('craft.missing'), 'warn');
+    if (err === 'materials') this.notify('craft.missing', {}, 'warn');
+    else if (err === 'tool') this.notify('craft.needTool', {}, 'warn');
   }
 
   cancelCraft(i: number): void {
     this.dropOverflow(this.crafting.cancel(i, this.inventory));
   }
 
-  // ------------------------------------------------------------------ bags, sleeping, storage
-
   private createBag(items: Stack[], reason: ItemBag['reason']): void {
     const p = this.player!;
-    const bag: ItemBag = { id: `b${this.nextBagId++}`, x: p.s.x, y: p.s.y, z: p.s.z, items, createdAt: this.env!.state.time, reason };
-    this.bags.push(bag);
+    this.bags.push({ id: `b${this.nextBagId++}`, x: p.s.x, y: p.s.y, z: p.s.z, items, createdAt: this.env!.state.time, reason });
   }
 
-  private pickupBag(b: ItemBag): void {
-    const remaining: Stack[] = [];
-    for (const s of b.items) {
-      const left = this.inventory.add(s.id, s.qty, s.dur);
-      if (left > 0) remaining.push({ ...s, qty: left });
-      else this.hud.notify(t('notify.got', { n: s.qty, what: t(`item.${s.id}`) }));
-    }
-    b.items = remaining;
-    if (!remaining.length) this.bags = this.bags.filter((x) => x !== b);
-    else this.hud.notify(t('notify.full'), 'warn');
-  }
-
-  private sleepIn(bed: Piece): void {
+  sleepIn(bed: Piece): void {
     this.respawnPoint = { x: bed.x, z: bed.z, pieceId: bed.id };
     this.sleeping = true;
-    this.hud.notify(t('notify.sleep'));
+    this.notify('notify.sleep');
   }
 
-  private openStorage(p: Piece): void {
+  openStorage(p: Piece): void {
     this.storageOpen = p;
     this.openPanel('storage');
   }
@@ -1121,26 +1355,64 @@ export class Game implements GameApi {
     if (!st) return;
     if (dir === 'in') {
       const free = st.findIndex((s) => !s);
-      if (free < 0) return this.hud.notify(t('notify.storageFull'), 'warn');
+      if (free < 0) return this.notify('notify.storageFull', {}, 'warn');
       const s = this.inventory.takeSlot(index);
       if (s) st[free] = s;
     } else {
       const s = st[index];
       if (!s) return;
-      const left = this.inventory.add(s.id, s.qty, s.dur);
+      const left = this.inventory.add(s.id, s.qty, s.dur, s.sp);
       st[index] = left > 0 ? { ...s, qty: left } : null;
+      if (left > 0) this.notify('notify.full', {}, 'warn');
     }
   }
 
-  private drinkCollector(p: Piece): void {
-    const amount = Math.min(p.water ?? 0, 5);
-    p.water = (p.water ?? 0) - amount;
-    this.survival!.drink(amount * 8);
+  // ------------------------------------------------------------------ taming API (UI)
+
+  tamedAnimals(): AnimalData[] {
+    return this.eco ? this.taming.tamed(this.eco) : [];
   }
 
-  private harvestCrop(p: Piece): void {
-    p.growth = 0;
-    this.give({ berries: 6, herb: this.rng.chance(0.5) ? 2 : 0 });
+  animalCommand(id: string, cmd: TameCommand): void {
+    const a = this.eco?.get(id);
+    if (a?.tame) this.actions.command(a, cmd);
+  }
+
+  animalAction(id: string, action: 'mount' | 'feed' | 'rename' | 'release', arg?: string): void {
+    const a = this.eco?.get(id);
+    if (!a?.tame) return;
+    if (action === 'mount') {
+      this.resume();
+      this.actions.mount(a);
+    } else if (action === 'feed') {
+      const held = this.heldItem();
+      const p = this.player!;
+      if (!held) return this.notify('tame.needFood', {}, 'warn');
+      if (Math.hypot(a.x - p.s.x, a.z - p.s.z) > 6) return this.notify('tame.tooFar', { name: a.tame.name }, 'warn');
+      this.actions.feed(a, held);
+    } else if (action === 'rename' && arg) {
+      a.tame.name = arg.trim().slice(0, 30) || a.tame.name;
+    } else if (action === 'release') {
+      if (this.mountedId === a.id) this.dismount();
+      const name = a.tame.name;
+      release(a, this.env!.state.time);
+      this.notify('tame.released', { name });
+    }
+  }
+
+  private tamingHost() {
+    const p = this.player!;
+    return {
+      eco: this.eco!,
+      building: this.buildingSys!,
+      progression: this.progression,
+      now: this.env!.state.time,
+      player: { x: p.s.x, z: p.s.z, quiet: true, hostile: false, alive: true },
+      language: language(),
+      notify: (k: string, params?: Record<string, string | number>, kind?: 'info' | 'warn' | 'good') => this.notify(k, params, kind),
+      xp: (tree: 'taming', n: number) => this.xp(tree, n),
+      reveal: (x: number, z: number, r: number) => this.exploration.reveal(x, z, r),
+    };
   }
 
   // ------------------------------------------------------------------ death
@@ -1148,16 +1420,15 @@ export class Game implements GameApi {
   private die(): void {
     if (this.state !== 'playing') return;
     const p = this.player!;
+    this.dismount(true);
+    if (this.inCave) this.exitCave();
     this.state = 'dead';
     this.deaths++;
     this.sleeping = false;
     document.exitPointerLock?.();
-    const dropItems = DIFFICULTY[this.settings.difficulty].dropItemsOnDeath;
-    if (dropItems) {
+    if (DIFFICULTY[this.settings.difficulty].dropItemsOnDeath) {
       const stacks = this.inventory.takeEverything(false);
-      if (stacks.length) {
-        this.bags.push({ id: `b${this.nextBagId++}`, x: p.s.x, y: p.s.y, z: p.s.z, items: stacks, createdAt: this.env!.state.time, reason: 'death' });
-      }
+      if (stacks.length) this.bags.push({ id: `b${this.nextBagId++}`, x: p.s.x, y: p.s.y, z: p.s.z, items: stacks, createdAt: this.env!.state.time, reason: 'death' });
     }
     const src = this.lastDamageSource;
     const cause = src.startsWith('animal:')
@@ -1188,17 +1459,27 @@ export class Game implements GameApi {
     this.hostileUntil = 0;
     this.hud.hideMenu();
     this.hud.setGameplayVisible(true);
-    this.hud.notify(t('notify.respawn'));
-    if (this.bags.some((b) => b.reason === 'death')) this.hud.notify(t('notify.bagLeft'), 'warn');
+    this.notify('notify.respawn');
+    if (this.bags.some((b) => b.reason === 'death')) this.notify('notify.bagLeft', {}, 'warn');
     void this.save(true);
   }
 
   // ------------------------------------------------------------------ building
 
+  pieceAvailable(type: PieceType): boolean {
+    const u = PIECES[type].unlock;
+    return !u || this.crafting.unlocked.has(u);
+  }
+
+  pieceCost(type: PieceType): ItemList {
+    return Building.cost(type, this.progression.buildCost());
+  }
+
   toggleBuild(): void {
     this.building = !this.building;
     if (!this.building && this.ghost) {
       this.ghost.removeFromParent();
+      disposeObject(this.ghost);
       this.ghost = null;
       this.ghostType = null;
     }
@@ -1216,27 +1497,32 @@ export class Game implements GameApi {
     if (input.consume('rotateRight')) this.buildRot += this.buildSnap ? Math.PI / 2 : Math.PI / 12;
     if (input.consume('snapToggle')) this.buildSnap = !this.buildSnap;
     if (this.ghostType !== this.buildPiece) {
-      this.ghost?.removeFromParent();
+      if (this.ghost) {
+        this.ghost.removeFromParent();
+        disposeObject(this.ghost);
+      }
       this.ghost = createGhost(this.buildPiece);
       this.ghostType = this.buildPiece;
       this.worldRoot.add(this.ghost);
     }
-    const dist = this.buildPiece === 'foundation' || this.buildPiece === 'platform' || this.buildPiece === 'floor' || this.buildPiece === 'roof' ? 5 : 3.5;
+    const big = ['foundation', 'stone_foundation', 'platform', 'floor', 'roof'].includes(this.buildPiece);
+    const dist = big ? 5 : 3.5;
     const [fx, fz] = p.forward();
-    const ax = p.s.x + fx * dist;
-    const az = p.s.z + fz * dist;
-    const pl = this.buildingSys!.preview(this.buildPiece, ax, az, this.buildRot + p.s.yaw, this.buildSnap, {
+    const pl = this.buildingSys!.preview(this.buildPiece, p.s.x + fx * dist, p.s.z + fz * dist, this.buildRot + p.s.yaw, this.buildSnap, {
       height: (x, z) => this.terrain!.height(x, z),
       waterLevel: this.env!.waterLevel,
       collision: this.collision,
     }, p.s.x, p.s.z);
-    const enough = this.inventory.has(PIECES[this.buildPiece].cost);
-    if (pl.valid && !enough) {
+    if (pl.valid && !this.pieceAvailable(pl.type)) {
+      pl.valid = false;
+      pl.reason = 'locked';
+    }
+    if (pl.valid && !this.inventory.has(this.pieceCost(pl.type))) {
       pl.valid = false;
       pl.reason = 'materials';
     }
     // Don't trap the player inside a solid piece.
-    if (pl.valid && PIECES[pl.type].solid && !['foundation', 'floor', 'platform', 'roof'].includes(pl.type)) {
+    if (pl.valid && PIECES[pl.type].solid && !['foundation', 'stone_foundation', 'floor', 'platform', 'roof', 'stairs'].includes(pl.type)) {
       const c = this.buildingSys!.colliderFor({ id: '_', type: pl.type, x: pl.x, y: pl.y, z: pl.z, rot: pl.rot });
       if (c && CollisionWorld.penetration(c, p.s.x, p.s.z, 0.4) && p.s.y < c.y1 && p.s.y + 1.8 > c.y0) {
         pl.valid = false;
@@ -1252,23 +1538,29 @@ export class Game implements GameApi {
     if (input.consume('attack') && this.attackCooldown <= 0) {
       this.attackCooldown = 0.25;
       if (pl.valid) {
-        const piece = this.buildingSys!.place(pl, this.inventory);
+        const piece = this.buildingSys!.place(pl, this.inventory, this.progression.buildCost());
         if (piece) {
           this.addPieceView(piece);
-          this.audio.hit();
+          this.audio.sfx('place', [piece.x, piece.y, piece.z]);
+          this.xp('building', 5);
         }
-      } else if (pl.reason) this.hud.notify(t(`build.invalid.${pl.reason}`), 'warn');
+      } else if (pl.reason) this.notify(`build.invalid.${pl.reason}`, {}, 'warn');
     }
     if (input.consume('demolish')) {
       const target = this.buildingSys!.nearest(p.s.x + fx * 2.5, p.s.z + fz * 2.5, 3);
       if (target) {
         if (this.storageOpen?.id === target.id) this.storageOpen = null;
         const res = this.buildingSys!.demolish(target.id, this.inventory);
-        this.pieceViews.get(target.id)?.removeFromParent();
+        const view = this.pieceViews.get(target.id);
+        if (view) {
+          view.removeFromParent();
+          disposeObject(view);
+        }
         this.pieceViews.delete(target.id);
         if (res?.overflow.length) this.createBag(res.overflow, 'drop');
         if (this.respawnPoint?.pieceId === target.id) this.respawnPoint = null;
-        this.hud.notify(t('build.demolished'));
+        this.audio.sfx('demolish', [target.x, target.y, target.z]);
+        this.notify('build.demolished');
       }
     }
   }
@@ -1295,16 +1587,27 @@ export class Game implements GameApi {
         this.animalViews.set(a.id, v);
         this.worldRoot.add(v.root);
       }
-      poseAnimalView(v, a, eco.brain.stridePhase(a), eco.brain.altitude(a), now, dt, Math.hypot(a.x - cam.x, a.z - cam.z));
+      const camDist = Math.hypot(a.x - cam.x, a.z - cam.z);
+      v.root.visible = !this.inCave;
+      poseAnimalView(v, a, eco.brain.stridePhase(a), eco.brain.altitude(a), now, dt, camDist);
+      if (this.inCave || !a.alive) continue;
+      const sp = SPECIES[a.speciesId];
+      const label = a.tame ? a.tame.name : sp.name[language()];
       // Vocalizations on meaningful state changes, plus occasional idle calls.
       const prev = this.lastStates.get(a.id);
-      if (a.alive && prev !== a.state) {
-        const sp = SPECIES[a.speciesId];
-        if (a.state === 'flee' || a.state === 'defend' || (a.state === 'alert' && this.rng.chance(0.3))) this.audio.call(sp, a.x, a.y + sp.hipHeightM, a.z, growthScale(a, now), a.state === 'alert' ? 0 : 1);
+      const occluded = this.occluded(a.x, a.y + sp.hipHeightM, a.z);
+      if (prev !== a.state) {
+        if (a.state === 'flee' || a.state === 'defend' || (a.state === 'alert' && this.rng.chance(0.3))) this.audio.call(sp, a.x, a.y + sp.hipHeightM, a.z, growthScale(a, now), a.state === 'alert' ? 0 : 1, occluded, label);
         this.lastStates.set(a.id, a.state);
-      } else if (a.alive && this.rng.chance(dt * 0.012)) {
-        const sp = SPECIES[a.speciesId];
-        this.audio.call(sp, a.x, a.y + sp.hipHeightM, a.z, growthScale(a, now));
+      } else if (this.rng.chance(dt * 0.012)) this.audio.call(sp, a.x, a.y + sp.hipHeightM, a.z, growthScale(a, now), 0, occluded, label);
+      if ((a.state === 'graze' || a.state === 'eat') && a.speed < 0.1 && camDist < 40) this.audio.feeding(a.x, a.y + 1, a.z, sp.massKg > 1000);
+      // Heavy footfalls of big animals.
+      if (sp.massKg > 1500 && a.speed > 0.3 && camDist < 90) {
+        const stride = Math.floor(eco.brain.stridePhase(a));
+        if (stride !== this.animalSteps.get(a.id)) {
+          this.animalSteps.set(a.id, stride);
+          this.audio.footstep('grass', 1, [a.x, a.y, a.z], Math.min(0.6, sp.massKg / 15000) * (1 - camDist / 100));
+        }
       }
     }
     for (const [id, v] of this.animalViews) {
@@ -1312,6 +1615,7 @@ export class Game implements GameApi {
         v.root.removeFromParent();
         this.animalViews.delete(id);
         this.lastStates.delete(id);
+        this.animalSteps.delete(id);
       }
     }
     // Nests near the player.
@@ -1323,13 +1627,16 @@ export class Game implements GameApi {
       if (!this.nestViews.has(n.id)) {
         const o = createNestView(n.eggs, Math.max(0.6, Math.min(3, SPECIES[n.speciesId].lengthM * 0.15)));
         o.position.set(n.x, this.terrain!.height(n.x, n.z), n.z);
+        o.userData.eggs = n.eggs;
         this.worldRoot.add(o);
         this.nestViews.set(n.id, o);
       }
     }
     for (const [id, o] of this.nestViews) {
-      if (!near.has(id)) {
+      const n = eco.nests.get(id);
+      if (!near.has(id) || !n || n.eggs !== o.userData.eggs) {
         o.removeFromParent();
+        disposeObject(o);
         this.nestViews.delete(id);
       }
     }
@@ -1355,25 +1662,62 @@ export class Game implements GameApi {
     for (const [id, o] of this.bagViews) {
       if (!bagIds.has(id)) {
         o.removeFromParent();
+        disposeObject(o);
         this.bagViews.delete(id);
       }
     }
     // Pieces with dynamic state.
     for (const [id, o] of this.pieceViews) {
       const pc = this.buildingSys!.pieces.get(id);
-      if (pc && (pc.type === 'door' || pc.type === 'crop_plot' || pc.type === 'water_collector' || pc.type === 'campfire')) syncPieceObject(o, pc, this.time);
+      if (pc) syncPieceObject(o, pc, this.time);
     }
   }
 
-  mapMarkers(): ReturnType<GameApi['mapMarkers']> {
-    const out: ReturnType<GameApi['mapMarkers']> = [];
+  /** Terrain between the listener and a sound source muffles it. */
+  private occluded(x: number, y: number, z: number): boolean {
+    const c = this.camera.position;
+    for (let i = 1; i < 6; i++) {
+      const f = i / 6;
+      const px = c.x + (x - c.x) * f;
+      const pz = c.z + (z - c.z) * f;
+      const py = c.y + (y - c.y) * f;
+      if (this.terrain!.height(px, pz) > py + 1) return true;
+    }
+    return this.collision.blocked((c.x + x) / 2, (c.z + z) / 2, 0.1, (c.y + y) / 2 - 0.5, 1);
+  }
+
+  mapMarkers(): MapMarker[] {
+    const out: MapMarker[] = [];
     const p = this.player;
     if (!p) return out;
     for (const s of PLANNED_SITES) if (this.discovered.has(s.id)) out.push({ x: s.x, z: s.z, kind: 'site', label: t(`site.${s.id}`) });
     for (const b of this.bags) if (b.reason === 'death') out.push({ x: b.x, z: b.z, kind: 'bag' });
     if (this.respawnPoint) out.push({ x: this.respawnPoint.x, z: this.respawnPoint.z, kind: 'bed' });
+    for (const m of this.exploration.d.markers) out.push({ x: m.x, z: m.z, kind: 'marker', label: m.icon });
+    for (const a of this.tamedAnimals()) out.push({ x: a.x, z: a.z, kind: 'tame', label: a.tame!.name });
+    // The volcano is a landmark visible from far away.
+    out.push({ x: VOLCANO.x, z: VOLCANO.z, kind: 'landmark', label: t('landmark.volcano') });
     out.push({ x: p.s.x, z: p.s.z, kind: 'player', heading: p.s.yaw });
     return out;
+  }
+
+  mapClick(x: number, z: number): void {
+    this.exploration.toggleMarker(x, z);
+  }
+
+  skillTrees(): { tree: Tree; level: number; xp: number; next: number; points: number }[] {
+    return TREES.map((tree) => {
+      const level = this.progression.level(tree);
+      return { tree, level, xp: this.progression.d.xp[tree], next: level >= 10 ? 0 : Math.round(40 * Math.pow(level + 1, 1.6)), points: this.progression.points(tree) };
+    });
+  }
+
+  skillList(): typeof SKILLS {
+    return SKILLS;
+  }
+
+  isJuvenile(a: AnimalData): boolean {
+    return lifeStage(a, this.env?.state.time ?? 0) === 'juvenile';
   }
 }
 

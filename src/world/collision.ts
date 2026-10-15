@@ -26,6 +26,8 @@ export interface BoxCollider {
   /** Walkable top surface (characters can stand on it). */
   walkable: boolean;
   enabled: boolean;
+  /** Ramp (stairs): walkable surface rising from y0 at local -z to y1 at +z; never blocks movement. */
+  ramp?: boolean;
 }
 
 export type Collider = CircleCollider | BoxCollider;
@@ -140,6 +142,7 @@ export class CollisionWorld {
     for (let iter = 0; iter < 3; iter++) {
       let moved = false;
       for (const c of this.query(x, z, r + 1)) {
+        if (c.kind === 'box' && c.ramp) continue;
         if (c.y1 <= y + (c.kind === 'box' && c.walkable ? stepHeight : 0.05) || c.y0 >= y + height) continue;
         const p = CollisionWorld.penetration(c, x, z, r);
         if (p) {
@@ -155,7 +158,7 @@ export class CollisionWorld {
 
   blocked(x: number, z: number, r: number, y = -Infinity, height = Infinity): boolean {
     for (const c of this.query(x, z, r + 1)) {
-      if (c.kind === 'box' && !c.enabled) continue;
+      if (c.kind === 'box' && (!c.enabled || c.ramp)) continue;
       if (y !== -Infinity && (c.y1 <= y + 0.3 || c.y0 >= y + height)) continue;
       if (CollisionWorld.penetration(c, x, z, r)) return true;
     }
@@ -167,8 +170,13 @@ export class CollisionWorld {
     let best = -Infinity;
     for (const c of this.query(x, z, 0.5)) {
       if (c.kind !== 'box' || !c.walkable || !c.enabled) continue;
-      if (c.y1 > maxY) continue;
-      if (CollisionWorld.penetration(c, x, z, 0.01) && c.y1 > best) best = c.y1;
+      if (!CollisionWorld.penetration(c, x, z, 0.01)) continue;
+      let top = c.y1;
+      if (c.ramp) {
+        const lz = -(x - c.x) * Math.sin(c.rot) + (z - c.z) * Math.cos(c.rot);
+        top = c.y0 + ((lz + c.hz) / (2 * c.hz)) * (c.y1 - c.y0);
+      }
+      if (top <= maxY && top > best) best = top;
     }
     return best;
   }

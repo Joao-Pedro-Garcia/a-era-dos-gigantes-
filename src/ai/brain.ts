@@ -3,6 +3,7 @@ import type { Terrain } from '../world/terrain';
 import { type AnimalData, type AIState, effectiveMass, growthScale, lifeStage, maxHealth } from '../animals/animal';
 import { HUMAN_MASS, SPECIES, type SpeciesDef, isPredator } from '../animals/species';
 import { dangerAt, nearestMemory, recallSubject, remember } from './memory';
+import { canUse } from '../taming/profiles';
 
 /**
  * Animal decision making: utility scoring over needs, perception and memory,
@@ -49,6 +50,26 @@ export interface AIWorld {
   damageAnimal(target: AnimalData, amount: number, attacker: AnimalData): void;
   alarm(a: AnimalData, x: number, z: number): void;
   random(): number;
+  /** Unit vector the wind blows toward (for scent). */
+  wind?: { x: number; z: number };
+  /** Multiplier on flight distances from the player's demeanour (skills). */
+  playerCalm?: number;
+  /** An animal companions should attack (threatening or fighting the player). */
+  companionTarget?: string | null;
+  /** Food available in a feeding trough for this tamed animal. */
+  troughFood?(a: AnimalData): TroughAccess | null;
+}
+
+export interface TroughAccess {
+  x: number;
+  z: number;
+  /** Takes one portion; returns hunger relief (0 when empty/unsuitable). */
+  eat(): number;
+}
+
+export interface RideInput {
+  heading: number;
+  speed: number;
 }
 
 /** Non-persistent per-animal scratch data. */
@@ -61,6 +82,9 @@ interface Runtime {
   altitude: number;
   stride: number;
   peacefulAcc: number;
+  trough: TroughAccess | null;
+  ride: RideInput | null;
+  lastHurtAt: number;
 }
 
 const PLAYER_ID = '__player__';
@@ -72,7 +96,7 @@ export class AnimalBrain {
   runtime(a: AnimalData): Runtime {
     let r = this.rt.get(a.id);
     if (!r) {
-      r = { thinkIn: Math.random() * 0.5, threatX: 0, threatZ: 0, threatIsPlayer: false, chaseStart: 0, altitude: 0, stride: 0, peacefulAcc: 0 };
+      r = { thinkIn: Math.random() * 0.5, threatX: 0, threatZ: 0, threatIsPlayer: false, chaseStart: 0, altitude: 0, stride: 0, peacefulAcc: 0, trough: null, ride: null, lastHurtAt: -1e9 };
       this.rt.set(a.id, r);
     }
     return r;
@@ -89,6 +113,46 @@ export class AnimalBrain {
 
   altitude(a: AnimalData): number {
     return this.rt.get(a.id)?.altitude ?? 0;
+  }
+
+  /** Player steering input for a ridden animal (null to release). */
+  setRide(a: AnimalData, input: RideInput | null): void {
+    this.runtime(a).ride = input;
+  }
+
+  /**
+   * Immediate reaction to a wound: stagger, then flee when badly hurt or
+   * retaliate if the species defends itself and the individual is brave.
+   */
+  onHurt(a: AnimalData, fromX: number, fromZ: number, byPlayer: boolean, now: number): void {
+    if (!a.alive) return;
+    const sp = SPECIES[a.speciesId];
+    const r = this.runtime(a);
+    r.threatX = fromX;
+    r.threatZ = fromZ;
+    r.threatIsPlayer = byPlayer;
+    r.lastHurtAt = now;
+    a.speed *= 0.4;
+    if (a.tame) return;
+    const ratio = a.health / maxHealth(a, now);
+    const brave = (a.personality.courage + a.personality.aggression) / 2;
+    if (ratio < 0.3 || (sp.threat.response === 'flee' && ratio < 0.9)) {
+      this.setState(a, 'flee');
+    } else if (byPlayer && (sp.threat.response === 'charge' || sp.threat.response === 'defend' || sp.threat.response === 'mob') && brave > 0.35 && lifeStage(a, now) !== 'juvenile') {
+      a.targetId = PLAYER_ID;
+      this.setState(a, 'defend');
+    }
+  }
+
+  /** Scared off by a flare, fire or loud noise. */
+  onScare(a: AnimalData, fromX: number, fromZ: number, now: number): void {
+    const r = this.runtime(a);
+    r.threatX = fromX;
+    r.threatZ = fromZ;
+    r.threatIsPlayer = false;
+    a.fear = 1;
+    remember(a, { kind: 'danger', x: fromX, z: fromZ, strength: 0.8, subject: 'fire' }, now);
+    this.setState(a, 'flee');
   }
 
   setState(a: AnimalData, s: AIState): void {
@@ -120,6 +184,23 @@ export class AnimalBrain {
 
     if (exertion) a.stamina = clamp(a.stamina - dt / sp.stamina, 0, 1);
     else a.stamina = clamp(a.stamina + dt / (sp.stamina * 2.5), 0, 1);
+
+    // Ridden: the rider steers; the animal still tires, hungers and animates.
+    if (a.tame?.ridden) {
+      this.setState(a, 'ridden');
+      const ride = r.ride ?? { heading: a.heading, speed: 0 };
+      const speed = a.stamina > 0.05 ? ride.speed : Math.min(ride.speed, sp.walkSpeed);
+      this.locomote(a, sp, r, w, dt, a.x + Math.sin(ride.heading) * 20, a.z + Math.cos(ride.heading) * 20, speed, 0, true);
+      return;
+    }
+    // Snared: struggles in place.
+    if (a.heldUntil && a.heldUntil > w.now) {
+      a.speed = 0;
+      a.fear = Math.min(1, a.fear + dt * 0.1);
+      this.setState(a, 'alert');
+      a.heading += Math.sin(w.now * 7) * dt;
+      return;
+    }
 
     if (a.alarmAt > 0 && w.now >= a.alarmAt) {
       a.alarmAt = -1;
@@ -181,6 +262,20 @@ export class AnimalBrain {
       }
     }
 
+    if (a.tame) {
+      this.thinkTame(a, sp, r, w);
+      return;
+    }
+
+    // --- Badly wounded animals disengage (unless guarding young).
+    if (a.health / maxHealth(a, now) < 0.3 && now - r.lastHurtAt < 30 && a.state !== 'flee') {
+      const guarding = sp.reproduction.parentalCare > 0.5 && w.neighbors(a, 25).some((o) => o.groupId === a.groupId && lifeStage(o, now) === 'juvenile');
+      if (!guarding) {
+        this.setState(a, 'flee');
+        return;
+      }
+    }
+
     // --- Perception of the player.
     const p = w.player;
     const dp = Math.hypot(p.x - a.x, p.z - a.z);
@@ -190,7 +285,13 @@ export class AnimalBrain {
       const angTo = Math.atan2(p.x - a.x, p.z - a.z);
       const inFov = Math.abs(angleDiff(a.heading, angTo)) < ((sp.senses.fovDeg / 2) * Math.PI) / 180;
       const seen = dp < sightRange * p.visibility && (inFov || dp < 8);
-      seesPlayer = heard || seen;
+      // Scent travels downwind: an animal downwind of the player can smell them.
+      let smelled = false;
+      if (w.wind && dp > 0.1 && dp < sp.senses.smell * 0.6) {
+        const dot = ((a.x - p.x) * w.wind.x + (a.z - p.z) * w.wind.z) / dp;
+        smelled = dot > 0.5;
+      }
+      seesPlayer = heard || seen || smelled;
     }
 
     // --- Perception of other animals.
@@ -318,6 +419,112 @@ export class AnimalBrain {
     }
   }
 
+  /**
+   * Tamed animals: same needs and fears as wild ones, but their routine is
+   * organised around the player's commands and base (troughs, anchors).
+   */
+  private thinkTame(a: AnimalData, sp: SpeciesDef, r: Runtime, w: AIWorld): void {
+    const t = a.tame!;
+    const now = w.now;
+    const stage = lifeStage(a, now);
+    const myMass = effectiveMass(a, now);
+    const p = w.player;
+    const dp = Math.hypot(p.x - a.x, p.z - a.z);
+    const fighter = (canUse(a.speciesId, 'companion') || canUse(a.speciesId, 'guard')) && stage !== 'juvenile' && a.personality.courage + t.bond * 0.3 > 0.4;
+
+    if (a.state === 'flee' && a.stateTime < 5) return;
+    if (a.state === 'defend' && this.continueEngagement(a, sp, r, w)) return;
+
+    // Help the player in a fight.
+    const ct = w.companionTarget ? w.get(w.companionTarget) : undefined;
+    if (fighter && ct && ct.alive && !ct.tame && Math.hypot(ct.x - a.x, ct.z - a.z) < 45) {
+      a.targetId = ct.id;
+      this.setState(a, 'defend');
+      return;
+    }
+    // Wild predators nearby: defend (guards, brave fighters) or run.
+    let threat: AnimalData | null = null;
+    let td = Infinity;
+    for (const o of w.neighbors(a, 40)) {
+      if (o === a || !o.alive || o.tame) continue;
+      if (!isPredator(SPECIES[o.speciesId]) || effectiveMass(o, now) < myMass * 0.3) continue;
+      const d = Math.hypot(o.x - a.x, o.z - a.z);
+      const hunting = o.state === 'hunt' && (o.targetId === a.id || o.targetId === PLAYER_ID);
+      const nearAnchor = t.command === 'guard' && Math.hypot(o.x - t.anchorX, o.z - t.anchorZ) < 30;
+      if ((d < 18 || hunting || nearAnchor) && d < td) {
+        threat = o;
+        td = d;
+      }
+    }
+    if (threat) {
+      if (fighter && effectiveMass(threat, now) < myMass * 4 && (t.command === 'guard' || threat.state === 'hunt')) {
+        a.targetId = threat.id;
+        this.setState(a, 'defend');
+      } else {
+        r.threatX = threat.x;
+        r.threatZ = threat.z;
+        r.threatIsPlayer = false;
+        this.setState(a, 'flee');
+      }
+      return;
+    }
+
+    // Needs first: tamed animals are not machines.
+    if (a.state === 'drink' && a.thirst > 0.05) return;
+    if (a.state === 'graze' && a.hunger > 0.08 && a.stateTime < 60) return;
+    if (a.state === 'eat' && this.continueEngagement(a, sp, r, w)) return;
+    if (a.thirst > 0.6 && this.findWater(a, sp, w)) {
+      this.setState(a, 'drink');
+      return;
+    }
+    if (a.hunger > 0.5) {
+      const tr = w.troughFood?.(a) ?? null;
+      if (tr) {
+        r.trough = tr;
+        a.tx = tr.x;
+        a.tz = tr.z;
+        this.setState(a, 'graze');
+        return;
+      }
+      if (!isPredator(sp)) {
+        this.chooseForage(a, w);
+        this.setState(a, 'graze');
+        return;
+      }
+      if (t.command !== 'stay' && this.chooseHuntTarget(a, sp, r, w, w.neighbors(a, sp.senses.sight))) return;
+    }
+    const playerFar = t.command === 'follow' && dp > 15;
+    if (a.state === 'rest' && a.fatigue > 0.1 && !playerFar) return;
+    if (a.fatigue > 0.85 && !playerFar) {
+      this.setState(a, 'rest');
+      return;
+    }
+
+    // Commands (individuals with little training sometimes wander off).
+    const restless = t.obedience < 0.3 && w.random() < 0.05;
+    if (t.command === 'follow' && p.alive && !restless) {
+      if (dp > 3 + sp.lengthM * 0.6) {
+        a.targetId = PLAYER_ID;
+        this.setState(a, 'follow');
+      } else if (a.state !== 'idle') this.setState(a, 'idle');
+      return;
+    }
+    const radius = t.command === 'stay' ? (restless ? 10 : 2) : 18;
+    const da = Math.hypot(a.x - t.anchorX, a.z - t.anchorZ);
+    if (t.command === 'stay' && da < 3 && !restless) {
+      if (a.state !== 'idle') this.setState(a, 'idle');
+      return;
+    }
+    if (a.state === 'wander' && Math.hypot(a.tx - a.x, a.tz - a.z) > 2 && a.stateTime < 30) return;
+    if (da > radius || w.random() < 0.4) {
+      const ang = w.random() * Math.PI * 2;
+      const d = Math.sqrt(w.random()) * radius;
+      a.tx = t.anchorX + Math.sin(ang) * d;
+      a.tz = t.anchorZ + Math.cos(ang) * d;
+      this.setState(a, 'wander');
+    } else this.setState(a, 'idle');
+  }
+
   private reactToPlayer(a: AnimalData, sp: SpeciesDef, r: Runtime, w: AIWorld, dp: number, juvenileNear: boolean, groupNear: number): boolean {
     const now = w.now;
     const p = w.player;
@@ -334,6 +541,7 @@ export class AnimalBrain {
     if (p.running) flight *= 1.3;
     if (stage === 'juvenile') flight = Math.max(flight, 12) * 1.3;
     if (p.hasFire && !isPredator(sp)) flight *= 1.2;
+    flight *= w.playerCalm ?? 1;
 
     // Predators: is the player food?
     if (isPredator(sp) && sp.huntsHumans && stage !== 'juvenile') {
@@ -474,7 +682,7 @@ export class AnimalBrain {
     let best: AnimalData | null = null;
     let bestScore = 0;
     for (const o of near) {
-      if (o === a || o.groupId === a.groupId) continue;
+      if (o === a || o.groupId === a.groupId || (a.tame && o.tame)) continue;
       const osp = SPECIES[o.speciesId];
       const d = Math.hypot(o.x - a.x, o.z - a.z);
       if (!o.alive) {
@@ -628,6 +836,16 @@ export class AnimalBrain {
         }
         break;
       case 'follow': {
+        if (a.targetId === PLAYER_ID) {
+          tx = w.player.x;
+          tz = w.player.z;
+          const d = Math.hypot(tx - a.x, tz - a.z);
+          const spacing = 3 + sp.lengthM * 0.6;
+          targetSpeed = d > spacing * 4 ? run : d > spacing ? walk * 1.3 : 0;
+          if (sp.locomotion.flies) wantAlt = d > 20 ? 20 : 8;
+          if (targetSpeed === 0 && !sp.locomotion.flies) this.setState(a, 'idle');
+          break;
+        }
         const l = a.targetId ? w.get(a.targetId) : undefined;
         if (!l) {
           this.setState(a, 'idle');
@@ -643,8 +861,15 @@ export class AnimalBrain {
       }
       case 'graze': {
         const d = Math.hypot(tx - a.x, tz - a.z);
-        if (d > 2.5) targetSpeed = walk;
-        else {
+        if (d > 2.5 + (r.trough ? sp.lengthM * 0.4 : 0)) targetSpeed = walk;
+        else if (r.trough) {
+          const got = r.trough.eat();
+          a.hunger = clamp(a.hunger - got, 0, 1);
+          if (got <= 0 || a.hunger < 0.08) {
+            r.trough = null;
+            this.setState(a, 'idle');
+          }
+        } else {
           const eaten = w.eatForage(a.x, a.z, dt * 0.02 * sp.foodNeed);
           a.hunger = clamp(a.hunger - eaten * 1.6, 0, 1);
           if (eaten < dt * 0.002) this.chooseForage(a, w);
@@ -731,15 +956,15 @@ export class AnimalBrain {
     this.locomote(a, sp, r, w, dt, tx, tz, targetSpeed, wantAlt);
   }
 
-  private locomote(a: AnimalData, sp: SpeciesDef, r: Runtime, w: AIWorld, dt: number, tx: number, tz: number, targetSpeed: number, wantAlt: number): void {
+  private locomote(a: AnimalData, sp: SpeciesDef, r: Runtime, w: AIWorld, dt: number, tx: number, tz: number, targetSpeed: number, wantAlt: number, manual = false): void {
     const flies = sp.locomotion.flies;
     const airborne = flies && r.altitude > 2;
     const desired = Math.atan2(tx - a.x, tz - a.z);
-    const turn = sp.locomotion.turnRate * (a.speed < 1 ? 1.5 : 1) * dt;
+    const turn = sp.locomotion.turnRate * (a.speed < 1 ? 1.5 : 1) * (manual ? 1.6 : 1) * dt;
     if (Math.hypot(tx - a.x, tz - a.z) > 0.5) a.heading += clamp(angleDiff(a.heading, desired), -turn, turn);
 
     // Obstacle and terrain avoidance (probe ahead).
-    if (!airborne && targetSpeed > 0) {
+    if (!airborne && targetSpeed > 0 && !manual) {
       const probe = 2 + sp.lengthM * 0.5 + a.speed * 0.6;
       const px = a.x + Math.sin(a.heading) * probe;
       const pz = a.z + Math.cos(a.heading) * probe;
@@ -755,7 +980,8 @@ export class AnimalBrain {
     if (a.speed < 0.02) a.speed = 0;
     const nx = a.x + Math.sin(a.heading) * a.speed * dt;
     const nz = a.z + Math.cos(a.heading) * a.speed * dt;
-    if (airborne || !w.blocked(nx, nz, sp.lengthM * 0.12 + 0.25)) {
+    const deep = manual && !sp.locomotion.swims && w.terrain.height(nx, nz) < -1.2;
+    if (!deep && (airborne || !w.blocked(nx, nz, sp.lengthM * 0.12 + 0.25))) {
       a.x = nx;
       a.z = nz;
     } else a.speed *= 0.5;

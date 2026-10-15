@@ -3,6 +3,7 @@ import { clamp } from '../core/math';
 import { SPECIES, type SpeciesDef } from './species';
 
 export type AIState =
+  | 'ridden'
   | 'idle' | 'wander' | 'graze' | 'drink' | 'rest' | 'follow' | 'alert' | 'investigate'
   | 'flee' | 'hunt' | 'eat' | 'defend' | 'shelter' | 'nest';
 
@@ -26,6 +27,29 @@ export interface Personality {
   sociability: number;
   tolerance: number;
   flightiness: number;
+}
+
+export type TameCommand = 'follow' | 'stay' | 'roam' | 'guard';
+
+/** State of an animal that trusts the player enough to live with them. */
+export interface TameState {
+  name: string;
+  /** 0..1: how reliably it follows commands (grows with training). */
+  obedience: number;
+  /** 0..1: emotional bond (grows with care, drops with neglect/abuse). */
+  bond: number;
+  command: TameCommand;
+  anchorX: number;
+  anchorZ: number;
+  imprinted: boolean;
+  /** Game time of the last feeding by the player. */
+  fedAt: number;
+  /** Game time of the last successful command (training). */
+  trainedAt: number;
+  /** Runtime-only: currently carrying the player. */
+  ridden?: boolean;
+  /** Game time of last gathered resource delivery. */
+  gatheredAt: number;
 }
 
 export interface AnimalData {
@@ -72,6 +96,11 @@ export interface AnimalData {
   alarmAt: number;
   alarmX: number;
   alarmZ: number;
+  /** 0..1 progress toward accepting the player (taming). */
+  tameProgress: number;
+  tame: TameState | null;
+  /** Game time until which a snare holds the animal in place. */
+  heldUntil?: number;
 }
 
 export type LifeStage = 'juvenile' | 'subadult' | 'adult';
@@ -169,6 +198,8 @@ export function createAnimal(o: NewAnimalOpts): AnimalData {
     alarmAt: -1,
     alarmX: 0,
     alarmZ: 0,
+    tameProgress: 0,
+    tame: null,
   };
   a.health = maxHealth(a, o.bornAt);
   return a;

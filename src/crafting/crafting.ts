@@ -14,16 +14,21 @@ export interface CraftJob {
   consumed: ItemList;
 }
 
-export type CraftError = 'unknown' | 'locked' | 'station' | 'materials';
+export type CraftError = 'unknown' | 'locked' | 'station' | 'tool' | 'materials';
 
 export class Crafting {
   queue: CraftJob[] = [];
+  /** Skill effects: time multiplier and chance to save one input on completion. */
+  timeMultiplier = 1;
+  refundChance = 0;
+  random: () => number = Math.random;
 
   constructor(public unlocked: Set<string> = new Set()) {}
 
   check(r: Recipe, inv: Inventory, stations: Set<Station>): CraftError | null {
     if (r.unlock && !this.unlocked.has(r.unlock)) return 'locked';
     if (r.station !== 'hand' && !stations.has(r.station)) return 'station';
+    if (r.tool && !r.tool.some((t) => inv.count(t) > 0)) return 'tool';
     if (!inv.has(r.inputs)) return 'materials';
     return null;
   }
@@ -34,7 +39,7 @@ export class Crafting {
     const err = this.check(r, inv, stations);
     if (err) return err;
     if (!inv.removeAll(r.inputs)) return 'materials';
-    this.queue.push({ recipeId, remaining: r.time, consumed: { ...r.inputs } });
+    this.queue.push({ recipeId, remaining: r.time * this.timeMultiplier, consumed: { ...r.inputs } });
     return null;
   }
 
@@ -64,6 +69,12 @@ export class Crafting {
       const left = inv.add(r.output, r.qty);
       if (left > 0) overflow[r.output] = left;
       completed.push(r.id);
+      // Thrifty crafters sometimes save a unit of material.
+      if (this.refundChance > 0 && this.random() < this.refundChance) {
+        const ids = Object.keys(job.consumed);
+        const back = ids[Math.floor(this.random() * ids.length)];
+        if (back && inv.add(back, 1) > 0) overflow[back] = (overflow[back] ?? 0) + 1;
+      }
     }
     return { completed, overflow };
   }

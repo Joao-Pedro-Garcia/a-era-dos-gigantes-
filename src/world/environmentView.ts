@@ -24,6 +24,10 @@ export class EnvironmentView {
   private fireMat: THREE.PointsMaterial;
   private sunDir = new THREE.Vector3();
   readonly fog: THREE.FogExp2;
+  /** Inside a cave: no sky light, dark fog. */
+  indoor = false;
+  private particles = 1;
+  private effects = true;
 
   constructor(scene: THREE.Scene, private env: Environment) {
     this.sky.scale.setScalar(20000);
@@ -89,6 +93,9 @@ export class EnvironmentView {
   }
 
   applyQuality(q: QualityProfile): void {
+    this.particles = q.particles;
+    this.effects = q.effects;
+    this.rain.geometry.setDrawRange(0, Math.floor((this.rainPos.length / 3) * Math.max(0.05, q.particles)));
     this.sun.castShadow = q.shadows;
     this.sun.shadow.mapSize.set(q.shadowMapSize, q.shadowMapSize);
     this.sun.shadow.map?.dispose();
@@ -124,13 +131,20 @@ export class EnvironmentView {
     if (env.eruptionActive) fogC.lerp(new THREE.Color(0x4a3a30), 0.3);
     this.fog.color.copy(fogC);
     this.fog.density = 0.0014 + env.fogDensity * 0.012;
+    this.sky.visible = !this.indoor;
+    if (this.indoor) {
+      this.sun.intensity = 0;
+      this.hemi.intensity = 0.04;
+      this.fog.color.setRGB(0.01, 0.01, 0.012);
+      this.fog.density = 0.03;
+    }
 
     // Water follows the player (it's an infinite sea at waterLevel).
     this.water.position.set(Math.round(focus.x / 50) * 50, env.waterLevel, Math.round(focus.z / 50) * 50);
 
     // Precipitation.
     const precip = s.weather === 'rain' || s.weather === 'storm' ? s.intensity : 0;
-    this.rain.visible = precip > 0.05;
+    this.rain.visible = precip > 0.05 && !this.indoor && this.particles > 0;
     if (this.rain.visible) {
       const mat = this.rain.material as THREE.LineBasicMaterial;
       mat.opacity = 0.35 * precip;
@@ -163,8 +177,8 @@ export class EnvironmentView {
 
     // Volcano.
     const erupt = env.eruptionActive;
-    this.smoke.visible = erupt;
-    this.volcanoLight.intensity = erupt ? 40000 : 2500;
+    this.smoke.visible = erupt && this.effects && !this.indoor;
+    this.volcanoLight.intensity = !this.effects ? 0 : erupt ? 40000 : 2500;
     if (erupt) this.smoke.rotation.y += dt * 0.05;
   }
 
@@ -201,11 +215,12 @@ export class EnvironmentView {
       }
       pts.userData.fresh = false;
       pts.geometry.attributes.position.needsUpdate = true;
+      pts.geometry.setDrawRange(0, Math.floor(300 * Math.max(0.1, this.particles)));
       const d = Math.hypot(f.x - focus.x, f.z - focus.z);
       if (d < nearest) {
         nearest = d;
         this.fireLight.position.set(f.x, focus.y + 6, f.z);
-        this.fireLight.intensity = 400 * f.intensity;
+        this.fireLight.intensity = this.effects ? 400 * f.intensity : 0;
       }
     });
     if (!fires.length) this.fireLight.intensity = 0;

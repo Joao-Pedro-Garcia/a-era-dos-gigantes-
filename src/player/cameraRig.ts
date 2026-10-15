@@ -18,7 +18,8 @@ export class CameraRig {
     this.distance = clamp(this.distance + steps * 0.8, 2.2, 12);
   }
 
-  update(dt: number, p: PlayerController, firstPerson: boolean, terrain: Terrain, collision: CollisionWorld): void {
+  update(dt: number, p: PlayerController, firstPerson: boolean, terrain: Terrain | ((x: number, z: number) => number), collision: CollisionWorld, maxDistance = Infinity): void {
+    const height = typeof terrain === 'function' ? terrain : (x: number, z: number) => terrain.height(x, z);
     const s = p.s;
     const eye = p.crouching ? 1.05 : p.swimming ? 1.5 : 1.65;
     const head = new THREE.Vector3(s.x, s.y + eye, s.z);
@@ -34,16 +35,17 @@ export class CameraRig {
     const dir = new THREE.Vector3(Math.sin(s.yaw) * cp, Math.sin(s.pitch), Math.cos(s.yaw) * cp);
     const shoulder = new THREE.Vector3(-Math.cos(s.yaw), 0, Math.sin(s.yaw)).multiplyScalar(0.45);
     const target = head.clone().add(shoulder);
-    let dist = this.distance;
+    const wanted = Math.min(this.distance, maxDistance);
+    let dist = wanted;
     // March back from the head and stop before terrain or solid colliders.
     const steps = 16;
     for (let i = 1; i <= steps; i++) {
-      const d = (i / steps) * this.distance;
+      const d = (i / steps) * wanted;
       const x = target.x - dir.x * d;
       const y = target.y - dir.y * d;
       const z = target.z - dir.z * d;
-      if (y < terrain.height(x, z) + 0.35 || collision.blocked(x, z, 0.2, y - 0.2, 0.4)) {
-        dist = Math.max(0.6, ((i - 1) / steps) * this.distance);
+      if (y < height(x, z) + 0.35 || collision.blocked(x, z, 0.2, y - 0.2, 0.4)) {
+        dist = Math.max(0.6, ((i - 1) / steps) * wanted);
         break;
       }
     }

@@ -1,4 +1,4 @@
-import { SAVE_VERSION, migrate, sanitize, type SaveData } from './saveData';
+import { SAVE_VERSION, SaveError, migrate, sanitize, withChecksum, type SaveData } from './saveData';
 
 /**
  * IndexedDB persistence. Writes go through a single transaction so a crash
@@ -29,7 +29,7 @@ export async function writeSave(slot: string, data: SaveData): Promise<void> {
       const prev = store.get(slot);
       prev.onsuccess = () => {
         if (prev.result) store.put(prev.result, `${slot}.backup`);
-        store.put({ ...data, version: SAVE_VERSION, savedAt: Date.now() }, slot);
+        store.put(withChecksum({ ...data, version: SAVE_VERSION, savedAt: Date.now() }), slot);
       };
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
@@ -38,6 +38,22 @@ export async function writeSave(slot: string, data: SaveData): Promise<void> {
   } finally {
     db.close();
   }
+}
+
+/**
+ * Reads a save; if it is corrupted, falls back to the backup slot automatically.
+ * `fromBackup` tells the caller so it can inform the player.
+ */
+export async function loadWithFallback(slot: string): Promise<{ data: SaveData; issues: string[]; fromBackup: boolean; error?: string } | null> {
+  try {
+    const r = await readSave(slot);
+    if (r) return { ...r, fromBackup: false };
+  } catch (e) {
+    const b = await readSave(`${slot}.backup`).catch(() => null);
+    if (b) return { ...b, fromBackup: true, error: String(e) };
+    throw e;
+  }
+  return null;
 }
 
 export async function readSave(slot: string): Promise<{ data: SaveData; issues: string[] } | null> {
@@ -73,12 +89,22 @@ export async function deleteSave(slot: string): Promise<void> {
 }
 
 export function exportSave(data: SaveData): Blob {
-  return new Blob([JSON.stringify(data)], { type: 'application/json' });
+  return new Blob([JSON.stringify(withChecksum({ ...data, version: SAVE_VERSION }))], { type: 'application/json' });
 }
 
-export async function importSave(file: Blob): Promise<SaveData> {
+/** Max accepted import size (a large world is ~2–4 MB). */
+export const MAX_IMPORT_BYTES = 32 * 1024 * 1024;
+
+export async function importSave(file: Blob): Promise<{ data: SaveData; issues: string[] }> {
+  if (file.size > MAX_IMPORT_BYTES) throw new SaveError('structure', 'size');
   const text = await file.text();
-  const data = migrate(JSON.parse(text));
-  sanitize(data);
-  return data;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new SaveError('json');
+  }
+  const data = migrate(parsed);
+  const issues = sanitize(data);
+  return { data, issues };
 }

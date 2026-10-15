@@ -1,54 +1,30 @@
 import { DEFAULT_SETTINGS, WORLD, type Settings } from '../core/config';
+import type { Game } from '../core/game';
 import { SPECIES, SPECIES_IDS } from '../animals/species';
 import { PIECES, type PieceType } from '../building/building';
-import type { Crafting } from '../crafting/crafting';
-import { RECIPES, type Station } from '../crafting/recipes';
-import type { Action, Input } from '../input/input';
-import type { Inventory, Stack } from '../inventory/inventory';
+import { RECIPES } from '../crafting/recipes';
+import { CELL, GRID_N } from '../exploration/exploration';
+import type { Action } from '../input/input';
+import type { Stack } from '../inventory/inventory';
 import { ITEMS, type EquipSlot } from '../inventory/items';
-import { t, setLanguage } from '../localization/i18n';
+import { language, setLanguage, t } from '../localization/i18n';
+import { DOCS } from '../mysteries/mysteries';
+import { SKILLS } from '../progression/skills';
 import type { SurvivalData } from '../survival/survival';
-import { BIOMES } from '../world/biomes';
-import type { Terrain } from '../world/terrain';
+import { TAME_PROFILES } from '../taming/profiles';
+import { obeyChance } from '../taming/taming';
+import { BIOMES, type BiomeId } from '../world/biomes';
+import type { WeatherKind } from '../world/environment';
 
-/** Everything the UI is allowed to ask of the game. */
-export interface GameApi {
-  input: Input;
-  inventory: Inventory;
-  crafting: Crafting;
-  settings: Settings;
-  terrain: Terrain | null;
-  selectedHotbar: number;
-  buildPiece: PieceType;
-  buildSnap: boolean;
-  building: boolean;
-  seenSpecies: Set<string>;
-  discovered: Set<string>;
-  hasSave: boolean;
-  openStorageItems(): (Stack | null)[] | null;
-  stations(): Set<Station>;
-  craft(id: string): void;
-  cancelCraft(i: number): void;
-  useSlot(i: number): void;
-  dropSlot(i: number): void;
-  equipSlot(i: number): void;
-  unequip(slot: EquipSlot): void;
-  moveSlot(a: number, b: number): void;
-  assignHotbar(slot: number, hot: number): void;
-  sortInventory(): void;
-  storageTransfer(dir: 'in' | 'out', index: number): void;
-  setBuildPiece(p: PieceType): void;
-  toggleBuild(): void;
-  applySettings(s: Partial<Settings>): void;
-  newGame(seed: number): void;
-  continueGame(): void;
-  save(): void;
-  exportSave(): void;
-  importSave(f: File): void;
-  respawn(): void;
-  quitToMenu(): void;
-  resume(): void;
-  mapMarkers(): { x: number; z: number; kind: 'player' | 'site' | 'bag' | 'bed'; label?: string; heading?: number }[];
+/** The UI talks to the game through its public methods. */
+export type GameApi = Game;
+
+export interface MapMarker {
+  x: number;
+  z: number;
+  kind: 'player' | 'site' | 'bag' | 'bed' | 'marker' | 'tame' | 'landmark';
+  label?: string;
+  heading?: number;
 }
 
 const ICON: Partial<Record<string, string>> = {
@@ -56,7 +32,9 @@ const ICON: Partial<Record<string, string>> = {
   ice: '🧊', herb: '🌿', cycad_fronds: '🌴', fern_fronds: '🌱', berries: '🫐', raw_meat: '🥩', cooked_meat: '🍖', raw_fish: '🐟', egg: '🥚',
   waterskin: '👝', waterskin_full: '💧', stone_axe: '🪓', stone_pickaxe: '⛏', stone_knife: '🔪', spear: '🗡', obsidian_spear: '🗡', bow: '🏹', arrow: '➶',
   torch: '🔥', bandage: '🩹', herbal_poultice: '🌿', hide_hood: '🧢', hide_tunic: '🧥', hide_leggings: '👖', fur_coat: '🧥', backpack: '🎒',
-  trap_snare: '🪢', field_journal: '📔', research_scanner: '📡',
+  trap_snare: '🪢', field_journal: '📔', research_scanner: '📡', rope: '🧶', metal_ingot: '🧱', crystal: '💎', fossil: '🦴', dino_egg: '🥚',
+  feed_mix: '🥗', metal_axe: '🪓', metal_pickaxe: '⛏', metal_knife: '🔪', metal_spear: '🔱', splint: '🦯', antidote: '🧪', spyglass: '🔭',
+  compass: '🧭', radio_receiver: '📻', battery: '🔋', flare: '🧨', keycard: '💳', calibration_core: '🔶',
 };
 
 const h = <K extends keyof HTMLElementTagNameMap>(tag: K, cls = '', html = ''): HTMLElementTagNameMap[K] => {
@@ -66,9 +44,13 @@ const h = <K extends keyof HTMLElementTagNameMap>(tag: K, cls = '', html = ''): 
   return e;
 };
 
-const itemName = (id: string) => t(`item.${id}`);
+/** Escapes text for safe insertion into innerHTML (names typed by the player, loaded saves). */
+export const esc = (s: string): string => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
-export type PanelTab = 'inventory' | 'crafting' | 'journal' | 'map' | 'storage';
+const itemName = (id: string) => t(`item.${id}`);
+const stackName = (s: Stack) => (s.sp ? `${itemName(s.id)} (${SPECIES[s.sp]?.name[language()] ?? '?'})` : itemName(s.id));
+
+export type PanelTab = 'inventory' | 'crafting' | 'skills' | 'animals' | 'journal' | 'map' | 'storage';
 
 export class Hud {
   readonly root: HTMLElement;
@@ -76,11 +58,15 @@ export class Hud {
   private statusEl: HTMLElement;
   private topEl: HTMLElement;
   private perfEl: HTMLElement;
+  private radioEl: HTMLElement;
   private notesEl: HTMLElement;
   private promptEl: HTMLElement;
   private hotbarEl: HTMLElement;
+  private xpEl: HTMLElement;
+  private captionsEl: HTMLElement;
   private buildEl: HTMLElement;
   private panelEl: HTMLElement;
+  private docEl: HTMLElement;
   private menuEl: HTMLElement;
   private touchEl: HTMLElement;
   private flashEl: HTMLElement;
@@ -88,12 +74,19 @@ export class Hud {
   tab: PanelTab = 'inventory';
   private picked: number | null = null;
   private filter = 'all';
+  private journalTab: 'species' | 'docs' | 'discoveries' = 'species';
+  private settingsTab: 'general' | 'graphics' | 'audio' | 'access' = 'general';
   private mapCanvas: HTMLCanvasElement | null = null;
+  private mapSeed = -1;
   private mapRow = 0;
+  private mapZoom = 1;
   private lastHotbarKey = '';
+  private lastPanelKey = '';
   panelOpen = false;
   menuOpen = false;
+  documentOpen = false;
   private rebinding: Action | null = null;
+  private offlineText = '';
 
   constructor(private game: GameApi) {
     this.root = document.getElementById('ui')!;
@@ -105,19 +98,24 @@ export class Hud {
       ['health', '❤', '#d4553f'], ['food', '🍖', '#d9a04a'], ['water', '💧', '#5aa7d6'], ['energy', '⚡', '#c6c06a'], ['stamina', '💨', '#9bd0a0'],
     ];
     for (const [k, icon, color] of defs) {
-      const row = h('div', 'bar', `<span title="${t(`stat.${k}`)}">${icon}</span><div class="track"><div class="fill" style="background:${color}"></div></div>`);
+      const row = h('div', 'bar', `<span title="${t(`stat.${k}`)}" aria-label="${t(`stat.${k}`)}">${icon}</span><div class="track" role="progressbar" aria-label="${t(`stat.${k}`)}"><div class="fill" style="background:${color}"></div></div>`);
       bars.appendChild(row);
       this.bars[k] = row;
     }
     this.statusEl = bars.appendChild(h('div', 'status'));
     this.topEl = this.add(h('div', 'top'));
     this.perfEl = this.add(h('div', 'perf hidden'));
+    this.radioEl = this.add(h('div', 'radio hidden'));
     this.notesEl = this.add(h('div', 'notes'));
+    this.notesEl.setAttribute('aria-live', 'polite');
     this.promptEl = this.add(h('div', 'prompt hidden'));
+    this.xpEl = this.add(h('div', 'xp-toast hidden'));
+    this.captionsEl = this.add(h('div', 'captions'));
     this.hotbarEl = this.add(h('div', 'hotbar'));
     this.buildEl = this.add(h('div', 'buildbar interactive hidden'));
     this.touchEl = this.add(h('div', 'touch hidden'));
     this.panelEl = this.add(h('div', 'panel hidden'));
+    this.docEl = this.add(h('div', 'doc hidden'));
     this.menuEl = this.add(h('div', 'menu hidden'));
     this.buildTouch();
     this.setTouchMode(game.input.mode === 'touch');
@@ -126,6 +124,18 @@ export class Hud {
   private add<T extends HTMLElement>(e: T): T {
     this.root.appendChild(e);
     return e;
+  }
+
+  applyAccessibility(s: Settings): void {
+    document.documentElement.style.setProperty('--ui-scale', String(s.uiScale));
+    document.body.classList.toggle('high-contrast', s.highContrast);
+    document.body.classList.toggle('reduce-motion', s.reduceMotion);
+  }
+
+  setOfflineStatus(text: string): void {
+    this.offlineText = text;
+    const el = this.menuEl.querySelector('.offline-status');
+    if (el) el.textContent = text;
   }
 
   setTouchMode(on: boolean): void {
@@ -138,6 +148,7 @@ export class Hud {
     if (!on) {
       this.promptEl.classList.add('hidden');
       this.buildEl.classList.add('hidden');
+      this.radioEl.classList.add('hidden');
     }
     this.touchEl.classList.toggle('hidden', !on || this.game.input.mode !== 'touch');
   }
@@ -148,6 +159,7 @@ export class Hud {
     const set = (k: string, v: number) => {
       const el = this.bars[k];
       (el.querySelector('.fill') as HTMLElement).style.width = `${Math.max(0, Math.min(100, v))}%`;
+      el.querySelector('.track')!.setAttribute('aria-valuenow', String(Math.round(v)));
       el.classList.toggle('low', v < 20);
     };
     set('health', d.health);
@@ -167,16 +179,28 @@ export class Hud {
     if (this.statusEl.innerHTML !== html) this.statusEl.innerHTML = html;
   }
 
-  updateTop(day: number, frac: number, weather: string, biome: string, yaw: number): void {
+  updateTop(day: number, frac: number, weather: WeatherKind, biome: BiomeId | 'cave', yaw: number, dirMode: 'exact' | 'sun' | 'none', forecast: { next: WeatherKind; inSeconds: number } | null): void {
     const hours = Math.floor(frac * 24);
     const mins = Math.floor((frac * 24 - hours) * 60);
-    const dirs = ['N', 'NE', 'L', 'SE', 'S', 'SO', 'O', 'NO'];
+    const dirs = t('dir.compass').split(',');
     // yaw 0 faces +z (south); north is -z.
-    const deg = ((180 - (yaw * 180) / Math.PI) % 360 + 360) % 360;
-    const dir = dirs[Math.round(deg / 45) % 8];
-    const icon = { clear: '☀', cloudy: '☁', rain: '🌧', storm: '⛈', fog: '🌫' }[weather] ?? '';
-    const html = `<span class="compass">${dir}</span><span>${t('hud.day', { d: day + 1 })} · ${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}</span><span>${icon}</span><span class="muted">${t(`biome.${biome}`)}</span>`;
+    const deg = (((180 - (yaw * 180) / Math.PI) % 360) + 360) % 360;
+    let dir = '?';
+    if (dirMode === 'exact') dir = dirs[Math.round(deg / 45) % 8];
+    else if (dirMode === 'sun') dir = `☀ ~${dirs[(Math.round(deg / 90) * 2) % 8]}`;
+    const icon: Record<WeatherKind, string> = { clear: '☀', cloudy: '☁', rain: '🌧', storm: '⛈', fog: '🌫' };
+    const fc = forecast ? ` <span class="muted">→ ${icon[forecast.next]} ${Math.ceil(forecast.inSeconds / 60)}min</span>` : '';
+    const place = biome === 'cave' ? t('cave.name') : t(`biome.${biome}`);
+    const html = `<span class="compass">${dir}</span><span>${t('hud.day', { d: day + 1 })} · ${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}</span><span>${icon[weather]}${fc}</span><span class="muted">${place}</span>`;
     if (this.topEl.innerHTML !== html) this.topEl.innerHTML = html;
+  }
+
+  radio(r: { strength: number; bearing: number } | null): void {
+    this.radioEl.classList.toggle('hidden', !r);
+    if (!r) return;
+    const bars = Math.round(r.strength * 5);
+    const arrow = ['↑', '↖', '←', '↙', '↓', '↘', '→', '↗'][((Math.round(r.bearing / (Math.PI / 4)) % 8) + 8) % 8];
+    this.radioEl.textContent = r.strength > 0.06 ? `📻 ${'▮'.repeat(bars)}${'▯'.repeat(5 - bars)} ${arrow}` : `📻 ${t('radio.silent')}`;
   }
 
   setPerf(text: string | null): void {
@@ -190,6 +214,21 @@ export class Hud {
     this.notesEl.prepend(n);
     while (this.notesEl.children.length > 5) this.notesEl.lastElementChild!.remove();
     setTimeout(() => n.remove(), 5000);
+  }
+
+  caption(text: string): void {
+    const c = h('div', 'caption');
+    c.textContent = text;
+    this.captionsEl.prepend(c);
+    while (this.captionsEl.children.length > 3) this.captionsEl.lastElementChild!.remove();
+    setTimeout(() => c.remove(), 3500);
+  }
+
+  xpToast(text: string): void {
+    this.xpEl.textContent = text;
+    this.xpEl.classList.remove('hidden');
+    clearTimeout((this.xpEl as unknown as { _t?: number })._t);
+    (this.xpEl as unknown as { _t?: number })._t = window.setTimeout(() => this.xpEl.classList.add('hidden'), 1800);
   }
 
   prompt(text: string | null): void {
@@ -217,6 +256,7 @@ export class Hud {
       const el = this.slotEl(s, `${i + 1}`);
       el.classList.toggle('sel', i === this.game.selectedHotbar);
       el.classList.add('interactive');
+      el.setAttribute('role', 'button');
       el.onclick = () => {
         this.game.selectedHotbar = i;
         this.lastHotbarKey = '';
@@ -230,8 +270,8 @@ export class Hud {
     const el = h('div', 'slot');
     if (keyLabel) el.appendChild(h('span', 'key', keyLabel));
     if (s) {
-      el.title = itemName(s.id);
-      el.appendChild(h('span', '', `<span class="ico">${ICON[s.id] ?? '◆'}</span>${itemName(s.id)}`));
+      el.title = stackName(s);
+      el.appendChild(h('span', 'lbl', `<span class="ico">${ICON[s.id] ?? '◆'}</span>${esc(itemName(s.id))}`));
       if (s.qty > 1) el.appendChild(h('span', 'qty', String(s.qty)));
       const max = ITEMS[s.id].durability;
       if (s.dur !== undefined && max) el.appendChild(h('span', 'dur', `<i style="width:${(s.dur / max) * 100}%"></i>`));
@@ -246,16 +286,18 @@ export class Hud {
     if (!on) return;
     const g = this.game;
     const touch = g.input.mode === 'touch';
-    const key = `${g.buildPiece}|${g.buildSnap}|${validReason}|${touch}|${JSON.stringify(g.inventory.data.slots.map((s) => s && s.qty))}`;
+    const key = `${g.buildPiece}|${g.buildSnap}|${validReason}|${touch}|${language()}|${JSON.stringify(g.inventory.data.slots.map((s) => s && s.qty))}|${g.crafting.unlocked.size}`;
     if (this.buildEl.dataset.key === key) return;
     this.buildEl.dataset.key = key;
     this.buildEl.innerHTML = '';
     const pieces = h('div', 'pieces');
     for (const p of Object.keys(PIECES) as PieceType[]) {
-      const def = PIECES[p];
-      const ok = g.inventory.has(def.cost);
-      const cost = Object.entries(def.cost).map(([k, q]) => `${q} ${itemName(k)}`).join(', ');
-      const b = h('button', p === g.buildPiece ? 'active' : '', `${t(`piece.${p}`)}<br><span class="muted" style="color:${ok ? 'var(--muted)' : 'var(--bad)'}">${cost}</span>`);
+      const available = g.pieceAvailable(p);
+      const cost = g.pieceCost(p);
+      const ok = available && g.inventory.has(cost);
+      const costText = available ? Object.entries(cost).map(([k, q]) => `${q} ${itemName(k)}`).join(', ') : `🔒 ${t(`unlock.${PIECES[p].unlock}`)}`;
+      const b = h('button', p === g.buildPiece ? 'active' : '', `${t(`piece.${p}`)}<br><span class="muted" style="color:${ok ? 'var(--muted)' : 'var(--bad)'}">${costText}</span>`);
+      b.disabled = !available;
       b.onclick = () => g.setBuildPiece(p);
       pieces.appendChild(b);
     }
@@ -276,6 +318,7 @@ export class Hud {
       mk('⟳', 'rotateRight');
       mk('⌗', 'snapToggle');
       mk('✖', 'demolish');
+      mk(t('menu.back'), 'build');
       this.buildEl.appendChild(row);
     }
   }
@@ -293,19 +336,29 @@ export class Hud {
   closePanel(): void {
     this.panelOpen = false;
     this.panelEl.classList.add('hidden');
+    this.lastPanelKey = '';
   }
 
-  renderPanel(): void {
+  /** `soft` re-renders only if the visible data changed (called periodically). */
+  renderPanel(soft = false): void {
     if (!this.panelOpen) return;
     const g = this.game;
+    if (soft) {
+      const key = this.tab === 'animals' ? JSON.stringify(g.tamedAnimals().map((a) => [a.id, Math.round(a.hunger * 20), Math.round(a.thirst * 20), a.tame?.command, Math.round((a.tame?.obedience ?? 0) * 50), a.state])) : JSON.stringify([g.crafting.queue.map((j) => Math.ceil(j.remaining)), g.inventory.data.slots.map((s) => s && [s.id, s.qty])]);
+      if (key === this.lastPanelKey) return;
+      this.lastPanelKey = key;
+    }
+    const scrollY = this.panelEl.querySelector('.panel-body')?.scrollTop ?? 0;
     const p = this.panelEl;
     p.innerHTML = '';
     const tabs = h('div', 'tabs');
-    const tabList: PanelTab[] = ['inventory', 'crafting', 'journal', 'map'];
+    tabs.setAttribute('role', 'tablist');
+    const tabList: PanelTab[] = ['inventory', 'crafting', 'skills', 'animals', 'journal', 'map'];
     if (g.openStorageItems()) tabList.push('storage');
-    const labels: Record<PanelTab, string> = { inventory: t('inv.title'), crafting: t('inv.crafting'), journal: t('inv.journal'), map: '🗺', storage: t('piece.storage') };
+    const labels: Record<PanelTab, string> = { inventory: t('inv.title'), crafting: t('inv.crafting'), skills: t('ui.skills'), animals: t('ui.animals'), journal: t('inv.journal'), map: t('ui.map'), storage: t('piece.storage') };
     for (const tb of tabList) {
       const b = h('button', tb === this.tab ? 'active' : '', labels[tb]);
+      b.setAttribute('role', 'tab');
       b.onclick = () => {
         this.tab = tb;
         this.renderPanel();
@@ -313,6 +366,7 @@ export class Hud {
       tabs.appendChild(b);
     }
     const close = h('button', 'close', '✕');
+    close.setAttribute('aria-label', t('menu.resume'));
     close.onclick = () => g.resume();
     tabs.appendChild(close);
     p.appendChild(tabs);
@@ -320,9 +374,12 @@ export class Hud {
     p.appendChild(body);
     if (this.tab === 'inventory') this.renderInventory(body);
     else if (this.tab === 'crafting') this.renderCrafting(body);
+    else if (this.tab === 'skills') this.renderSkills(body);
+    else if (this.tab === 'animals') this.renderAnimals(body);
     else if (this.tab === 'journal') this.renderJournal(body);
     else if (this.tab === 'map') this.renderMap(body);
     else this.renderStorage(body);
+    if (soft) body.scrollTop = scrollY;
   }
 
   private renderInventory(body: HTMLElement): void {
@@ -331,8 +388,9 @@ export class Hud {
     const layout = h('div', 'inv-layout');
     const left = h('div');
     const filters = h('div', 'filters');
-    for (const f of ['all', 'resource', 'food', 'tool', 'weapon', 'clothing', 'medical']) {
-      const b = h('button', f === this.filter ? 'active' : '', f === 'all' ? t('inv.filter.all') : ({ resource: '🪵', food: '🍖', tool: '🪓', weapon: '🗡', clothing: '🧥', medical: '🩹' } as Record<string, string>)[f]);
+    for (const f of ['all', 'resource', 'food', 'tool', 'weapon', 'clothing', 'medical', 'special']) {
+      const b = h('button', f === this.filter ? 'active' : '', f === 'all' ? t('inv.filter.all') : ({ resource: '🪵', food: '🍖', tool: '🪓', weapon: '🗡', clothing: '🧥', medical: '🩹', special: '✦' } as Record<string, string>)[f]);
+      b.title = t(`inv.cat.${f}`);
       b.onclick = () => {
         this.filter = f;
         this.renderPanel();
@@ -361,7 +419,7 @@ export class Hud {
       grid.appendChild(el);
     });
     left.appendChild(grid);
-    left.appendChild(h('p', 'muted', t('inv.weight', { w: inv.weight().toFixed(1), c: inv.capacity().toFixed(0) })));
+    left.appendChild(h('p', 'muted', t('inv.weight', { w: inv.weight().toFixed(1), c: inv.capacity().toFixed(0) }) + (inv.extraCapacity ? ` (${t('inv.pack', { n: inv.extraCapacity })})` : '')));
     layout.appendChild(left);
 
     const side = h('div', 'side');
@@ -370,8 +428,10 @@ export class Hud {
     if (sel && this.picked !== null) {
       const i = this.picked;
       const def = ITEMS[sel.id];
-      box.appendChild(h('h4', '', `${ICON[sel.id] ?? ''} ${itemName(sel.id)} ×${sel.qty}`));
+      box.appendChild(h('h4', '', `${ICON[sel.id] ?? ''} ${esc(stackName(sel))} ×${sel.qty}`));
       box.appendChild(h('div', 'muted', `${def.weight} kg${def.damage ? ` · ⚔ ${def.damage}` : ''}${def.insulation ? ` · 🌡 +${def.insulation}°` : ''}${def.capacity ? ` · +${def.capacity} kg` : ''}`));
+      const desc = t(`desc.${sel.id}`);
+      if (desc !== `desc.${sel.id}`) box.appendChild(h('p', 'muted', esc(desc)));
       const row = h('div', 'row');
       const btn = (label: string, fn: () => void) => {
         const b = h('button', '', label);
@@ -381,7 +441,7 @@ export class Hud {
         };
         row.appendChild(b);
       };
-      if (def.food || def.heal || sel.id === 'waterskin_full') btn(t('inv.use'), () => g.useSlot(i));
+      if (def.food || def.heal || ['waterskin_full', 'flare', 'spyglass'].includes(sel.id)) btn(t('inv.use'), () => g.useSlot(i));
       if (def.equip) btn(t('inv.equip'), () => {
         g.equipSlot(i);
         this.picked = null;
@@ -404,13 +464,13 @@ export class Hud {
         hot.appendChild(b);
       }
       box.appendChild(hot);
-    } else box.appendChild(h('div', 'muted', '—'));
+    } else box.appendChild(h('div', 'muted', t('inv.pickHint')));
     side.appendChild(box);
     const eq = h('div', 'box', `<h4>${t('inv.equipment')}</h4>`);
     for (const slot of ['head', 'body', 'legs', 'back'] as EquipSlot[]) {
       const s = inv.data.equipment[slot];
       const row = h('div', 'row');
-      row.appendChild(h('span', 'muted', `${slot}: ${s ? itemName(s.id) : t('inv.empty')}`));
+      row.appendChild(h('span', 'muted', `${t(`equip.${slot}`)}: ${s ? itemName(s.id) : t('inv.empty')}`));
       if (s) {
         const b = h('button', '', t('inv.unequip'));
         b.onclick = () => {
@@ -429,6 +489,7 @@ export class Hud {
   private renderCrafting(body: HTMLElement): void {
     const g = this.game;
     const stations = g.stations();
+    body.appendChild(h('p', 'muted', t('craft.stationsHere', { list: [...stations].map((s) => t(`station.${s}`)).join(', ') })));
     if (g.crafting.queue.length) {
       const q = h('div', 'box', `<h4>${t('craft.queue')}</h4>`);
       g.crafting.queue.forEach((job, i) => {
@@ -444,7 +505,6 @@ export class Hud {
         q.appendChild(row);
       });
       body.appendChild(q);
-      body.appendChild(h('div', '', '&nbsp;'));
     }
     let lastCat = '';
     for (const r of RECIPES) {
@@ -455,12 +515,18 @@ export class Hud {
       const err = g.crafting.check(r, g.inventory, stations);
       const row = h('div', 'recipe');
       const inputs = Object.entries(r.inputs)
-        .map(([k, q]) => `<span class="${g.inventory.count(k) >= q ? 'have' : 'lack'}">${q} ${itemName(k)}</span>`)
+        .map(([k, q]) => {
+          const have = g.inventory.count(k);
+          return `<span class="${have >= q ? 'have' : 'lack'}">${q} ${itemName(k)} (${have})</span>`;
+        })
         .join(' · ');
-      const note = err === 'locked' ? t('craft.locked') : err === 'station' ? t('craft.needs', { station: t(`station.${r.station}`) }) : `${r.time}s`;
-      row.appendChild(h('div', '', `<b>${ICON[r.output] ?? ''} ${itemName(r.output)}${r.qty > 1 ? ` ×${r.qty}` : ''}</b><br><span class="muted">${err === 'locked' ? '???' : inputs}</span><br><span class="muted">${note}</span>`));
+      const tool = r.tool ? `<br><span class="${r.tool.some((x) => g.inventory.count(x) > 0) ? 'have' : 'lack'}">${t('craft.tool', { what: r.tool.map(itemName).join(' / ') })}</span>` : '';
+      const kind = r.station === 'hand' ? t('craft.simple') : t('craft.needs', { station: t(`station.${r.station}`) });
+      const note = err === 'locked' ? `🔒 ${t(`unlock.${r.unlock}`)}` : `${kind} · ${Math.ceil(r.time * g.crafting.timeMultiplier)}s`;
+      row.appendChild(h('div', '', `<b>${ICON[r.output] ?? ''} ${itemName(r.output)}${r.qty > 1 ? ` ×${r.qty}` : ''}</b><br><span class="muted">${err === 'locked' ? '???' : inputs}</span>${err === 'locked' ? '' : tool}<br><span class="muted">${note}</span>`));
       const b = h('button', err ? '' : 'primary', t('craft.make'));
       b.disabled = !!err;
+      if (err) b.title = t(`craft.err.${err}`);
       b.onclick = () => {
         g.craft(r.id);
         this.renderPanel();
@@ -470,18 +536,144 @@ export class Hud {
     }
   }
 
+  private renderSkills(body: HTMLElement): void {
+    const g = this.game;
+    const trees = g.skillTrees();
+    body.appendChild(h('p', 'muted', t('skill.intro', { n: g.progression.totalLevel(), d: g.progression.d.daysSurvived })));
+    const grid = h('div', 'skill-grid');
+    for (const tr of trees) {
+      const card = h('div', 'box');
+      const pct = tr.next ? Math.min(100, (tr.xp / tr.next) * 100) : 100;
+      card.appendChild(h('h4', '', `${t(`tree.${tr.tree}`)} — ${t('skill.level', { n: tr.level })}${tr.points > 0 ? ` · <span class="good">${t('skill.points', { n: tr.points })}</span>` : ''}`));
+      card.appendChild(h('div', 'xpbar', `<i style="width:${pct}%"></i>`));
+      card.appendChild(h('div', 'muted', tr.next ? `${Math.floor(tr.xp)} / ${tr.next} XP` : t('skill.max')));
+      card.appendChild(h('div', 'muted small', t(`tree.${tr.tree}.how`)));
+      for (const s of SKILLS.filter((x) => x.tree === tr.tree)) {
+        const learned = g.progression.has(s.id);
+        const row = h('div', 'skill');
+        row.appendChild(h('div', '', `<b>${learned ? '✓ ' : ''}${t(`skill.${s.id}.name`)}</b> <span class="muted">(${t('skill.req', { n: s.level })})</span><br><span class="muted">${t(`skill.${s.id}.desc`)}</span>`));
+        if (!learned) {
+          const b = h('button', g.progression.canLearn(s.id) ? 'primary' : '', t('skill.learn'));
+          b.disabled = !g.progression.canLearn(s.id);
+          b.onclick = () => {
+            g.learnSkill(s.id);
+            this.renderPanel();
+          };
+          row.appendChild(b);
+        }
+        card.appendChild(row);
+      }
+      grid.appendChild(card);
+    }
+    body.appendChild(grid);
+  }
+
+  private renderAnimals(body: HTMLElement): void {
+    const g = this.game;
+    const list = g.tamedAnimals();
+    body.appendChild(h('p', 'muted', t('tame.intro')));
+    if (!list.length) {
+      body.appendChild(h('p', '', t('tame.none')));
+      return;
+    }
+    const p = g.player!;
+    for (const a of list.sort((x, y) => (x.id === g.focusAnimal ? -1 : y.id === g.focusAnimal ? 1 : 0))) {
+      const tm = a.tame!;
+      const sp = SPECIES[a.speciesId];
+      const card = h('div', `box animal${a.id === g.focusAnimal ? ' focus' : ''}`);
+      const dist = Math.round(Math.hypot(a.x - p.s.x, a.z - p.s.z));
+      const pct = (v: number) => `${Math.round(v * 100)}%`;
+      const uses = TAME_PROFILES[a.speciesId].uses.map((u) => t(`tame.use.${u}`)).join(', ');
+      card.appendChild(
+        h(
+          'div',
+          '',
+          `<h4>${esc(tm.name)} <span class="muted">${sp.name[language()]}${g.isJuvenile(a) ? ` ${t('ui.juvenile')}` : ''} · ${a.sex === 'f' ? '♀' : '♂'} · ${dist} m</span></h4>
+          <div class="muted">${t('tame.status', { state: t(`ai.${a.state}`), cmd: t(`tame.cmd.${tm.command}`) })}</div>
+          <div class="stats">${t('tame.needs', { hunger: pct(a.hunger), thirst: pct(a.thirst), hp: pct(a.health / sp.health) })}<br>${t('tame.training', { bond: pct(tm.bond), obedience: pct(tm.obedience), obey: pct(obeyChance(a)) })}<br>${t('tame.uses', { list: uses || '—' })}</div>`,
+        ),
+      );
+      const row = h('div', 'row');
+      for (const cmd of ['follow', 'stay', 'roam', 'guard'] as const) {
+        const b = h('button', tm.command === cmd ? 'active' : '', t(`tame.cmd.${cmd}`));
+        b.onclick = () => {
+          g.animalCommand(a.id, cmd);
+          this.renderPanel();
+        };
+        row.appendChild(b);
+      }
+      card.appendChild(row);
+      const row2 = h('div', 'row');
+      const act = (label: string, action: 'mount' | 'feed' | 'rename' | 'release', confirmText?: string) => {
+        const b = h('button', '', label);
+        b.onclick = () => {
+          if (confirmText && !confirm(confirmText)) return;
+          let arg: string | undefined;
+          if (action === 'rename') arg = prompt(t('tame.renamePrompt'), tm.name) ?? undefined;
+          g.animalAction(a.id, action, arg);
+          this.renderPanel();
+        };
+        row2.appendChild(b);
+      };
+      if (TAME_PROFILES[a.speciesId].uses.includes('mount')) act(t('tame.mount'), 'mount');
+      act(t('tame.feed'), 'feed');
+      act(t('tame.rename'), 'rename');
+      act(t('tame.release'), 'release', t('tame.releaseConfirm', { name: tm.name }));
+      card.appendChild(row2);
+      body.appendChild(card);
+    }
+  }
+
   private renderJournal(body: HTMLElement): void {
     const g = this.game;
-    body.appendChild(h('p', 'muted', `${t('journal.seen', { n: g.seenSpecies.size, t: SPECIES_IDS.length })}<br>${t('journal.note')}`));
-    for (const id of SPECIES_IDS) {
-      const sp = SPECIES[id];
-      const seen = g.seenSpecies.has(id);
-      const lang = g.settings.language;
-      const e = h('div', 'journal-entry');
-      e.innerHTML = seen
-        ? `<b>${sp.name[lang]}</b> <i class="muted">${sp.scientificName}</i><br><span class="muted">${t('journal.period', { p: sp.period })} · ${t('journal.diet', { d: t(`diet.${sp.diet}`) })} · ${t('journal.size', { l: sp.lengthM, m: sp.massKg >= 1000 ? `${(sp.massKg / 1000).toFixed(1)} t` : `${sp.massKg} kg` })}</span>`
-        : `<b>???</b> <span class="muted">${t('journal.unknown')}</span>`;
-      body.appendChild(e);
+    const sub = h('div', 'filters');
+    for (const k of ['species', 'docs', 'discoveries'] as const) {
+      const b = h('button', this.journalTab === k ? 'active' : '', t(`journal.tab.${k}`));
+      b.onclick = () => {
+        this.journalTab = k;
+        this.renderPanel();
+      };
+      sub.appendChild(b);
+    }
+    body.appendChild(sub);
+    if (this.journalTab === 'species') {
+      const fossils = new Set(g.exploration.d.fossilSpecies);
+      body.appendChild(h('p', 'muted', `${t('journal.seen', { n: g.seenSpecies.size, t: SPECIES_IDS.length })} · ${t('journal.fossils', { n: fossils.size })}<br>${t('journal.note')}`));
+      for (const id of SPECIES_IDS) {
+        const sp = SPECIES[id];
+        const seen = g.seenSpecies.has(id);
+        const known = seen || fossils.has(id);
+        const lang = language();
+        const e = h('div', 'journal-entry');
+        if (known) {
+          const prof = TAME_PROFILES[id];
+          e.innerHTML = `<b>${sp.name[lang]}</b> <i class="muted">${sp.scientificName}</i>${seen ? '' : ` <span class="muted">(${t('journal.fromFossil')})</span>`}<br><span class="muted">${t('journal.period', { p: sp.period })} · ${t('journal.diet', { d: t(`diet.${sp.diet}`) })} · ${t('journal.size', { l: sp.lengthM, m: sp.massKg >= 1000 ? `${(sp.massKg / 1000).toFixed(1)} t` : `${sp.massKg} kg` })}</span>${seen ? `<br><span class="muted">${t('journal.behaviour', { social: t(`social.${sp.social.type}`), act: t(`activity.${sp.activity}`), threat: t(`threat.${sp.threat.response}`) })} · ${t(`tame.method.${prof.method}`)}</span>` : ''}`;
+        } else e.innerHTML = `<b>???</b> <span class="muted">${t('journal.unknown')}</span>`;
+        body.appendChild(e);
+      }
+    } else if (this.journalTab === 'docs') {
+      const m = g.mysteries;
+      body.appendChild(h('p', 'muted', t('mystery.summary', { logs: m.logsRead(), paintings: m.paintingsSeen() })));
+      const read = DOCS.filter((d) => m.d.read.includes(d.id));
+      if (!read.length) body.appendChild(h('p', '', t('mystery.noDocs')));
+      for (const d of read) {
+        const b = h('button', 'doc-link', `${d.kind === 'painting' ? '🎨' : d.kind === 'radio' ? '📻' : d.kind === 'terminal' ? '💾' : '📄'} ${t(`lore.${d.id}.title`)}`);
+        b.onclick = () => this.showDocument(t(`lore.${d.id}.title`), t(`lore.${d.id}.body`));
+        body.appendChild(b);
+      }
+      if (m.d.ending) body.appendChild(h('p', 'good', t(`mystery.ending.${m.d.ending}`)));
+    } else {
+      const ex = g.exploration;
+      const box = h('div', 'box');
+      box.appendChild(h('h4', '', t('explore.records')));
+      box.appendChild(h('div', '', t('explore.summary', { pct: (ex.exploredFraction() * 100).toFixed(1), sites: g.discovered.size, fossils: ex.d.fossilsFound.length, days: g.progression.d.daysSurvived })));
+      const totals: Partial<Record<BiomeId, number>> = ex.d.biomeCells;
+      const rows = (Object.keys(BIOMES) as BiomeId[]).filter((b) => b !== 'ocean').map((b) => `<div class="row"><span>${t(`biome.${b}`)}</span><span class="muted">${totals[b] ?? 0} ${t('explore.cells')}</span></div>`);
+      box.appendChild(h('div', '', rows.join('')));
+      body.appendChild(box);
+      const sites = h('div', 'box', `<h4>${t('explore.sites')}</h4>`);
+      for (const id of g.discovered) sites.appendChild(h('div', '', `◆ ${t(`site.${id}`)}`));
+      body.appendChild(sites);
     }
   }
 
@@ -510,31 +702,84 @@ export class Hud {
     body.appendChild(wrap);
   }
 
+  // ------------------------------------------------------------------ map
+
   private renderMap(body: HTMLElement): void {
+    const g = this.game;
     const wrap = h('div', 'map-wrap');
     const size = 256;
-    if (!this.mapCanvas) {
+    if (!this.mapCanvas || this.mapSeed !== g.seed) {
       this.mapCanvas = document.createElement('canvas');
       this.mapCanvas.width = this.mapCanvas.height = size;
       this.mapRow = 0;
+      this.mapSeed = g.seed;
     }
+    const tools = h('div', 'filters');
+    for (const z of [1, 4]) {
+      const b = h('button', this.mapZoom === z ? 'active' : '', z === 1 ? t('map.continent') : t('map.local'));
+      b.onclick = () => {
+        this.mapZoom = z;
+        this.renderPanel();
+      };
+      tools.appendChild(b);
+    }
+    body.appendChild(tools);
     const view = document.createElement('canvas');
     view.width = view.height = 512;
+    view.setAttribute('aria-label', t('ui.map'));
     wrap.appendChild(view);
     body.appendChild(wrap);
-    body.appendChild(h('p', 'muted', '▲ você · ◆ locais descobertos · ✖ itens perdidos · ⌂ cama'));
-    const draw = () => {
+    body.appendChild(h('p', 'muted', t('map.legend')));
+    const half = WORLD.worldHalfSize;
+    const p = g.player!;
+    const span = (half * 2) / this.mapZoom;
+    const ox = this.mapZoom === 1 ? -half : Math.max(-half, Math.min(half - span, p.s.x - span / 2));
+    const oz = this.mapZoom === 1 ? -half : Math.max(-half, Math.min(half - span, p.s.z - span / 2));
+    const toPx = (x: number, z: number) => [((x - ox) / span) * 512, ((z - oz) / span) * 512];
+    view.onclick = (e) => {
+      const r = view.getBoundingClientRect();
+      const x = ox + ((e.clientX - r.left) / r.width) * span;
+      const z = oz + ((e.clientY - r.top) / r.height) * span;
+      g.mapClick(x, z);
+      draw(true);
+    };
+    const draw = (once = false) => {
       if (!this.panelOpen || this.tab !== 'map') return;
       const t0 = performance.now();
       while (this.mapRow < 256 && performance.now() - t0 < 12) this.fillMapRows(2);
       const ctx = view.getContext('2d')!;
       ctx.imageSmoothingEnabled = false;
-      ctx.drawImage(this.mapCanvas!, 0, 0, 512, 512);
-      const toPx = (x: number, z: number) => [((x + WORLD.worldHalfSize) / (WORLD.worldHalfSize * 2)) * 512, ((z + WORLD.worldHalfSize) / (WORLD.worldHalfSize * 2)) * 512];
+      const sx = ((ox + half) / (half * 2)) * size;
+      const sz = ((oz + half) / (half * 2)) * size;
+      ctx.drawImage(this.mapCanvas!, sx, sz, size / this.mapZoom, size / this.mapZoom, 0, 0, 512, 512);
+      // Fog of war: unexplored cells stay dark.
+      const grid = g.exploration.grid;
+      ctx.fillStyle = 'rgba(14,12,10,0.94)';
+      const cellPx = (CELL / span) * 512;
+      for (let cz = 0; cz < GRID_N; cz++)
+        for (let cx = 0; cx < GRID_N; cx++) {
+          if (grid[cz * GRID_N + cx]) continue;
+          const [px, pz] = toPx(-half + cx * CELL, -half + cz * CELL);
+          if (px > 512 || pz > 512 || px + cellPx < 0 || pz + cellPx < 0) continue;
+          ctx.fillRect(px, pz, cellPx + 0.6, cellPx + 0.6);
+        }
+      // Trail.
+      ctx.strokeStyle = 'rgba(255,240,200,0.45)';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      g.exploration.d.trail.forEach(([x, z], i) => {
+        const [px, pz] = toPx(x, z);
+        if (i === 0) ctx.moveTo(px, pz);
+        else ctx.lineTo(px, pz);
+      });
+      ctx.stroke();
       ctx.font = '12px system-ui';
-      for (const m of this.game.mapMarkers()) {
+      for (const m of g.mapMarkers()) {
+        if (m.kind === 'landmark' && !g.exploration.isExplored(m.x, m.z) && Math.hypot(m.x - p.s.x, m.z - p.s.z) > 2500) continue;
         const [px, py] = toPx(m.x, m.z);
-        ctx.fillStyle = m.kind === 'player' ? '#fff' : m.kind === 'bag' ? '#ff5a3c' : m.kind === 'bed' ? '#8fbf6a' : '#d9b26a';
+        if (px < -10 || py < -10 || px > 522 || py > 522) continue;
+        const colors: Record<MapMarker['kind'], string> = { player: '#fff', bag: '#ff5a3c', bed: '#8fbf6a', site: '#d9b26a', marker: '#7ac4ff', tame: '#c49aff', landmark: '#ff8a4a' };
+        ctx.fillStyle = colors[m.kind];
         if (m.kind === 'player') {
           ctx.save();
           ctx.translate(px, py);
@@ -546,11 +791,12 @@ export class Hud {
           ctx.fill();
           ctx.restore();
         } else {
-          ctx.fillText(m.kind === 'bag' ? '✖' : m.kind === 'bed' ? '⌂' : '◆', px - 4, py + 4);
-          if (m.label) ctx.fillText(m.label, px + 6, py + 4);
+          const glyph = { bag: '✖', bed: '⌂', site: '◆', marker: m.label === 'star' ? '★' : '●', tame: '🦕', landmark: '▲' }[m.kind];
+          ctx.fillText(glyph, px - 4, py + 4);
+          if (m.label && (m.kind === 'site' || m.kind === 'landmark' || (m.kind === 'tame' && this.mapZoom > 1))) ctx.fillText(m.label, px + 7, py + 4);
         }
       }
-      if (this.mapRow < size) requestAnimationFrame(draw);
+      if (!once && this.mapRow < 256) requestAnimationFrame(() => draw());
     };
     draw();
   }
@@ -579,6 +825,53 @@ export class Hud {
     }
     ctx.putImageData(img, 0, this.mapRow);
     this.mapRow += rows;
+  }
+
+  // ------------------------------------------------------------------ documents & ending
+
+  showDocument(title: string, body: string): void {
+    this.documentOpen = true;
+    this.docEl.innerHTML = '';
+    const card = h('div', 'doc-card interactive');
+    card.setAttribute('role', 'dialog');
+    card.appendChild(h('h3', '', esc(title)));
+    card.appendChild(h('p', '', esc(body)));
+    const b = h('button', 'primary', t('ui.close'));
+    b.onclick = () => this.closeDocument();
+    card.appendChild(b);
+    this.docEl.appendChild(card);
+    this.docEl.classList.remove('hidden');
+    this.game.input.uiCapture = true;
+    document.exitPointerLock?.();
+  }
+
+  closeDocument(): void {
+    if (!this.documentOpen) return;
+    this.documentOpen = false;
+    this.docEl.classList.add('hidden');
+    this.game.input.uiCapture = this.panelOpen;
+  }
+
+  endingScreen(onCross: () => void, onStay: () => void): void {
+    const card = h('div', 'card');
+    card.appendChild(h('h2', '', t('ending.title')));
+    card.appendChild(h('p', '', t('ending.body')));
+    const a = h('button', 'primary', t('ending.cross'));
+    a.onclick = onCross;
+    const b = h('button', '', t('ending.stay'));
+    b.onclick = onStay;
+    card.append(a, b);
+    this.setGameplayVisible(false);
+    this.showMenu(card);
+  }
+
+  endingText(text: string, onDone: () => void): void {
+    const card = h('div', 'card');
+    card.appendChild(h('p', '', text));
+    const b = h('button', 'primary', t('ui.continue'));
+    b.onclick = onDone;
+    card.appendChild(b);
+    this.showMenu(card);
   }
 
   // ------------------------------------------------------------------ menus
@@ -610,13 +903,14 @@ export class Hud {
     const seedLabel = h('label', '', t('menu.seed'));
     const seedInput = h('input');
     seedInput.type = 'text';
+    seedInput.maxLength = 24;
     seedInput.value = String(Math.floor(Math.random() * 1e6));
     seedLabel.appendChild(seedInput);
     const n = h('button', g.hasSave ? '' : 'primary', t('menu.new'));
     n.onclick = () => {
       if (g.hasSave && !confirm(t('menu.newConfirm'))) return;
       const v = seedInput.value.trim();
-      const seed = /^\d+$/.test(v) ? Number(v) : [...v].reduce((a, ch) => (a * 31 + ch.charCodeAt(0)) >>> 0, 7);
+      const seed = /^\d+$/.test(v) ? Number(v) % 2 ** 31 : [...v].reduce((a, ch) => (a * 31 + ch.charCodeAt(0)) >>> 0, 7);
       g.newGame(seed);
     };
     card.appendChild(seedLabel);
@@ -628,6 +922,17 @@ export class Hud {
     k.onclick = () => this.controlsMenu(() => this.mainMenu());
     card.appendChild(k);
     card.appendChild(this.importButton());
+    if (g.hasSave) {
+      const r = h('button', '', t('save.restoreBackup'));
+      r.onclick = () => g.restoreBackup();
+      card.appendChild(r);
+      const d = h('button', 'danger', t('save.delete'));
+      d.onclick = () => {
+        if (confirm(t('save.deleteConfirm'))) void g.deleteSave();
+      };
+      card.appendChild(d);
+    }
+    card.appendChild(h('p', 'muted offline-status', this.offlineText));
     card.appendChild(h('p', 'muted', t('journal.note')));
     this.showMenu(card);
   }
@@ -670,8 +975,18 @@ export class Hud {
   settingsMenu(back: () => void): void {
     const g = this.game;
     const s = g.settings;
-    const card = h('div', 'card');
+    const card = h('div', 'card wide');
     card.appendChild(h('h2', '', t('menu.settings')));
+    const tabs = h('div', 'filters');
+    for (const k of ['general', 'graphics', 'audio', 'access'] as const) {
+      const b = h('button', this.settingsTab === k ? 'active' : '', t(`settings.tab.${k}`));
+      b.onclick = () => {
+        this.settingsTab = k;
+        this.settingsMenu(back);
+      };
+      tabs.appendChild(b);
+    }
+    card.appendChild(tabs);
     const select = (label: string, value: string, options: [string, string][], on: (v: string) => void) => {
       const l = h('label', '', label);
       const sel = h('select');
@@ -685,18 +1000,16 @@ export class Hud {
       l.appendChild(sel);
       card.appendChild(l);
     };
-    const range = (label: string, value: number, on: (v: number) => void) => {
-      const l = h('label', '', `${label}: <b>${value.toFixed(2)}</b>`);
+    const range = (label: string, value: number, min: number, max: number, step: number, on: (v: number) => void, fmt = (v: number) => v.toFixed(2)) => {
+      const l = h('label', '', `${label}: <b>${fmt(value)}</b>`);
       const r = h('input');
       r.type = 'range';
-      r.min = '0.2';
-      r.max = '3';
-      r.step = '0.05';
+      r.min = String(min);
+      r.max = String(max);
+      r.step = String(step);
       r.value = String(value);
-      r.oninput = () => {
-        on(Number(r.value));
-        l.querySelector('b')!.textContent = Number(r.value).toFixed(2);
-      };
+      r.oninput = () => l.querySelector('b')!.textContent = fmt(Number(r.value));
+      r.onchange = () => on(Number(r.value));
       l.appendChild(r);
       card.appendChild(l);
     };
@@ -710,20 +1023,59 @@ export class Hud {
       l.appendChild(document.createTextNode(label));
       card.appendChild(l);
     };
-    select(t('settings.language'), s.language, [['pt-BR', 'Português (Brasil)'], ['en', 'English']], (v) => {
-      g.applySettings({ language: v as Settings['language'] });
-      setLanguage(v as Settings['language']);
-      this.settingsMenu(back);
-    });
-    select(t('settings.difficulty'), s.difficulty, (['peaceful', 'normal', 'hard'] as const).map((d) => [d, t(`difficulty.${d}`)]), (v) => g.applySettings({ difficulty: v as Settings['difficulty'] }));
-    select(t('settings.quality'), s.quality, (['auto', 'low', 'medium', 'high'] as const).map((q) => [q, t(`quality.${q}`)]), (v) => g.applySettings({ quality: v as Settings['quality'] }));
-    range(t('settings.mouse'), s.mouseSensitivity, (v) => g.applySettings({ mouseSensitivity: v }));
-    range(t('settings.touch'), s.touchSensitivity, (v) => g.applySettings({ touchSensitivity: v }));
-    check(t('settings.invertY'), s.invertY, (v) => g.applySettings({ invertY: v }));
-    check(t('settings.firstPerson'), s.firstPerson, (v) => g.applySettings({ firstPerson: v }));
-    const reset = h('button', '', '↺');
+    if (this.settingsTab === 'general') {
+      select(t('settings.language'), s.language, [['pt-BR', 'Português (Brasil)'], ['en', 'English']], (v) => {
+        g.applySettings({ language: v as Settings['language'] });
+        setLanguage(v as Settings['language']);
+        this.lastHotbarKey = '';
+        this.settingsMenu(back);
+      });
+      select(t('settings.difficulty'), s.difficulty, (['peaceful', 'normal', 'hard'] as const).map((d) => [d, t(`difficulty.${d}`)]), (v) => g.applySettings({ difficulty: v as Settings['difficulty'] }));
+      range(t('settings.mouse'), s.mouseSensitivity, 0.2, 3, 0.05, (v) => g.applySettings({ mouseSensitivity: v }));
+      range(t('settings.touch'), s.touchSensitivity, 0.2, 3, 0.05, (v) => g.applySettings({ touchSensitivity: v }));
+      check(t('settings.invertY'), s.invertY, (v) => g.applySettings({ invertY: v }));
+      check(t('settings.firstPerson'), s.firstPerson, (v) => g.applySettings({ firstPerson: v }));
+    } else if (this.settingsTab === 'graphics') {
+      select(t('settings.quality'), s.quality, (['auto', 'low', 'medium', 'high', 'ultra'] as const).map((q) => [q, t(`quality.${q}`)]), (v) => {
+        g.applySettings({ quality: v as Settings['quality'] });
+        this.settingsMenu(back);
+      });
+      const q = g.quality();
+      card.appendChild(h('p', 'muted', t('settings.gfxNote', { q: t(`quality.${g.qualityLevel}`) })));
+      const set = (patch: Partial<Settings['graphics']>) => g.applySettings({ graphics: { ...s.graphics, ...patch } });
+      range(t('gfx.resolution'), q.resolutionScale, 0.4, 1, 0.05, (v) => set({ resolutionScale: v }), (v) => `${Math.round(v * 100)}%`);
+      check(t('gfx.shadows'), q.shadows, (v) => set({ shadows: v }));
+      range(t('gfx.viewDistance'), q.loadRadius, 2, 7, 1, (v) => set({ viewDistance: v }), (v) => `${Math.round(v * 128)} m`);
+      range(t('gfx.vegetation'), q.vegetationDensity, 0.1, 1.5, 0.05, (v) => set({ vegetationDensity: v }), (v) => `${Math.round(v * 100)}%`);
+      select(t('gfx.textures'), q.textures, [['low', t('quality.low')], ['high', t('quality.high')]], (v) => set({ textures: v as 'low' | 'high' }));
+      range(t('gfx.particles'), q.particles, 0, 1, 0.05, (v) => set({ particles: v }), (v) => `${Math.round(v * 100)}%`);
+      check(t('gfx.effects'), q.effects, (v) => set({ effects: v }));
+      const reset = h('button', '', t('gfx.reset'));
+      reset.onclick = () => {
+        g.applySettings({ graphics: {} });
+        this.settingsMenu(back);
+      };
+      card.appendChild(reset);
+    } else if (this.settingsTab === 'audio') {
+      const vol = s.volume;
+      const setV = (k: keyof Settings['volume'], v: number) => g.applySettings({ volume: { ...vol, [k]: v } });
+      const pct = (v: number) => `${Math.round(v * 100)}%`;
+      range(t('audio.master'), vol.master, 0, 1, 0.05, (v) => setV('master', v), pct);
+      range(t('audio.sfx'), vol.sfx, 0, 1, 0.05, (v) => setV('sfx', v), pct);
+      range(t('audio.ambience'), vol.ambience, 0, 1, 0.05, (v) => setV('ambience', v), pct);
+      range(t('audio.music'), vol.music, 0, 1, 0.05, (v) => setV('music', v), pct);
+      card.appendChild(h('p', 'muted', t('audio.note')));
+    } else {
+      range(t('access.uiScale'), s.uiScale, 0.8, 1.5, 0.05, (v) => g.applySettings({ uiScale: v }), (v) => `${Math.round(v * 100)}%`);
+      check(t('access.contrast'), s.highContrast, (v) => g.applySettings({ highContrast: v }));
+      check(t('access.motion'), s.reduceMotion, (v) => g.applySettings({ reduceMotion: v }));
+      check(t('access.captions'), s.captions, (v) => g.applySettings({ captions: v }));
+      check(t('access.toggleSprint'), s.toggleSprint, (v) => g.applySettings({ toggleSprint: v }));
+    }
+    const reset = h('button', '', t('settings.resetAll'));
     reset.onclick = () => {
-      g.applySettings({ ...DEFAULT_SETTINGS, language: s.language });
+      if (!confirm(t('settings.resetConfirm'))) return;
+      g.applySettings({ ...structuredClone(DEFAULT_SETTINGS), language: s.language });
       this.settingsMenu(back);
     };
     card.appendChild(reset);
@@ -741,14 +1093,14 @@ export class Hud {
     card.appendChild(h('p', 'muted', t('controls.rebind')));
     const list = h('div', 'keylist');
     for (const a of Object.keys(g.input.keys) as Action[]) {
-      list.appendChild(h('span', '', a));
+      list.appendChild(h('span', '', t(`action.${a}`)));
       const b = h('button', '', this.rebinding === a ? '…' : g.input.keys[a].join(' / ').replace(/Key|Digit/g, ''));
       b.onclick = () => {
         this.rebinding = a;
         b.textContent = '…';
         const handler = (e: KeyboardEvent) => {
           e.preventDefault();
-          g.input.rebind(a, e.code);
+          if (e.code !== 'Escape') g.input.rebind(a, e.code);
           this.rebinding = null;
           removeEventListener('keydown', handler, true);
           this.controlsMenu(back);
@@ -777,10 +1129,13 @@ export class Hud {
       card.appendChild(h('h1', '', t('game.title')));
       card.appendChild(h('p', 'sub', t('menu.loading')));
       card.appendChild(h('div', 'loading-bar', '<i></i>'));
+      card.appendChild(h('p', 'muted pct', '0%'));
       this.showMenu(card);
       bar = this.menuEl.querySelector('.loading-bar i') as HTMLElement;
     }
     bar.style.width = `${Math.round(progress * 100)}%`;
+    const pct = this.menuEl.querySelector('.pct');
+    if (pct) pct.textContent = `${Math.round(progress * 100)}%`;
   }
 
   deathScreen(cause: string): void {
@@ -796,7 +1151,10 @@ export class Hud {
   fatal(msg: string): void {
     const card = h('div', 'card');
     card.appendChild(h('h1', '', t('game.title')));
-    card.appendChild(h('p', '', msg));
+    card.appendChild(h('p', '', esc(msg)));
+    const b = h('button', 'primary', t('error.reload'));
+    b.onclick = () => location.reload();
+    card.appendChild(b);
     this.showMenu(card);
   }
 
@@ -859,6 +1217,7 @@ export class Hud {
     const btns = h('div', 'tbtns');
     const mk = (parent: HTMLElement, label: string, a: Action, cls = '', hold = false) => {
       const b = h('button', `tbtn ${cls}`, label);
+      b.setAttribute('aria-label', label);
       b.addEventListener('pointerdown', (e) => {
         e.preventDefault();
         input.touchPress(a);
@@ -870,7 +1229,7 @@ export class Hud {
       b.addEventListener('pointercancel', up);
       parent.appendChild(b);
     };
-    mk(btns, t('touch.crouch'), 'crouch', '', false);
+    mk(btns, t('touch.crouch'), 'crouch');
     mk(btns, t('touch.interact'), 'interact');
     mk(btns, t('touch.eat'), 'eat');
     mk(btns, t('touch.sprint'), 'sprint');
