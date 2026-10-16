@@ -129,10 +129,9 @@ function knapped(sx: number, sy: number, sz: number, seed: number, mat: THREE.Ma
     x *= 1 - Math.max(0, z) * 0.85 * edge;
     p.setXYZ(i, x * sx * n, y * sy * n, z * sz * n);
   }
-  const ng = g.toNonIndexed();
-  ng.computeVertexNormals(); // flat facets
-  g.dispose();
-  return mesh(ng, mat);
+  // Polyhedra are already non-indexed: per-face normals give flat knapped facets.
+  g.computeVertexNormals();
+  return mesh(g, mat);
 }
 
 /** Flat extruded profile in the item's Y–Z plane (blades, axe heads), `thick` along X. */

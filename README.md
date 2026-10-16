@@ -551,6 +551,28 @@ Todas as medições abaixo foram feitas neste ambiente: Intel Xeon 2,8 GHz, 4 n�
   - os setores também passaram para worker;
   - os modelos de plantas e animais agora são pré-gerados na tela de carregamento.
 
+### Combate no navegador (`npm run test:combat`): **21 de 21 passando**
+
+O teste roda os 15 cenários pedidos no jogo real (build de produção, Chromium, renderização por software):
+
+1. Soco: fases preparação → golpe → recuperação, um impacto.
+2. Socos alternam direita/esquerda (`LRL`).
+3. Equipar o machado: aparece nas duas vistas, sem modelo duplicado.
+4. Cada arma executa sua ação (machado, picareta, lança, faca, porrete, tocha).
+5. Golpe no vazio: o quadro de impacto acontece, sem coleta nem efeitos.
+6. Acerto: a lança tira vida de um protoceratops no quadro de impacto (34,6 → 11,3), com partículas.
+7. Fora do alcance (7 m): nenhum dano.
+8. Ataque correndo a 4–6 m/s.
+9. Troca no meio do golpe: o item antigo nunca acerta, o novo é usado.
+10. Trocas repetidas: termina no último item, um modelo por vista.
+11. Machado na árvore dá madeira; picareta na rocha dá pedra.
+12. Arco: gasta uma flecha, que sai a 0,39 m do olho, a 44,9 m/s, e cai pela gravidade.
+13. Reação do alvo: recuo animado e a IA interrompe o pastar (o protoceratops foge).
+14. Trocar para 3ª pessoa no meio do golpe: o golpe termina uma vez, e os braços de 1ª pessoa somem.
+15. Celular (toque): toque + clique no mesmo quadro = um ataque; dois pedidos seguidos = um ataque (o segundo é filtrado); segurar o botão repete.
+
+Também verifica que nenhum erro aparece na página. Capturas reais em `docs/visual/combate/`.
+
 ## Recursos externos ainda necessários
 
 - **Modelos 3D artísticos com animações (GLB/glTF):**

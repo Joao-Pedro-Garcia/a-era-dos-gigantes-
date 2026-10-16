@@ -323,7 +323,7 @@ const spawn = (page, species, dist) =>
   } catch (e) {
     check('combat scenarios ran', false, e.message);
   }
-  await ctx.close();
+  await ctx.close().catch(() => {});
 }
 
 // 15. Mobile: touch device, touch button press and hold; duplicated input is debounced.
@@ -356,11 +356,11 @@ const spawn = (page, species, dist) =>
   } catch (e) {
     check('mobile scenario ran', false, e.message);
   }
-  await ctx.close();
+  await ctx.close().catch(() => {});
 }
 
 check('no page errors', errors.length === 0, errors.slice(0, 3).join(' | '));
-await browser.close();
+await browser.close().catch(() => {});
 writeFileSync(`${out}/combat-results.json`, JSON.stringify(results, null, 2));
 const failed = results.filter((r) => !r.ok).length;
 console.log(`\n${results.length - failed}/${results.length} passed`);
