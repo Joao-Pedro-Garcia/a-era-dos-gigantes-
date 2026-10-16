@@ -149,7 +149,27 @@ export class Terrain {
     const river = this.riverMask(x, z) * lowland * smoothstep(0.55, 0.85, cont) * (1 - v);
     if (river > 0) h = lerp(h, -2.2, river);
 
+    // Small-scale relief on dry lowland ground: hummocks, dips and the slight
+    // depression of animal trails. Fades out in water, swamp and highlands.
+    const dry = smoothstep(0.5, 3, h) * (1 - smoothstep(60, 140, h)) * (1 - s) * cont;
+    if (dry > 0) {
+      h += (this.n2.fbm(x / 24, z / 24, 3) * 0.85 + this.n.get(x / 6.5, z / 6.5) * 0.14) * dry;
+      h -= this.trailMask(x, z) * 0.22 * dry;
+    }
+
     return h;
+  }
+
+  /**
+   * 0..1 network of narrow winding paths worn by herds (zero-crossings of a
+   * warped noise field). Purely deterministic, so trails line up between
+   * sectors and are also used to thin vegetation.
+   */
+  trailMask(x: number, z: number): number {
+    const wx = x + this.n.get(x / 300 + 11, z / 300) * 90;
+    const wz = z + this.n.get(z / 300 - 7, x / 300) * 90;
+    const v = Math.abs(this.n3.fbm(wx / 420 + 17.3, wz / 420 - 9.1, 2));
+    return 1 - smoothstep(0.0025, 0.0075, v);
   }
 
   temperatureBase(x: number, z: number, h: number): number {

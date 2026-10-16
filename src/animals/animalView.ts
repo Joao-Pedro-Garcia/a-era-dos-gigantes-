@@ -1,455 +1,443 @@
 import * as THREE from 'three';
-import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { clamp, damp } from '../core/math';
+import type { TextureLibrary } from '../graphics/textureLibrary';
+import { createContactShadow } from '../graphics/contactShadow';
+import { driveExternal, hasExternal, instantiate, type ExternalInstance } from '../graphics/externalModels';
 import type { AnimalData } from './animal';
 import { growthScale } from './animal';
+import { buildDinoTemplate, DMAT, type DinoTemplate } from './dinoModel';
 import { SPECIES, type SpeciesDef } from './species';
 
 /**
- * Procedural creature models built from each species' dimensions and
- * features. Parts are rigged as simple pivots (legs, neck/head, tail, wings)
- * so the locomotion animation is driven by the distance actually travelled –
- * no foot sliding.
+ * Animal views: skinned procedural dinosaurs (see dinoModel.ts) posed every
+ * frame from the simulation.
+ *
+ * - Locomotion: duty-factor gait driven by the distance actually travelled
+ *   (the brain's stride counter), so planted feet do not slide; legs are
+ *   solved with IK (thigh + shin, the metatarsus keeps its orientation, toes
+ *   stay flat) onto the real terrain height under each foot; the body pitches
+ *   on slopes and bobs with the steps.
+ * - Tail waves and counterbalances, the neck lowers to graze or drink and
+ *   rises when alert, the jaw chews, roars and pants.
+ * - Resting animals lie down (the IK folds the legs), dead ones roll over,
+ *   flyers tuck their legs and flap.
+ * - Distant animals switch to a low-detail mesh; every individual gets a
+ *   slightly different size and tint.
  */
-interface LegTemplate {
-  hip: THREE.Vector3;
-  thigh: THREE.BufferGeometry;
-  shin: THREE.BufferGeometry;
-  thighLen: number;
-  /** Phase offset in cycles. */
-  phase: number;
-  front: boolean;
-}
-
-interface Template {
-  body: THREE.BufferGeometry;
-  neck: THREE.BufferGeometry;
-  neckPivot: THREE.Vector3;
-  tail: THREE.BufferGeometry;
-  tailPivot: THREE.Vector3;
-  legs: LegTemplate[];
-  wings: THREE.BufferGeometry | null;
-  wingPivot: THREE.Vector3;
-  hipHeight: number;
-}
-
 export interface AnimalView {
   root: THREE.Group;
-  body: THREE.Group;
-  neck: THREE.Group;
-  tail: THREE.Group;
-  legs: { thigh: THREE.Group; shin: THREE.Group; t: LegTemplate }[];
-  wings: THREE.Group[];
   sp: SpeciesDef;
-  tpl: Template;
+  tpl: DinoTemplate;
+  meshHi: THREE.SkinnedMesh;
+  meshLo: THREE.SkinnedMesh;
+  bones: Map<string, THREE.Bone>;
+  rest: Map<string, THREE.Vector3>;
+  materials: THREE.MeshStandardMaterial[];
+  shadow: THREE.Mesh;
+  size: number;
   posture: number;
   flap: number;
+  jaw: number;
+  look: number;
+  pelvisDrop: number;
+  bodyPitch: number;
+  legInfo: LegRuntime[];
+  /** Artist model replacing the procedural one (see externalModels.ts). */
+  ext: ExternalInstance | null;
 }
 
-const templates = new Map<string, Template>();
-const material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.78, metalness: 0.02 });
-const wingMaterial = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, side: THREE.DoubleSide });
-material.userData.shared = true;
-wingMaterial.userData.shared = true;
-
-function hash(x: number, y: number, z: number): number {
-  const s = Math.sin(x * 12.9898 + y * 78.233 + z * 37.719) * 43758.5453;
-  return s - Math.floor(s);
+interface LegRuntime {
+  name: string;
+  front: boolean;
+  walking: boolean;
+  phase: number;
+  l0: number;
+  l1: number;
+  /** Rest angles (forward-positive, from straight down) of thigh, shin, metatarsus. */
+  r: [number, number, number];
+  hip: THREE.Vector3;
+  toe: THREE.Vector3;
+  metaVec: THREE.Vector3;
+  kneeForward: boolean;
 }
 
-/** Paints vertex colours: countershading, stripes or spots from local position. */
-function paint(geo: THREE.BufferGeometry, sp: SpeciesDef, part: 'body' | 'limb' | 'accent' | 'dark' | 'horn'): THREE.BufferGeometry {
-  const g = geo.index ? geo.toNonIndexed() : geo;
-  const pos = g.attributes.position;
-  const col = new Float32Array(pos.count * 3);
-  const base = new THREE.Color(sp.look.base);
-  const belly = new THREE.Color(sp.look.belly);
-  const accent = new THREE.Color(sp.look.accent);
-  const c = new THREE.Color();
-  g.computeBoundingBox();
-  const bb = g.boundingBox!;
-  const midY = (bb.min.y + bb.max.y) / 2;
-  const L = sp.lengthM;
-  for (let i = 0; i < pos.count; i++) {
-    const x = pos.getX(i);
-    const y = pos.getY(i);
-    const z = pos.getZ(i);
-    if (part === 'horn') c.setRGB(0.78, 0.72, 0.6);
-    else if (part === 'dark') c.setRGB(0.08, 0.07, 0.06);
-    else if (part === 'accent') c.copy(accent);
-    else {
-      c.copy(base);
-      const under = clamp((midY - y) / Math.max(0.01, bb.max.y - bb.min.y) * 2.2, 0, 1);
-      c.lerp(belly, part === 'limb' ? under * 0.4 : under * (sp.look.pattern === 'countershade' ? 1 : 0.7));
-      if (sp.look.pattern === 'stripes' && part === 'body' && y > midY) {
-        if (Math.sin((z / L) * 40) > 0.35) c.lerp(accent, 0.55);
-      } else if (sp.look.pattern === 'spots' && part === 'body' && y > midY - 0.1) {
-        const q = L * 0.04;
-        if (hash(Math.floor(x / q), Math.floor(y / q), Math.floor(z / q)) > 0.78) c.lerp(accent, 0.6);
-      }
-      const n = 1 + (hash(x * 7, y * 7, z * 7) - 0.5) * 0.08;
-      c.multiplyScalar(n);
-    }
-    col.set([c.r, c.g, c.b], i * 3);
-  }
-  g.setAttribute('color', new THREE.BufferAttribute(col, 3));
-  g.deleteAttribute('uv');
-  return g;
+const templates = new Map<string, DinoTemplate>();
+let library: TextureLibrary | null = null;
+let groundFn: ((x: number, z: number) => number) | null = null;
+const baseMats = new Map<string, THREE.MeshStandardMaterial[]>();
+
+/** The game supplies the texture library and terrain height (both optional for tools/tests). */
+export function setAnimalContext(lib: TextureLibrary | null, ground: ((x: number, z: number) => number) | null): void {
+  library = lib;
+  groundFn = ground;
 }
 
-function ellipsoid(rx: number, ry: number, rz: number, x: number, y: number, z: number, seg = 14): THREE.BufferGeometry {
-  const g = new THREE.SphereGeometry(1, seg, Math.max(6, Math.floor(seg * 0.7)));
-  g.scale(rx, ry, rz);
-  g.translate(x, y, z);
-  return g;
-}
-
-/** Tapered tube between two points. */
-function tube(a: THREE.Vector3, b: THREE.Vector3, r0: number, r1: number, seg = 8): THREE.BufferGeometry {
-  const len = a.distanceTo(b);
-  const g = new THREE.CylinderGeometry(r1, r0, len, seg, 1);
-  g.translate(0, len / 2, 0);
-  const dir = b.clone().sub(a).normalize();
-  const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
-  g.applyQuaternion(q);
-  g.translate(a.x, a.y, a.z);
-  return g;
-}
-
-function cone(r: number, h: number, x: number, y: number, z: number, rx: number, ry = 0, rz = 0): THREE.BufferGeometry {
-  const g = new THREE.ConeGeometry(r, h, 7);
-  g.translate(0, h / 2, 0);
-  g.rotateX(rx);
-  g.rotateY(ry);
-  g.rotateZ(rz);
-  g.translate(x, y, z);
-  return g;
-}
-
-function box(w: number, h: number, d: number, x: number, y: number, z: number, rx = 0): THREE.BufferGeometry {
-  const g = new THREE.BoxGeometry(w, h, d);
-  g.rotateX(rx);
-  g.translate(x, y, z);
-  return g;
-}
-
-const V = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
-
-function buildTemplate(sp: SpeciesDef): Template {
-  const L = sp.lengthM;
-  const H = sp.hipHeightM;
-  const plan = sp.locomotion.plan;
-  const f = new Set(sp.look.features);
-  const body: THREE.BufferGeometry[] = [];
-  const neck: THREE.BufferGeometry[] = [];
-  const tail: THREE.BufferGeometry[] = [];
-  const legs: LegTemplate[] = [];
-  let wings: THREE.BufferGeometry | null = null;
-  let neckPivot = V(0, H, L * 0.2);
-  let tailPivot = V(0, H, -L * 0.15);
-  const wingPivot = V(0, H * 1.05, L * 0.05);
-
-  const biped = plan === 'theropod' || plan === 'hadrosaur' || plan === 'bird';
-  const leg = (x: number, z: number, len: number, r: number, phase: number, front: boolean) => {
-    const thighLen = len * 0.5;
-    legs.push({
-      hip: V(x, len, z),
-      thigh: paint(tube(V(0, 0, 0), V(0, -thighLen, plan === 'crocodyliform' ? 0 : r * 0.6), r, r * 0.7), sp, 'limb'),
-      shin: paint(mergeGeometries([tube(V(0, 0, 0), V(0, -len * 0.5, -r * 0.3), r * 0.65, r * 0.4), box(r * 1.4, r * 0.4, r * 2.4, 0, -len * 0.5, r * 0.6)])!, sp, 'limb'),
-      thighLen,
-      phase,
-      front,
-    });
-  };
-
-  if (plan === 'theropod' || plan === 'hadrosaur' || plan === 'bird') {
-    const bulk = plan === 'hadrosaur' ? 1.25 : f.has('feathers') && L < 3 ? 0.9 : 1;
-    const torsoY = H * 1.05;
-    body.push(paint(ellipsoid(L * 0.085 * bulk, L * 0.095 * bulk, L * 0.2, 0, torsoY, L * 0.06), sp, 'body'));
-    neckPivot = V(0, torsoY + L * 0.04, L * 0.22);
-    const neckLen = f.has('longNeck') ? L * 0.22 : L * 0.12;
-    const headPos = V(0, neckLen * 0.75, neckLen * 0.85);
-    neck.push(paint(tube(V(0, 0, 0), headPos, L * 0.05 * bulk, L * 0.035), sp, 'body'));
-    const headLen = f.has('longSnout') ? L * 0.16 : plan === 'hadrosaur' ? L * 0.1 : L * 0.11;
-    const headH = sp.ecology === 'apexPredator' ? L * 0.065 : L * 0.045;
-    neck.push(paint(ellipsoid(headH * 0.75, headH, headLen * 0.55, headPos.x, headPos.y, headPos.z + headLen * 0.35), sp, 'body'));
-    neck.push(paint(ellipsoid(headH * 0.6, headH * 0.35, headLen * 0.45, 0, headPos.y - headH * 0.55, headPos.z + headLen * 0.4), sp, 'body'));
-    for (const side of [-1, 1]) neck.push(paint(ellipsoid(headH * 0.12, headH * 0.12, headH * 0.12, side * headH * 0.62, headPos.y + headH * 0.3, headPos.z + headLen * 0.5, 6), sp, 'dark'));
-    if (f.has('crestTube')) neck.push(paint(tube(V(0, headPos.y + headH * 0.6, headPos.z + headLen * 0.3), V(0, headPos.y + headH * 1.6, headPos.z - headLen * 1.4), headH * 0.25, headH * 0.18), sp, 'accent'));
-    if (f.has('dualCrest')) for (const side of [-1, 1]) neck.push(paint(box(headH * 0.08, headH * 0.6, headLen * 0.9, side * headH * 0.25, headPos.y + headH * 1.1, headPos.z + headLen * 0.35), sp, 'accent'));
-    if (f.has('browHorns')) for (const side of [-1, 1]) neck.push(paint(cone(headH * 0.18, headH * 0.6, side * headH * 0.5, headPos.y + headH * 0.7, headPos.z + headLen * 0.05, -0.3, 0, side * -0.5), sp, 'horn'));
-    if (f.has('dome')) neck.push(paint(ellipsoid(headH * 0.85, headH * 0.75, headH * 0.9, 0, headPos.y + headH * 0.6, headPos.z + headLen * 0.1), sp, 'accent'));
-    if (f.has('beak')) neck.push(paint(cone(headH * 0.35, headLen * 0.5, 0, headPos.y - headH * 0.1, headPos.z + headLen * 0.85, Math.PI / 2), sp, 'horn'));
-    if (f.has('sail')) {
-      const sail = new THREE.CylinderGeometry(L * 0.18, L * 0.18, L * 0.02, 18, 1, false, 0, Math.PI);
-      sail.rotateZ(Math.PI / 2);
-      sail.rotateY(Math.PI / 2);
-      sail.scale(1, 1.1, 1.4);
-      sail.translate(0, torsoY + L * 0.07, L * 0.04);
-      body.push(paint(sail, sp, 'accent'));
-    }
-    tailPivot = V(0, torsoY, -L * 0.12);
-    tail.push(paint(tube(V(0, 0, 0), V(0, -H * 0.12, -L * 0.48), L * 0.065 * bulk, L * 0.008), sp, 'body'));
-    if (f.has('feathers')) tail.push(paint(box(L * 0.08, L * 0.01, L * 0.18, 0, -H * 0.1, -L * 0.4), sp, 'accent'));
-    // Arms.
-    const armLen = f.has('longClaws') ? L * 0.14 : plan === 'hadrosaur' ? H * 0.75 : L * 0.06;
-    for (const side of [-1, 1]) {
-      body.push(paint(tube(V(side * L * 0.06, torsoY - L * 0.02, L * 0.18), V(side * L * 0.07, torsoY - armLen, L * 0.22), L * 0.018, L * 0.01), sp, 'limb'));
-      if (f.has('longClaws') || f.has('thumbSpike')) body.push(paint(cone(L * 0.008, L * 0.05, side * L * 0.07, torsoY - armLen, L * 0.22, Math.PI * 0.8), sp, 'horn'));
-      // Pennaceous arm feathers on feathered theropods (folded "wings").
-      if (f.has('feathers') && !f.has('wings')) body.push(paint(box(L * 0.006, armLen * 0.9, L * 0.09, side * L * 0.075, torsoY - armLen * 0.5, L * 0.16), sp, 'accent'));
-    }
-    const legR = Math.max(0.04, L * (plan === 'hadrosaur' ? 0.04 : 0.032));
-    leg(-L * 0.06, 0, H, legR, 0, false);
-    leg(L * 0.06, 0, H, legR, 0.5, false);
-    if (plan === 'bird' || f.has('wings')) {
-      const w = new THREE.BufferGeometry();
-      const span = L * 0.75;
-      w.setAttribute('position', new THREE.BufferAttribute(new Float32Array([0, 0, L * 0.12, span, 0, 0, 0, 0, -L * 0.12, span, 0, 0, span * 0.3, 0, -L * 0.2, 0, 0, -L * 0.12]), 3));
-      w.computeVertexNormals();
-      wings = paint(w, sp, 'accent');
-    }
-  } else if (plan === 'quadruped' || plan === 'crocodyliform') {
-    const croc = plan === 'crocodyliform';
-    const torsoY = croc ? H * 0.75 : H * 1.0;
-    body.push(paint(ellipsoid(L * (croc ? 0.08 : 0.13), L * (croc ? 0.05 : 0.12), L * 0.24, 0, torsoY, 0), sp, 'body'));
-    neckPivot = V(0, torsoY, L * 0.22);
-    const ceratopsian = f.has('frill');
-    const headLen = croc ? L * 0.2 : ceratopsian ? L * 0.2 : L * 0.14;
-    const headH = croc ? L * 0.035 : ceratopsian ? L * 0.075 : L * 0.06;
-    const hz = headLen * 0.6;
-    neck.push(paint(ellipsoid(headH * 1.1, headH, headLen * 0.55, 0, croc ? 0 : -headH * 0.3, hz), sp, 'body'));
-    for (const side of [-1, 1]) neck.push(paint(ellipsoid(headH * 0.14, headH * 0.14, headH * 0.14, side * headH * 0.9, headH * 0.3, hz - headLen * 0.1, 6), sp, 'dark'));
-    if (f.has('beak') || f.has('horns3')) neck.push(paint(cone(headH * 0.4, headLen * 0.35, 0, -headH * 0.5, hz + headLen * 0.45, Math.PI / 2), sp, 'horn'));
-    if (f.has('frill')) {
-      const fr = new THREE.CircleGeometry(headH * (f.has('horns3') ? 2.1 : 1.6), 16, 0, Math.PI);
-      fr.rotateX(-0.95);
-      fr.translate(0, headH * 0.4, hz - headLen * 0.35);
-      neck.push(paint(fr, sp, 'accent'));
-      if (f.has('frillSpikes')) for (let i = -2; i <= 2; i++) neck.push(paint(cone(headH * 0.12, headH * 0.8, i * headH * 0.6, headH * 1.9 - Math.abs(i) * headH * 0.3, hz - headLen * 0.5, -0.6), sp, 'horn'));
-    }
-    if (f.has('horns3')) {
-      for (const side of [-1, 1]) neck.push(paint(cone(headH * 0.2, headLen * 0.9, side * headH * 0.5, headH * 0.7, hz - headLen * 0.05, 1.0), sp, 'horn'));
-      neck.push(paint(cone(headH * 0.18, headLen * 0.35, 0, headH * 0.1, hz + headLen * 0.3, 0.6), sp, 'horn'));
-    }
-    if (f.has('nasalBoss')) neck.push(paint(ellipsoid(headH * 0.5, headH * 0.35, headH * 0.6, 0, headH * 0.8, hz + headLen * 0.1), sp, 'horn'));
-    if (f.has('plates')) for (let i = 0; i < 9; i++) {
-      const t = i / 8;
-      const pz = L * 0.2 - t * L * 0.55;
-      const ph = L * 0.09 * Math.sin(Math.PI * (0.15 + t * 0.8));
-      for (const side of [-1, 1]) body.push(paint(box(L * 0.008, ph, ph * 0.9, side * L * 0.02, torsoY + L * 0.11 + ph * 0.3, pz, 0.15), sp, 'accent'));
-    }
-    if (f.has('armor') || f.has('scutes')) for (let i = 0; i < 18; i++) {
-      const a = (i % 6) / 5 - 0.5;
-      const pz = L * 0.18 - Math.floor(i / 6) * L * 0.15;
-      body.push(paint(cone(L * 0.015, L * 0.03, a * L * 0.2, torsoY + L * (croc ? 0.045 : 0.11) - Math.abs(a) * L * 0.06, pz, 0, 0, a * 1.4), sp, 'horn'));
-    }
-    tailPivot = V(0, torsoY, -L * 0.2);
-    tail.push(paint(tube(V(0, 0, 0), V(0, croc ? -H * 0.2 : -H * 0.15, -L * 0.5), L * (croc ? 0.06 : 0.07), L * 0.01), sp, 'body'));
-    if (f.has('club')) tail.push(paint(ellipsoid(L * 0.06, L * 0.04, L * 0.06, 0, -H * 0.15, -L * 0.5), sp, 'horn'));
-    if (f.has('tailSpikes')) for (const side of [-1, 1]) for (const k of [0.42, 0.48]) tail.push(paint(cone(L * 0.012, L * 0.09, 0, -H * 0.12, -L * k, 0, 0, side * 1.1), sp, 'horn'));
-    const legR = L * (croc ? 0.025 : 0.04);
-    const fl = croc ? H * 0.95 : H * (f.has('plates') ? 0.7 : 0.9);
-    leg(-L * 0.1, L * 0.15, fl, legR, 0, true);
-    leg(L * 0.1, L * 0.15, fl, legR, 0.5, true);
-    leg(-L * 0.1, -L * 0.13, H, legR * 1.1, 0.5, false);
-    leg(L * 0.1, -L * 0.13, H, legR * 1.1, 0, false);
-  } else if (plan === 'sauropod') {
-    const torsoY = H * 1.15;
-    body.push(paint(ellipsoid(L * 0.08, L * 0.085, L * 0.17, 0, torsoY, 0), sp, 'body'));
-    neckPivot = V(0, torsoY + L * 0.03, L * 0.14);
-    const headPos = V(0, H * 1.25, L * 0.24);
-    neck.push(paint(tube(V(0, 0, 0), headPos, L * 0.045, L * 0.017, 10), sp, 'body'));
-    neck.push(paint(ellipsoid(L * 0.017, L * 0.02, L * 0.035, headPos.x, headPos.y + L * 0.01, headPos.z + L * 0.02), sp, 'body'));
-    tailPivot = V(0, torsoY, -L * 0.14);
-    tail.push(paint(tube(V(0, 0, 0), V(0, -H * 0.4, -L * 0.48), L * 0.05, L * 0.006, 10), sp, 'body'));
-    const legR = L * 0.03;
-    leg(-L * 0.06, L * 0.12, H * 1.15, legR, 0, true);
-    leg(L * 0.06, L * 0.12, H * 1.15, legR, 0.5, true);
-    leg(-L * 0.06, -L * 0.1, H, legR * 1.1, 0.5, false);
-    leg(L * 0.06, -L * 0.1, H, legR * 1.1, 0, false);
-  } else {
-    // Pterosaur: compact body, long head with crest, membrane wings.
-    const torsoY = H * 0.9;
-    body.push(paint(ellipsoid(L * 0.1, L * 0.1, L * 0.22, 0, torsoY, 0), sp, 'body'));
-    neckPivot = V(0, torsoY + L * 0.05, L * 0.18);
-    const neckLen = f.has('longNeck') ? L * 0.35 : L * 0.15;
-    neck.push(paint(tube(V(0, 0, 0), V(0, neckLen * 0.6, neckLen), L * 0.04, L * 0.03), sp, 'body'));
-    neck.push(paint(cone(L * 0.05, L * 0.5, 0, neckLen * 0.6, neckLen, Math.PI / 2), sp, 'horn'));
-    if (f.has('headCrest')) neck.push(paint(cone(L * 0.03, L * 0.35, 0, neckLen * 0.6 + L * 0.02, neckLen, -Math.PI / 2 - 0.3), sp, 'accent'));
-    tailPivot = V(0, torsoY, -L * 0.2);
-    tail.push(paint(tube(V(0, 0, 0), V(0, 0, -L * 0.1), L * 0.03, L * 0.005), sp, 'body'));
-    const span = L * 1.4;
-    const w = new THREE.BufferGeometry();
-    w.setAttribute('position', new THREE.BufferAttribute(new Float32Array([0, 0, L * 0.15, span, 0, L * 0.05, 0, 0, -L * 0.15, span, 0, L * 0.05, span * 0.5, 0, -L * 0.12, 0, 0, -L * 0.15]), 3));
-    w.computeVertexNormals();
-    wings = paint(w, sp, 'body');
-    const legR = L * 0.025;
-    leg(-L * 0.12, L * 0.12, H, legR, 0, true);
-    leg(L * 0.12, L * 0.12, H, legR, 0.5, true);
-    leg(-L * 0.06, -L * 0.1, H * 0.7, legR * 0.8, 0.5, false);
-    leg(L * 0.06, -L * 0.1, H * 0.7, legR * 0.8, 0, false);
-  }
-  void biped;
-
-  const merge = (arr: THREE.BufferGeometry[]) => {
-    const g = mergeGeometries(arr.map((x) => (x.index ? x.toNonIndexed() : x)))!;
-    g.computeVertexNormals();
-    g.computeBoundingSphere();
-    g.userData.shared = true;
-    return g;
-  };
-  // Neck geometry is authored relative to the pivot (except for theropods where head was computed relative to pivot already).
-  return {
-    body: merge(body),
-    neck: merge(neck),
-    neckPivot,
-    tail: merge(tail),
-    tailPivot,
-    legs,
-    wings,
-    wingPivot,
-    hipHeight: H,
-  };
-}
-
-function template(sp: SpeciesDef): Template {
+function template(sp: SpeciesDef): DinoTemplate {
   let t = templates.get(sp.id);
   if (!t) {
-    t = buildTemplate(sp);
-    for (const l of t.legs) l.thigh.userData.shared = l.shin.userData.shared = true;
-    if (t.wings) t.wings.userData.shared = true;
+    t = buildDinoTemplate(sp);
+    t.geometry.userData.shared = true;
+    t.low.userData.shared = true;
     templates.set(sp.id, t);
   }
   return t;
 }
 
-export function createAnimalView(speciesId: string): AnimalView {
+function speciesMaterials(sp: SpeciesDef): THREE.MeshStandardMaterial[] {
+  let m = baseMats.get(sp.id);
+  if (m) return m;
+  const scales = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7, metalness: 0 });
+  const feathers = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, metalness: 0, side: THREE.DoubleSide });
+  const horn = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.45, metalness: 0 });
+  const eye = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.08, metalness: 0 });
+  const membrane = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.75, metalness: 0, side: THREE.DoubleSide, transparent: false });
+  if (library) {
+    library.bind(scales, 'scales');
+    library.bind(feathers, 'feathers');
+    library.bind(membrane, 'leather');
+  }
+  m = [scales, feathers, horn, eye, membrane];
+  for (const x of m) x.userData.shared = true;
+  baseMats.set(sp.id, m);
+  return m;
+}
+
+function hashId(id: string, salt: number): number {
+  let h = 2166136261 ^ salt;
+  for (let i = 0; i < id.length; i++) h = Math.imul(h ^ id.charCodeAt(i), 16777619);
+  return ((h ^ (h >>> 13)) >>> 0) / 4294967296;
+}
+
+/** Forward-positive angle of a (y, z) vector measured from straight down. */
+const ang = (v: THREE.Vector3) => Math.atan2(v.z, -v.y);
+
+/** Builds species models ahead of time within a time budget (loading screen). */
+export function prewarmAnimals(ids: string[], budgetMs: number): boolean {
+  const t0 = performance.now();
+  for (const id of ids) {
+    if (templates.has(id)) continue;
+    template(SPECIES[id]);
+    if (performance.now() - t0 > budgetMs) return false;
+  }
+  return true;
+}
+
+export function createAnimalView(speciesId: string, individual = ''): AnimalView {
   const sp = SPECIES[speciesId];
   const tpl = template(sp);
   const root = new THREE.Group();
-  const body = new THREE.Group();
-  root.add(body);
+  const bones = new Map<string, THREE.Bone>();
+  const rest = new Map<string, THREE.Vector3>();
+  for (const b of tpl.bones) {
+    const bone = new THREE.Bone();
+    bone.name = b.name;
+    bones.set(b.name, bone);
+  }
+  for (const b of tpl.bones) {
+    const bone = bones.get(b.name)!;
+    const local = b.pos.clone();
+    if (b.parent) {
+      local.sub(tpl.bones.find((x) => x.name === b.parent)!.pos);
+      bones.get(b.parent)!.add(bone);
+    }
+    bone.position.copy(local);
+    rest.set(b.name, local.clone());
+  }
+  // Bones must have up-to-date world matrices before the bind pose is captured.
+  root.add(bones.get('root')!);
+  root.updateMatrixWorld(true);
+  const skeleton = new THREE.Skeleton(tpl.bones.map((b) => bones.get(b.name)!));
+  // Per-individual tint of skin/feathers (shared textures, cloned materials).
+  const base = speciesMaterials(sp);
+  const tint = 0.9 + hashId(individual || speciesId, 1) * 0.2;
+  const hue = (hashId(individual || speciesId, 2) - 0.5) * 0.06;
+  const materials = base.map((m, i) => {
+    if (i !== DMAT.scales && i !== DMAT.feathers) return m;
+    const c = m.clone();
+    c.color.setRGB(tint * (1 + hue), tint, tint * (1 - hue));
+    c.userData.shared = false;
+    if (library) library.bind(c, i === DMAT.scales ? 'scales' : 'feathers');
+    return c;
+  });
   const mk = (g: THREE.BufferGeometry) => {
-    const m = new THREE.Mesh(g, material);
+    const m = new THREE.SkinnedMesh(g, g.groups.length ? materials : materials[sp.look.features.includes('feathers') ? DMAT.feathers : DMAT.scales]);
+    root.add(m);
+    m.bind(skeleton, new THREE.Matrix4());
     m.castShadow = true;
     m.receiveShadow = true;
+    m.frustumCulled = false;
     return m;
   };
-  body.add(mk(tpl.body));
-  const neck = new THREE.Group();
-  neck.position.copy(tpl.neckPivot);
-  neck.add(mk(tpl.neck));
-  body.add(neck);
-  const tail = new THREE.Group();
-  tail.position.copy(tpl.tailPivot);
-  tail.add(mk(tpl.tail));
-  body.add(tail);
-  const legs = tpl.legs.map((t) => {
-    const thigh = new THREE.Group();
-    thigh.position.copy(t.hip);
-    thigh.add(mk(t.thigh));
-    const shin = new THREE.Group();
-    shin.position.set(0, -t.thighLen, sp.locomotion.plan === 'crocodyliform' ? 0 : 0);
-    shin.add(mk(t.shin));
-    thigh.add(shin);
-    body.add(thigh);
-    return { thigh, shin, t };
-  });
-  const wings: THREE.Group[] = [];
-  if (tpl.wings) {
-    for (const side of [-1, 1]) {
-      const w = new THREE.Group();
-      w.position.copy(tpl.wingPivot);
-      if (sp.locomotion.plan === 'pterosaur') w.position.y = tpl.hipHeight * 0.95;
-      const m = new THREE.Mesh(tpl.wings, wingMaterial);
-      m.castShadow = true;
-      m.scale.x = side;
-      w.add(m);
-      body.add(w);
-      wings.push(w);
-    }
-  }
+  const meshHi = mk(tpl.geometry);
+  const meshLo = mk(tpl.low);
+  meshLo.visible = false;
+  const shadow = createContactShadow(Math.max(0.25, sp.lengthM * 0.3), 0.5);
+  root.add(shadow);
   root.userData.speciesId = speciesId;
-  return { root, body, neck, tail, legs, wings, sp, tpl, posture: 0, flap: 0 };
+
+  const legInfo: LegRuntime[] = tpl.legs.map((l) => {
+    const j = l.joints;
+    const plan = sp.locomotion.plan;
+    const biped = plan === 'theropod' || plan === 'hadrosaur' || plan === 'bird';
+    const walking = !(biped && l.front);
+    const d0 = j[1].clone().sub(j[0]);
+    const d1 = j[2].clone().sub(j[1]);
+    const d2 = j[3].clone().sub(j[2]);
+    // Knee direction relative to the hip→ankle line.
+    const line = j[2].clone().sub(j[0]);
+    const kneeForward = ang(d0) > ang(line);
+    return { name: l.name, front: l.front, walking, phase: l.phase, l0: d0.length(), l1: d1.length(), r: [ang(d0), ang(d1), ang(d2)], hip: j[0].clone(), toe: j[3].clone(), metaVec: j[2].clone().sub(j[3]), kneeForward };
+  });
+  const size = 0.94 + hashId(individual || speciesId, 3) * 0.12;
+  const view: AnimalView = { root, sp, tpl, meshHi, meshLo, bones, rest, materials, shadow, size, posture: 0, flap: 0, jaw: 0, look: 0, pelvisDrop: 0, bodyPitch: 0, legInfo, ext: null };
+  if (hasExternal(speciesId))
+    void instantiate(speciesId).then((inst) => {
+      if (!inst || !root.parent) return;
+      view.ext = inst;
+      root.add(inst.root);
+    });
+  return view;
+}
+
+export function disposeAnimalView(v: AnimalView): void {
+  v.root.removeFromParent();
+  v.ext?.dispose();
+  for (const m of v.materials)
+    if (!m.userData.shared) {
+      library?.unbind(m);
+      m.dispose();
+    }
+  v.shadow.geometry.dispose();
+  (v.shadow.material as THREE.Material).dispose();
+  v.meshHi.skeleton.dispose();
 }
 
 /** Poses the model for the current frame. */
-export function poseAnimalView(v: AnimalView, a: AnimalData, stride: number, altitude: number, now: number, dt: number, camDist: number): void {
+export function poseAnimalView(v: AnimalView, a: AnimalData, stride: number, altitude: number, now: number, dt: number, camDist: number, lodDistance = 70): void {
   const sp = v.sp;
-  const g = growthScale(a, now);
+  const g = growthScale(a, now) * v.size;
   v.root.position.set(a.x, a.y, a.z);
-  v.root.rotation.y = a.heading;
+  v.root.rotation.set(0, a.heading, 0);
   v.root.scale.setScalar(g);
-  const castShadow = camDist < 90;
-  v.root.traverse((o) => {
-    if (o instanceof THREE.Mesh) o.castShadow = castShadow;
-  });
-
-  if (!a.alive) {
-    v.body.rotation.z = Math.PI / 2 * 0.92;
-    v.body.position.y = -v.tpl.hipHeight * 0.55;
-    v.legs.forEach((l) => (l.thigh.rotation.x = 0.3));
-    v.neck.rotation.x = 0.4;
+  const far = camDist > lodDistance;
+  v.meshHi.visible = !far;
+  v.meshLo.visible = far;
+  const shadows = camDist < 90;
+  v.meshHi.castShadow = shadows;
+  v.meshLo.castShadow = shadows;
+  if (v.ext) {
+    v.meshHi.visible = v.meshLo.visible = false;
+    v.ext.root.rotation.z = a.alive ? 0 : Math.PI / 2;
+    driveExternal(v.ext, dt, a.state, a.speed / Math.max(0.2, g), sp.walkSpeed, sp.runSpeed, altitude > 1);
     return;
   }
-  v.body.rotation.z = 0;
 
-  const speed = a.speed;
-  const run = clamp(speed / Math.max(0.1, sp.runSpeed), 0, 1);
-  const moving = speed > 0.05;
+  const B = v.bones;
+  for (const [name, b] of B) {
+    b.position.copy(v.rest.get(name)!);
+    b.rotation.set(0, 0, 0);
+  }
+  const bone = (n: string) => B.get(n);
+  const pelvis = bone('pelvis')!;
+
+  if (!a.alive) {
+    pelvis.rotation.z = Math.PI / 2 * 0.92;
+    pelvis.position.y = v.tpl.hipHeight * 0.35;
+    for (const l of v.legInfo) {
+      const t = bone(`${l.name}0`);
+      if (t) t.rotation.x = 0.3;
+    }
+    const n1 = bone('neck1');
+    if (n1) n1.rotation.x = 0.4;
+    v.shadow.visible = false;
+    return;
+  }
+  v.shadow.visible = altitude < 2;
+
+  const runF = clamp(a.speed / Math.max(0.1, sp.runSpeed), 0, 1);
+  const moving = a.speed > 0.05;
   const airborne = altitude > 1;
   const resting = a.state === 'rest' && !moving;
-  v.posture += ((resting ? 1 : 0) - v.posture) * damp(1.5, dt);
+  const k = (r: number) => damp(r, dt);
+  v.posture += ((resting ? 1 : 0) - v.posture) * k(1.2);
+  const mv = moving && !airborne ? 1 : 0;
 
-  const cycle = stride * Math.PI * 2 * 0.5;
-  const amp = moving ? 0.35 + run * 0.45 : 0;
-  for (const l of v.legs) {
-    const ph = cycle + l.t.phase * Math.PI * 2;
-    const swing = Math.sin(ph) * amp;
-    if (airborne) {
-      l.thigh.rotation.x = -1.1;
-      l.shin.rotation.x = 1.2;
+  // ---- Legs ----------------------------------------------------------------
+  const stepLen = sp.locomotion.stride;
+  const H = v.tpl.hipHeight;
+  const cycle = stride / 2;
+  const cy = Math.cos(a.heading);
+  const sy = Math.sin(a.heading);
+  // Ground under each walking foot (model units, relative to the animal's origin).
+  const groundAt = (local: THREE.Vector3) => {
+    if (!groundFn || camDist > 60) return 0;
+    const wx = a.x + (local.x * cy + local.z * sy) * g;
+    const wz = a.z + (-local.x * sy + local.z * cy) * g;
+    return clamp((groundFn(wx, wz) - a.y) / g, -0.3 * H, 0.3 * H);
+  };
+  let drop = 0;
+  const targets: { l: LegRuntime; T: THREE.Vector3; toeOff: number }[] = [];
+  let frontG = 0;
+  let hindG = 0;
+  let nf = 0;
+  let nh = 0;
+  for (const l of v.legInfo) {
+    if (!l.walking) continue;
+    const reach = (l.l0 + l.l1) * 0.62;
+    const duty = Math.min(0.7 - runF * 0.3, reach / (2 * stepLen));
+    const stanceLen = 2 * stepLen * duty * mv * (1 - v.posture);
+    const u = (((cycle + l.phase) % 1) + 1) % 1;
+    let fz: number;
+    let lift = 0;
+    let toeOff = 0;
+    if (u < duty) {
+      fz = stanceLen * (0.5 - u / duty);
+      toeOff = Math.max(0, u / duty - 0.75) / 0.25;
     } else {
-      l.thigh.rotation.x = swing * (1 - v.posture) - v.posture * 1.2;
-      l.shin.rotation.x = Math.max(0, -Math.cos(ph)) * amp * 1.2 + v.posture * 2;
+      const w = (u - duty) / (1 - duty);
+      fz = stanceLen * (-0.5 + (1 - Math.cos(w * Math.PI)) / 2);
+      lift = Math.sin(w * Math.PI) * H * (0.12 + runF * 0.12) * mv;
+    }
+    const T = l.toe.clone().add(new THREE.Vector3(0, lift, fz));
+    if (airborne) T.set(l.toe.x, l.hip.y - (l.l0 + l.l1) * 0.55, l.toe.z - (l.l0 + l.l1) * 0.45);
+    else {
+      const gy = groundAt(T);
+      T.y += gy;
+      if (l.front) {
+        frontG += gy;
+        nf++;
+      } else {
+        hindG += gy;
+        nh++;
+      }
+    }
+    // Pelvis must come down if the foot would be out of reach (also folds the legs when resting).
+    const A = T.clone().add(l.metaVec);
+    const d = Math.hypot(A.y - l.hip.y, A.z - l.hip.z);
+    drop = Math.max(drop, d - (l.l0 + l.l1) * 0.97);
+    targets.push({ l, T, toeOff });
+  }
+  // Body pitch from the ground under front and hind feet (quadrupeds), smoothed.
+  const span = Math.abs((v.legInfo.find((l) => l.front && l.walking)?.hip.z ?? 0) - (v.legInfo.find((l) => !l.front)?.hip.z ?? 0)) || 1;
+  const pitchTarget = nf && nh ? Math.atan2(hindG / nh - frontG / nf, span) : 0;
+  v.bodyPitch += (clamp(pitchTarget, -0.35, 0.35) - v.bodyPitch) * k(4);
+  const bob = moving && !airborne ? -Math.cos(cycle * Math.PI * 4) * H * (0.012 + runF * 0.02) : 0;
+  const rest = v.posture * H * 0.55;
+  v.pelvisDrop += (Math.max(0, drop) + rest - v.pelvisDrop) * k(10);
+  pelvis.position.y -= v.pelvisDrop - bob - (nh ? hindG / nh : 0) * 0.5 - (nf ? frontG / nf : 0) * 0.5;
+  pelvis.rotation.x = v.bodyPitch + runF * 0.05 * mv;
+  pelvis.rotation.z = Math.sin(cycle * Math.PI * 2) * 0.025 * mv;
+  pelvis.rotation.y = Math.sin(cycle * Math.PI * 2) * 0.04 * mv;
+
+  // IK per walking leg (in the pelvis frame; pelvis offsets applied to the hip).
+  const hipShift = pelvis.position.y - v.rest.get('pelvis')!.y;
+  for (const { l, T, toeOff } of targets) {
+    const hip = l.hip.clone();
+    hip.y += hipShift;
+    const A = T.clone().add(l.metaVec);
+    let dy = A.y - hip.y;
+    let dz = A.z - hip.z;
+    let d = Math.hypot(dy, dz);
+    const maxD = (l.l0 + l.l1) * 0.999;
+    const minD = Math.abs(l.l0 - l.l1) + 1e-3;
+    if (d > maxD) {
+      dy *= maxD / d;
+      dz *= maxD / d;
+      d = maxD;
+    }
+    d = Math.max(d, minD);
+    const phi = Math.atan2(dz, -dy);
+    const beta = Math.acos(clamp((l.l0 * l.l0 + d * d - l.l1 * l.l1) / (2 * l.l0 * d), -1, 1));
+    const t0 = l.kneeForward ? phi + beta : phi - beta;
+    const kneeY = hip.y - Math.cos(t0) * l.l0;
+    const kneeZ = hip.z + Math.sin(t0) * l.l0;
+    const t1 = Math.atan2(hip.z + dz - kneeZ, -(hip.y + dy - kneeY));
+    const d0 = t0 - l.r[0] + v.bodyPitch;
+    const d1 = t1 - l.r[1];
+    const d2 = toeOff * 0.5;
+    const b0 = bone(`${l.name}0`);
+    const b1 = bone(`${l.name}1`);
+    const b2 = bone(`${l.name}2`);
+    const b3 = bone(`${l.name}3`);
+    if (b0) b0.rotation.x = -d0;
+    if (b1) b1.rotation.x = -(d1 - (d0 - v.bodyPitch));
+    if (b2) b2.rotation.x = -(d2 - d1);
+    if (b3) b3.rotation.x = d2;
+  }
+  // Arms of bipeds: swing a little, folded closer when running.
+  for (const l of v.legInfo) {
+    if (l.walking) continue;
+    const b0 = bone(`${l.name}0`);
+    const b1 = bone(`${l.name}1`);
+    const sw = Math.sin(cycle * Math.PI * 2 + (l.name.endsWith('L') ? 0 : Math.PI)) * 0.15 * mv;
+    if (b0) b0.rotation.x = sw - runF * 0.3 + v.posture * 0.5;
+    if (b1) b1.rotation.x = -0.3 - runF * 0.4;
+  }
+
+  // ---- Tail, neck, head, jaw -------------------------------------------------
+  const tailNames = ['tail1', 'tail2', 'tail3', 'tail4'];
+  const tailAmp = moving ? 0.05 + runF * 0.05 : 0.03;
+  const tailFreq = moving ? Math.PI * 2 : 0.8;
+  tailNames.forEach((n, i) => {
+    const b = bone(n);
+    if (!b) return;
+    const ph = moving ? cycle * tailFreq : now * tailFreq + a.z;
+    b.rotation.y = Math.sin(ph - i * 0.7) * tailAmp * (1 + i * 0.4);
+    b.rotation.x = (v.posture * 0.12 - runF * 0.04) * (i === 0 ? 1 : 0.6) + (airborne ? -0.05 : 0);
+  });
+  const grazing = !moving && (a.state === 'graze' || a.state === 'drink' || a.state === 'eat');
+  const alert = a.state === 'alert' || a.state === 'flee';
+  const headDown = grazing ? 1 : alert ? -0.35 : v.posture * 0.6;
+  v.look += (headDown - v.look) * k(2.5);
+  const neckBones = ['neck1', 'neck2', 'neck3'].map(bone).filter((b): b is THREE.Bone => !!b);
+  const lowerTotal = sp.locomotion.plan === 'sauropod' ? 0.9 : sp.hipHeightM > 1 ? 0.75 : 0.6;
+  const breathe = Math.sin(now * 1.4 + a.x) * 0.02;
+  neckBones.forEach((b, i) => {
+    b.rotation.x = (v.look * lowerTotal) / neckBones.length + (i === 0 ? -v.bodyPitch : 0) + breathe * 0.5;
+    b.rotation.y = Math.sin(now * 0.3 + a.x + i) * 0.05 * (1 - mv);
+  });
+  const head = bone('head');
+  if (head) head.rotation.x = v.look * 0.35 - runF * 0.1;
+  const jawTarget = grazing ? 0.12 + Math.max(0, Math.sin(now * 6 + a.x)) * 0.18 : a.state === 'defend' || a.state === 'hunt' ? 0.5 : runF > 0.6 ? 0.18 : 0.02;
+  v.jaw += (jawTarget - v.jaw) * k(8);
+  const jaw = bone('jaw');
+  if (jaw) jaw.rotation.x = v.jaw;
+  const chest = bone('chest');
+  if (chest) chest.scale.setScalar(1 + Math.sin(now * 1.8 + a.x) * 0.012);
+
+  // ---- Flight ------------------------------------------------------------------
+  if (airborne || sp.locomotion.flies) {
+    v.flap += dt * (airborne ? (a.state === 'flee' ? 9 : 4.5) : 0);
+    for (const l of v.legInfo) {
+      if (!(l.name.startsWith('wing') || (l.front && (sp.locomotion.plan === 'bird' || sp.look.features.includes('wings'))))) continue;
+      const side = l.name.endsWith('L') ? 1 : -1;
+      const b0 = bone(`${l.name}0`);
+      const b1 = bone(`${l.name}1`);
+      const b2 = bone(`${l.name}2`);
+      if (!b0 || !b1) continue;
+      if (airborne) {
+        const f = Math.sin(v.flap);
+        b0.rotation.set(0, 0, side * (1.35 + f * 0.55));
+        b1.rotation.set(0, 0, side * 0.25);
+        if (b2) b2.rotation.set(0, 0, side * 0.2);
+      }
     }
   }
-  // Body bob tied to stride and lowered posture when resting.
-  const bob = moving && !airborne ? Math.abs(Math.sin(cycle)) * 0.04 * sp.hipHeightM * (0.5 + run) : 0;
-  v.body.position.y = bob - v.posture * sp.hipHeightM * 0.55;
-  v.body.rotation.x = airborne ? -0.05 : run * 0.06;
-
-  // Head: lowered to graze/drink/eat, raised when alert.
-  const headDown = !moving && (a.state === 'graze' || a.state === 'drink' || a.state === 'eat') ? 0.75 : a.state === 'alert' ? -0.25 : 0;
-  const breathe = Math.sin(now * 1.3 + a.x) * 0.03;
-  v.neck.rotation.x += (headDown + breathe - v.neck.rotation.x) * damp(3, dt);
-  v.tail.rotation.y = Math.sin(now * (moving ? 2 + run * 3 : 0.8) + a.z) * (moving ? 0.12 : 0.06);
-  v.tail.rotation.x = -run * 0.1;
-
-  if (v.wings.length) {
-    const flapping = airborne;
-    v.flap += dt * (flapping ? (a.state === 'flee' ? 9 : 4) : 0);
-    const spread = flapping ? 1 : 0.25;
-    v.wings.forEach((w, i) => {
-      const side = i === 0 ? -1 : 1;
-      w.scale.x = spread;
-      w.rotation.z = flapping ? side * Math.sin(v.flap) * 0.6 : side * -0.9;
-    });
-  }
+  // Contact shadow under the body.
+  v.shadow.position.set(0, 0.02 + (airborne ? 0 : 0), (v.legInfo[0]?.hip.z ?? 0) * 0.5);
 }
 
 /** A simple nest mound with eggs. */
 export function createNestView(eggs: number, size: number): THREE.Group {
   const g = new THREE.Group();
-  const mound = new THREE.Mesh(new THREE.TorusGeometry(size * 0.6, size * 0.25, 6, 12), new THREE.MeshStandardMaterial({ color: 0x5a4a32, roughness: 1 }));
+  const mound = new THREE.Mesh(new THREE.TorusGeometry(size * 0.6, size * 0.25, 8, 16), new THREE.MeshStandardMaterial({ color: 0x5a4a32, roughness: 1 }));
   mound.rotation.x = -Math.PI / 2;
   mound.position.y = size * 0.1;
   g.add(mound);
   const eggMat = new THREE.MeshStandardMaterial({ color: 0xd8cfb8, roughness: 0.7 });
   for (let i = 0; i < Math.min(eggs, 16); i++) {
     const a = (i / Math.min(eggs, 16)) * Math.PI * 2;
-    const e = new THREE.Mesh(new THREE.SphereGeometry(size * 0.12, 8, 6), eggMat);
+    const e = new THREE.Mesh(new THREE.SphereGeometry(size * 0.12, 12, 8), eggMat);
     e.scale.y = 1.3;
     e.position.set(Math.cos(a) * size * 0.3, size * 0.15, Math.sin(a) * size * 0.3);
     g.add(e);

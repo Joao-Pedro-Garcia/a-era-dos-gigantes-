@@ -6,7 +6,7 @@ import type { PlayerController } from './player';
 
 /** Third/first person camera with terrain and wall avoidance. */
 export class CameraRig {
-  distance = 5;
+  distance = 4.4;
   private smoothed = new THREE.Vector3();
   private initialized = false;
 
@@ -24,6 +24,15 @@ export class CameraRig {
     const eye = p.crouching ? 1.05 : p.swimming ? 1.5 : 1.65;
     const head = new THREE.Vector3(s.x, s.y + eye, s.z);
     const cam = this.camera;
+    // Natural field of view: wider in first person, tighter over the shoulder.
+    // Portrait screens (phones held upright) get a wider vertical view and a bit more distance.
+    const portrait = cam.aspect < 1 ? Math.min(1, (1 - cam.aspect) * 1.6) : 0;
+    const fov = (firstPerson ? 72 : 58) + portrait * 12;
+    if (Math.abs(cam.fov - fov) > 0.01) {
+      cam.fov += (fov - cam.fov) * Math.min(1, dt * 8 + 0.05);
+      if (Math.abs(cam.fov - fov) < 0.05) cam.fov = fov;
+      cam.updateProjectionMatrix();
+    }
     if (firstPerson) {
       cam.position.copy(head);
       cam.rotation.set(s.pitch, s.yaw + Math.PI, 0);
@@ -33,9 +42,10 @@ export class CameraRig {
     // Orbit behind the look direction.
     const cp = Math.cos(s.pitch);
     const dir = new THREE.Vector3(Math.sin(s.yaw) * cp, Math.sin(s.pitch), Math.cos(s.yaw) * cp);
-    const shoulder = new THREE.Vector3(-Math.cos(s.yaw), 0, Math.sin(s.yaw)).multiplyScalar(0.45);
-    const target = head.clone().add(shoulder);
-    const wanted = Math.min(this.distance, maxDistance);
+    // Over-the-shoulder framing: the survivor sits left of centre, below the horizon line.
+    const shoulder = new THREE.Vector3(-Math.cos(s.yaw), 0, Math.sin(s.yaw)).multiplyScalar(0.55);
+    const target = head.clone().add(shoulder).add(new THREE.Vector3(0, 0.18, 0));
+    const wanted = Math.min(this.distance * (1 + portrait * 0.25), maxDistance);
     let dist = wanted;
     // March back from the head and stop before terrain or solid colliders.
     const steps = 16;

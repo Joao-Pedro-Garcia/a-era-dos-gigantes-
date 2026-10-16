@@ -47,13 +47,37 @@ export interface QualityProfile {
   particles: number;
   /** Extra effects: dynamic point lights, soft shadows, volcano smoke. */
   effects: boolean;
+  /** Finest terrain grid (vertices per 128 m sector edge). */
+  terrainRes: number;
+  /** Procedural texture resolution (px). */
+  textureSize: number;
+  /** Normal-mapped terrain/material detail. */
+  normalMaps: boolean;
+  /** Screen-space ambient occlusion + anti-aliasing post-processing. */
+  postFx: boolean;
+  /** Shadow frustum half-size in metres (smaller = sharper). */
+  shadowRange: number;
+  /** Dense 3D grass/ground cover around the player (instances per m², radius). */
+  groundCover: number;
+  /** Distant low-detail trees beyond the detailed sectors. */
+  farTrees: boolean;
+  /** Image-based ambient light from the sky (PMREM). */
+  skyLighting: boolean;
+  /** Animated volumetric-looking cloud layer. */
+  clouds: boolean;
+  /** Horizon mesh resolution (vertices per side of the ~13 km continent). */
+  farRes: number;
+  /** Distance (m) beyond which animals use their light mesh. */
+  animalLod: number;
+  /** Sector LOD from which trees use their light model (0 = always light). */
+  treeLod: number;
 }
 
 export const QUALITY: Record<QualityLevel, QualityProfile> = {
-  low: { pixelRatioCap: 1, resolutionScale: 0.75, loadRadius: 3, detailRadius: 1, vegetationDensity: 0.45, shadows: false, shadowMapSize: 512, maxActiveAnimals: 16, textures: 'low', particles: 0.35, effects: false },
-  medium: { pixelRatioCap: 1.5, resolutionScale: 1, loadRadius: 4, detailRadius: 2, vegetationDensity: 0.75, shadows: true, shadowMapSize: 1024, maxActiveAnimals: 32, textures: 'low', particles: 0.7, effects: true },
-  high: { pixelRatioCap: 2, resolutionScale: 1, loadRadius: 5, detailRadius: 2, vegetationDensity: 1, shadows: true, shadowMapSize: 2048, maxActiveAnimals: 48, textures: 'high', particles: 1, effects: true },
-  ultra: { pixelRatioCap: 2.5, resolutionScale: 1, loadRadius: 6, detailRadius: 3, vegetationDensity: 1.25, shadows: true, shadowMapSize: 4096, maxActiveAnimals: 64, textures: 'high', particles: 1, effects: true },
+  low: { pixelRatioCap: 1, resolutionScale: 0.75, loadRadius: 3, detailRadius: 1, vegetationDensity: 0.45, shadows: false, shadowMapSize: 512, maxActiveAnimals: 16, textures: 'low', particles: 0.35, effects: false, terrainRes: 48, textureSize: 256, normalMaps: false, postFx: false, shadowRange: 45, groundCover: 0.35, farTrees: false, skyLighting: false, clouds: true, farRes: 128, animalLod: 30, treeLod: 1 },
+  medium: { pixelRatioCap: 1.5, resolutionScale: 1, loadRadius: 4, detailRadius: 2, vegetationDensity: 0.75, shadows: true, shadowMapSize: 1024, maxActiveAnimals: 32, textures: 'low', particles: 0.7, effects: true, terrainRes: 64, textureSize: 512, normalMaps: true, postFx: false, shadowRange: 55, groundCover: 0.6, farTrees: true, skyLighting: true, clouds: true, farRes: 200, animalLod: 50, treeLod: 2 },
+  high: { pixelRatioCap: 2, resolutionScale: 1, loadRadius: 5, detailRadius: 2, vegetationDensity: 1, shadows: true, shadowMapSize: 2048, maxActiveAnimals: 48, textures: 'high', particles: 1, effects: true, terrainRes: 96, textureSize: 512, normalMaps: true, postFx: true, shadowRange: 70, groundCover: 1, farTrees: true, skyLighting: true, clouds: true, farRes: 320, animalLod: 70, treeLod: 2 },
+  ultra: { pixelRatioCap: 2.5, resolutionScale: 1, loadRadius: 6, detailRadius: 3, vegetationDensity: 1.25, shadows: true, shadowMapSize: 4096, maxActiveAnimals: 64, textures: 'high', particles: 1, effects: true, terrainRes: 128, textureSize: 1024, normalMaps: true, postFx: true, shadowRange: 90, groundCover: 1.4, farTrees: true, skyLighting: true, clouds: true, farRes: 320, animalLod: 90, treeLod: 2 },
 };
 
 /** Per-setting overrides chosen by the player (undefined = follow the preset). */
@@ -65,6 +89,10 @@ export interface GraphicsOverrides {
   textures?: 'low' | 'high';
   particles?: number;
   effects?: boolean;
+  /** Dense grass/ground cover around the player (0 = off). */
+  groundCover?: number;
+  /** Screen-space ambient occlusion. */
+  ambientOcclusion?: boolean;
 }
 
 export function effectiveQuality(level: QualityLevel, o: GraphicsOverrides): QualityProfile {
@@ -76,9 +104,18 @@ export function effectiveQuality(level: QualityLevel, o: GraphicsOverrides): Qua
     q.detailRadius = Math.min(q.detailRadius, q.loadRadius);
   }
   if (o.vegetationDensity !== undefined) q.vegetationDensity = Math.min(1.5, Math.max(0.1, o.vegetationDensity));
-  if (o.textures !== undefined) q.textures = o.textures;
+  if (o.textures !== undefined) {
+    q.textures = o.textures;
+    q.textureSize = o.textures === 'high' ? Math.max(512, q.textureSize) : Math.min(256, q.textureSize);
+    q.normalMaps = o.textures === 'high' ? true : q.normalMaps;
+  }
   if (o.particles !== undefined) q.particles = Math.min(1, Math.max(0, o.particles));
-  if (o.effects !== undefined) q.effects = o.effects;
+  if (o.effects !== undefined) {
+    q.effects = o.effects;
+    if (!o.effects) q.postFx = false;
+  }
+  if (o.groundCover !== undefined) q.groundCover = Math.min(1.5, Math.max(0, o.groundCover));
+  if (o.ambientOcclusion !== undefined) q.postFx = o.ambientOcclusion && q.effects;
   return q;
 }
 
@@ -135,6 +172,8 @@ export function sanitizeSettings(raw: unknown): Settings {
     if (g.textures === 'low' || g.textures === 'high') s.graphics.textures = g.textures;
     if (typeof g.particles === 'number') s.graphics.particles = num(g.particles, 0, 1, 1);
     if (typeof g.effects === 'boolean') s.graphics.effects = g.effects;
+    if (typeof g.groundCover === 'number') s.graphics.groundCover = num(g.groundCover, 0, 1.5, 1);
+    if (typeof g.ambientOcclusion === 'boolean') s.graphics.ambientOcclusion = g.ambientOcclusion;
   }
   s.mouseSensitivity = num(r.mouseSensitivity, 0.1, 5, 1);
   s.touchSensitivity = num(r.touchSensitivity, 0.1, 5, 1);

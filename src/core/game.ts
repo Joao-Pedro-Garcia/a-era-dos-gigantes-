@@ -1,11 +1,12 @@
 import * as THREE from 'three';
 import { AudioSystem, type Surface } from '../audio/audio';
 import { growthScale, lifeStage, type AIState, type AnimalData, type TameCommand } from '../animals/animal';
-import { createAnimalView, createNestView, poseAnimalView, type AnimalView } from '../animals/animalView';
+import { createAnimalView, createNestView, disposeAnimalView, poseAnimalView, prewarmAnimals, setAnimalContext, type AnimalView } from '../animals/animalView';
+import { prewarmPlants } from '../world/plants';
 import { Ecosystem, createEcosystemState, type EcoContext, type EcoEvent } from '../animals/ecosystem';
 import { SPECIES } from '../animals/species';
 import { Building, PIECES, type Piece, type PieceType } from '../building/building';
-import { createGhost, createPieceObject, disposeObject, syncPieceObject } from '../building/pieceViews';
+import { applyBuildingTextures, createGhost, createPieceObject, disposeObject, syncPieceObject } from '../building/pieceViews';
 import { resolveDamage, snareable } from '../combat/combat';
 import { Crafting } from '../crafting/crafting';
 import { RECIPES, type Station } from '../crafting/recipes';
@@ -31,6 +32,16 @@ import { BIOMES, type BiomeId } from '../world/biomes';
 import { CollisionWorld } from '../world/collision';
 import { Environment, createEnvState, type EnvEvent } from '../world/environment';
 import { EnvironmentView } from '../world/environmentView';
+import { buildFarTerrain, farTerrainGeometry } from '../world/farTerrain';
+import { TerrainJobs } from '../world/terrainMesh';
+import { GroundCover } from '../world/groundCover';
+import { createVegetationDepthMaterial, createVegetationMaterial } from '../graphics/vegetationMaterial';
+import { installAtmosphere } from '../graphics/atmosphere';
+import { PostFx } from '../graphics/postfx';
+import { TextureLibrary } from '../graphics/textureLibrary';
+import { createTerrainMaterial, createTerrainUniforms } from '../graphics/terrainMaterial';
+import { WIND } from '../graphics/wind';
+import { loadExternalModels } from '../graphics/externalModels';
 import { CAVE_RADIUS, CAVE_Y, SectorManager } from '../world/sectors';
 import { PLANNED_SITES, SPAWN, Terrain, VOLCANO } from '../world/terrain';
 import { DIFFICULTY, effectiveQuality, loadSettings, saveSettings, type QualityLevel, type QualityProfile, type Settings } from './config';
@@ -67,6 +78,14 @@ export class Game {
   sectors: SectorManager | null = null;
   env: Environment | null = null;
   envView: EnvironmentView | null = null;
+  /** Procedural PBR textures (generated progressively, shared by every world). */
+  readonly textures: TextureLibrary;
+  readonly terrainUniforms = createTerrainUniforms();
+  private terrainMats: { detail: THREE.MeshStandardMaterial; flat: THREE.MeshStandardMaterial; far: THREE.MeshStandardMaterial } | null = null;
+  private farTerrain: THREE.Mesh | null = null;
+  private vegMats: { detail: THREE.MeshStandardMaterial; flat: THREE.MeshStandardMaterial; depth: THREE.MeshDepthMaterial };
+  private groundCover: GroundCover | null = null;
+  private postfx: PostFx;
   eco: Ecosystem | null = null;
   buildingSys: Building | null = null;
   player: PlayerController | null = null;
@@ -140,12 +159,28 @@ export class Game {
     this.input.onModeChange = (m) => this.hud.setTouchMode(m === 'touch');
     this.qualityLevel = this.settings.quality === 'auto' ? PerfMonitor.initialGuess() : this.settings.quality;
     this.perf = new PerfMonitor(this.qualityLevel);
+    installAtmosphere();
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: this.qualityLevel !== 'low', powerPreference: 'high-performance' });
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 0.9;
+    this.renderer.toneMappingExposure = 0.85;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.textures = new TextureLibrary();
+    const mk = (normals: boolean, far = false) => {
+      const m = createTerrainMaterial(this.textures, this.terrainUniforms, { normals, far });
+      m.userData.shared = true;
+      return m;
+    };
+    this.terrainMats = { detail: mk(true), flat: mk(false), far: mk(false, true) };
+    this.vegMats = {
+      detail: createVegetationMaterial(this.textures.arrays.veg, { normals: true }),
+      flat: createVegetationMaterial(this.textures.arrays.veg, { normals: false }),
+      depth: createVegetationDepthMaterial(this.textures.arrays.veg),
+    };
+    for (const m of Object.values(this.vegMats)) m.userData.shared = true;
+    this.postfx = new PostFx(this.renderer, this.scene, this.camera);
+    applyBuildingTextures(this.textures);
     this.scene.add(this.worldRoot);
     this.rig = new CameraRig(this.camera);
     this.applyQuality();
@@ -176,6 +211,10 @@ export class Game {
   }
 
   async boot(): Promise<void> {
+    // Optional artist models (empty manifest by default; failures fall back to procedural models).
+    void loadExternalModels().then((r) => {
+      if (r.failed.length) console.warn('Modelos externos não carregados:', r.failed.join(', '));
+    });
     try {
       this.hasSave = !!(await readSave(SAVE_SLOT));
     } catch {
@@ -240,6 +279,7 @@ export class Game {
     const w = innerWidth;
     const h = innerHeight;
     this.renderer.setSize(w, h, false);
+    this.postfx?.setSize(w, h);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
   }
@@ -254,8 +294,19 @@ export class Game {
     this.renderer.shadowMap.enabled = q.shadows;
     this.renderer.shadowMap.type = q.effects ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
     this.envView?.applyQuality(q);
-    this.sectors?.setTextureQuality(q.textures, this.renderer.capabilities.getMaxAnisotropy());
-    this.camera.far = (q.loadRadius + 1) * 128 * 1.5;
+    this.textures.setAnisotropy(q.textures === 'high' ? Math.min(8, this.renderer.capabilities.getMaxAnisotropy()) : 2);
+    this.textures.request(q.textureSize);
+    this.sectors?.setMaterials({
+      terrain: q.normalMaps ? this.terrainMats!.detail : this.terrainMats!.flat,
+      vegetation: q.normalMaps ? this.vegMats.detail : this.vegMats.flat,
+      vegetationDepth: this.vegMats.depth,
+    });
+    this.groundCover?.setQuality(q.groundCover, !q.normalMaps);
+    this.postfx.enabled = q.postFx;
+    this.postfx.setSize(innerWidth, innerHeight);
+    // The far plane reaches the horizon (the continent is ~10 km across).
+    this.camera.near = 0.2;
+    this.camera.far = 14000;
     this.camera.updateProjectionMatrix();
   }
 
@@ -322,9 +373,11 @@ export class Game {
   /** Releases every GPU resource of the previous world. */
   private teardown(): void {
     this.dismount(true);
+    this.playerView?.dispose();
+    this.sectors?.terrainJobs?.dispose();
     this.sectors?.dispose();
     this.actions.clear();
-    for (const v of this.animalViews.values()) v.root.removeFromParent();
+    for (const v of this.animalViews.values()) disposeAnimalView(v);
     this.animalViews.clear();
     for (const o of [...this.nestViews.values(), ...this.pieceViews.values(), ...this.bagViews.values()]) disposeObject(o);
     this.nestViews.clear();
@@ -343,7 +396,12 @@ export class Game {
     this.worldRoot.traverse((o) => o !== this.worldRoot && disposeObject(o));
     this.worldRoot.clear();
     this.collision = new CollisionWorld();
+    this.farTerrain = null;
+    this.groundCover?.clear();
+    this.groundCover = null;
     if (this.envView) {
+      this.envView.dispose();
+      this.scene.environment = null;
       this.scene.traverse((o) => o !== this.worldRoot && o !== this.scene && disposeObject(o));
       this.scene.clear();
       this.scene.add(this.worldRoot);
@@ -364,6 +422,28 @@ export class Game {
     this.envView = new EnvironmentView(this.scene, this.env);
     this.sectors = new SectorManager(terrain, this.collision, save.seed, save.world.harvested, new Set(save.world.flags ?? []));
     this.worldRoot.add(this.sectors.root);
+    // Terrain sector meshes are built off the main thread (no hitches when walking into new areas).
+    try {
+      this.sectors.terrainJobs = typeof Worker !== 'undefined' ? new TerrainJobs(save.seed) : null;
+    } catch {
+      this.sectors.terrainJobs = null;
+    }
+    // Whole-continent horizon mesh behind the streamed sectors (built in the worker when available).
+    const addFar = (geo: THREE.BufferGeometry) => {
+      if (this.terrain !== terrain) return; // world changed meanwhile
+      this.farTerrain = new THREE.Mesh(geo, this.terrainMats!.far);
+      this.farTerrain.userData.noAO = true;
+      this.farTerrain.frustumCulled = false;
+      // Drawn after the detailed sectors so the depth test discards the hidden parts.
+      this.farTerrain.renderOrder = 5;
+      this.worldRoot.add(this.farTerrain);
+    };
+    if (this.sectors.terrainJobs) void this.sectors.terrainJobs.far(this.quality().farRes, save.seed).then((d) => addFar(farTerrainGeometry(d)));
+    else addFar(buildFarTerrain(terrain, (x, z) => this.sectors!.biomeCoarse(x, z), Math.min(160, this.quality().farRes)));
+    this.envView.water.setHeightFn((x, z) => terrain.height(x, z));
+    setAnimalContext(this.textures, (x, z) => terrain.height(x, z));
+    this.sectors.applyTextures(this.textures);
+    this.groundCover = new GroundCover(terrain, this.sectors.pools, (x, z) => this.sectors!.biomeCoarse(x, z), () => this.env!.waterLevel);
     this.eco = new Ecosystem(save.eco, terrain, this.env, save.seed);
     this.eco.onEvent = (e) => this.onEcoEvent(e);
     this.buildingSys = new Building(save.building, this.collision);
@@ -377,7 +457,7 @@ export class Game {
     this.mysteries = new Mysteries(save.mysteries);
     this.survival = new Survival(save.player.survival, DIFFICULTY[this.settings.difficulty]);
     this.player = new PlayerController({ x: save.player.x, y: save.player.y, z: save.player.z, yaw: save.player.yaw, pitch: -0.15 });
-    this.playerView = new PlayerView();
+    this.playerView = new PlayerView(this.textures);
     this.worldRoot.add(this.playerView.root);
     this.respawnPoint = save.player.respawn;
     this.deaths = save.player.deaths ?? 0;
@@ -557,23 +637,41 @@ export class Game {
       this.hud.notify(`${t('error.frame')}: ${e instanceof Error ? e.message : String(e)}`, 'warn');
     }
     this.input.clearPresses();
-    if (this.player && this.envView) this.renderer.render(this.scene, this.camera);
+    if (this.player && this.envView) this.postfx.render();
     else {
       this.renderer.setClearColor(0x1c1a16);
       this.renderer.clear();
     }
   };
 
+  /** Per-frame shader inputs shared by terrain, vegetation and water. */
+  private updateWorldShading(px: number, pz: number, q: QualityProfile): void {
+    this.renderer.toneMappingExposure = this.envView!.exposure;
+    const u = this.terrainUniforms;
+    u.uWetness.value = this.envView!.wetness;
+    u.uTime.value = WIND.uniforms.uWindTime.value;
+    u.uHoleCenter.value.set(px, pz);
+    u.uHoleRadius.value = q.loadRadius * 128 - 30;
+    if (this.farTerrain) this.farTerrain.visible = !this.inCave;
+    if (this.groundCover) {
+      this.groundCover.enabled = !this.inCave && q.groundCover > 0.01;
+      this.groundCover.update(px, pz, this.state === 'loading' ? 40 : 3);
+    }
+  }
+
   private updateLoading(): void {
     const p = this.player!;
     const q = this.quality();
+    // Generate plant and animal models now rather than mid-game.
+    const modelsReady = prewarmPlants(25) && prewarmAnimals([...new Set([...this.eco!.animals.values()].map((a) => a.speciesId))], 25);
     this.sectors!.update(p.s.x, p.s.z, q, this.env!.state.time, 40);
     this.eco!.seedAround(p.s.x, p.s.z);
     const total = (q.loadRadius * 2 + 1) ** 2;
     this.hud.loading(Math.min(1, this.sectors!.loadedCount / total));
     this.rig.update(0.016, p, this.settings.firstPerson, this.groundFn(), this.collision);
-    this.envView!.update(0.016, this.camera, new THREE.Vector3(p.s.x, p.s.y, p.s.z), false);
-    if (this.sectors!.isReady && this.sectors!.pending === 0) {
+    this.envView!.update(0.016, this.camera, new THREE.Vector3(p.s.x, p.s.y, p.s.z), false, this.renderer);
+    this.updateWorldShading(p.s.x, p.s.z, q);
+    if (this.sectors!.isReady && this.sectors!.pending === 0 && modelsReady) {
       if (!this.inCave) p.s.y = Math.max(p.s.y, this.terrain!.height(p.s.x, p.s.z));
       this.state = 'playing';
       this.hud.hideMenu();
@@ -778,11 +876,13 @@ export class Game {
     this.syncViews(realDt);
     const focus = new THREE.Vector3(p.s.x, p.s.y, p.s.z);
     this.envView!.indoor = !!this.inCave;
-    this.envView!.update(realDt, this.camera, focus, ctx.airTemp < 0 || biome === 'snow');
+    this.envView!.update(realDt, this.camera, focus, ctx.airTemp < 0 || biome === 'snow', this.renderer);
+    this.updateWorldShading(p.s.x, p.s.z, q);
     this.envView!.groundFires((x, z) => terrain.height(x, z));
     this.rig.update(realDt, p, this.settings.firstPerson, this.groundFn(), this.collision, this.inCave ? 3.5 : mount ? 9 : Infinity);
     this.playerView!.setHeld(held && ['tool', 'weapon'].includes(ITEMS[held.id].category) ? held.id : '');
-    this.playerView!.update(realDt, p, this.settings.firstPerson || false);
+    this.playerView!.riding = !!mount;
+    this.playerView!.update(realDt, p, this.settings.firstPerson || false, this.inCave ? undefined : (x, z) => terrain.height(x, z));
     if (mount) this.playerView!.root.position.y = mount.y + SPECIES[mount.speciesId].hipHeightM * growthScale(mount, env.state.time) * 1.15;
     this.updateFlares();
 
@@ -1597,13 +1697,13 @@ export class Game {
       activeIds.add(a.id);
       let v = this.animalViews.get(a.id);
       if (!v) {
-        v = createAnimalView(a.speciesId);
+        v = createAnimalView(a.speciesId, a.id);
         this.animalViews.set(a.id, v);
         this.worldRoot.add(v.root);
       }
       const camDist = Math.hypot(a.x - cam.x, a.z - cam.z);
       v.root.visible = !this.inCave;
-      poseAnimalView(v, a, eco.brain.stridePhase(a), eco.brain.altitude(a), now, dt, camDist);
+      poseAnimalView(v, a, eco.brain.stridePhase(a), eco.brain.altitude(a), now, dt, camDist, this.quality().animalLod);
       if (this.inCave || !a.alive) continue;
       const sp = SPECIES[a.speciesId];
       const label = a.tame ? a.tame.name : sp.name[language()];
@@ -1626,7 +1726,7 @@ export class Game {
     }
     for (const [id, v] of this.animalViews) {
       if (!activeIds.has(id)) {
-        v.root.removeFromParent();
+        disposeAnimalView(v);
         this.animalViews.delete(id);
         this.lastStates.delete(id);
         this.animalSteps.delete(id);

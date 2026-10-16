@@ -2,7 +2,12 @@
 
 Jogo 3D de sobrevivência pré-histórica em mundo aberto, feito para navegador (computador, Android, iPhone e tablets), com Three.js, TypeScript e Vite.
 
-> **Estado: v0.2, jogável e integrado.** Todos os sistemas pedidos têm implementação real, conectada ao inventário, ao mundo e ao salvamento. Eles são cobertos por 113 testes automatizados e por 39 verificações num navegador real. O que ainda depende de recursos externos (principalmente modelos 3D artísticos) e as limitações conhecidas estão listados no fim deste documento, sem rodeios.
+> **Estado: v0.3, jogável e integrado, com transformação visual.**
+> - Todos os sistemas pedidos têm implementação real, conectada ao inventário, ao mundo e ao salvamento.
+> - A v0.3 substituiu os modelos de primitivas por geometria e texturas PBR geradas pelo código: personagem e dinossauros com esqueleto, árvores ramificadas, terreno com materiais misturados, céu físico com nuvens, água, chuva e iluminação baseada no céu.
+> - Tudo é coberto por 128 testes automatizados e por 39 verificações num navegador real.
+> - O visual **não é fotorrealista**: sem modelos e texturas artísticos, ele continua procedural.
+> - O que depende de recursos externos e as limitações conhecidas estão no fim deste documento, sem rodeios.
 
 ## Instalação e execução
 
@@ -11,7 +16,7 @@ npm install          # dependências (Node 18+; testado com Node 22 / npm 10)
 npm run dev          # servidor de desenvolvimento (também acessível pela rede local, para testar no celular)
 npm run build        # checagem de tipos + build de produção em dist/ (gera também o Service Worker)
 npm run preview      # serve o build de produção em http://localhost:4173
-npm test             # 113 testes automatizados (Vitest)
+npm test             # 128 testes automatizados (Vitest)
 npm run test:e2e     # 39 verificações num navegador real (ver "Testes")
 ```
 
@@ -20,7 +25,9 @@ A única dependência de execução é `three` (0.170.0). Não há servidores, c
 Páginas de diagnóstico:
 
 - `?showcase` mostra as 25 espécies lado a lado.
-- `?showcase&side&ground&species=triceratops` mostra uma espécie de perfil.
+- `?showcase&side&ground&species=triceratops` mostra uma espécie de perfil; acrescente `&close` para um close da cabeça.
+- `?showcase&human` mostra o personagem parado, andando, trotando, correndo e agachado (`&side`, `&close`, `&tool`).
+- `npm run shots` gera capturas de cenas fixas do jogo (início, floresta, dinossauro, entardecer, chuva, 1ª pessoa, noite, água, celular e espécies), para comparar antes e depois (ver *Testes*).
 - `F3` dentro do jogo exibe FPS, chamadas de desenho, geometrias e texturas na GPU e animais ativos/totais.
 
 ## Controles
@@ -182,17 +189,100 @@ Todo o som é sintetizado pela Web Audio API; não há arquivos de áudio.
 
 Português (padrão) e inglês, com seletor nas configurações. A escolha fica salva no navegador. Os textos ficam em `src/localization/` (`pt-BR.ts`, `en.ts`, `extra.ts`, `lore.ts`). Um teste garante que toda chave, inclusive as geradas dinamicamente (habilidades, peças, itens, comandos…), existe nos dois idiomas.
 
-### Gráficos e desempenho
+### Gráficos (v0.3: transformação visual)
 
-- **Perfis:** **Baixo, Médio, Alto, Ultra e Automático.**
-- **Ajustes individuais** sobrepõem o perfil: resolução (40–100%), sombras, distância de visão (2–7 setores), densidade da vegetação, qualidade das texturas (textura de detalhe do solo 128 ou 512 px), partículas e efeitos (luzes dinâmicas, sombras suaves, fumaça).
-- **O Automático** mede o tempo real de quadro: reduz a qualidade se ficar abaixo de 30 FPS e aumenta (até Alto) com folga sustentada.
+Não há arquivos de arte no projeto: **toda a geometria e todas as texturas são geradas pelo código**, a partir de regras e de ruído, no próprio jogo. Nada é baixado da internet (o ambiente de desenvolvimento não tinha acesso a bibliotecas de texturas CC0). Isso tem limites claros, descritos em *Recursos externos* e *Limitações*.
+
+- **Texturas PBR procedurais** (`src/graphics/texgen.ts`):
+  - cor, mapa normal e rugosidade, sem emendas;
+  - camadas de solo: grama, terra com pedriscos, rocha estratificada com líquen, areia com ondulações, neve, serrapilheira (folhas e gravetos) e lama úmida;
+  - materiais: casca sulcada e anelada, atlas de folhas, escamas, penas, pele humana, tecido com costura, couro, cabelo, tábuas e concreto.
+- **Carregamento progressivo das texturas:**
+  - versões de 64 px ficam prontas na hora;
+  - a resolução do perfil (256 a 1024 px) é gerada num Web Worker e trocada sem travar;
+  - o resultado fica em cache no IndexedDB, então as visitas seguintes não geram de novo.
+- **Terreno:**
+  - microrrelevo, montículos e trilhas de animais levemente afundadas;
+  - mistura de até 7 materiais por altura (pedras atravessam a grama, lama preenche depressões);
+  - rocha nas encostas com projeção biplanar;
+  - duas escalas de amostragem contra repetição, e convergência para a cor média à distância;
+  - oclusão por concavidade;
+  - poças, solo molhado e ondinhas de chuva;
+  - malha calculada num Web Worker, sem travadas ao entrar em setores novos;
+  - um **terreno de horizonte** com o continente inteiro (~13 km), para que montanhas, costa e vulcão apareçam até o horizonte.
+- **Vegetação:**
+  - árvores "crescidas" por regras, com tronco curvo, raízes, galhos recursivos e cachos de folhas texturizadas com normais de copa;
+  - flora mesozoica com 3 variantes cada: araucárias, angiospermas, palmeiras, cicas, samambaias, samambaias arborescentes e cavalinhas;
+  - camada densa perto do jogador: tufos de grama, samambaias pequenas, pedriscos e troncos caídos, que respeitam o solo e as trilhas;
+  - árvores de baixo detalhe nos setores distantes;
+  - vento com rajadas e tremor de folhas, também nas sombras;
+  - pools de instâncias globais: algumas dezenas de chamadas de desenho para toda a vegetação.
+- **Personagem:**
+  - malha contínua com esqueleto de 20 ossos e pesos suavizados nas articulações;
+  - rosto modelado (nariz, maxilar, olhos com pálpebras), mãos com dedos e cabelo;
+  - roupas com materiais próprios: túnica com saia e mangas, calça, cinto com bolsa, polainas e calçados de couro;
+  - animação procedural com transferência de peso, quadril oscilando, tronco em rotação contrária e braços em oposição;
+  - trote e corrida com fase de voo;
+  - **IK nas pernas sobre o terreno real**: o pé apoiado não desliza, porque o ciclo é ditado pela distância percorrida;
+  - poses de agachar, nadar, montar e golpear.
+- **Dinossauros:**
+  - corpo contínuo com esqueleto, loftado ao longo de uma coluna, com perfis por plano corporal;
+  - crânio por família com mandíbula articulada, dentes, olhos e narinas;
+  - patas digitígradas com garras;
+  - características de cada espécie: chifres, folho, placas, vela, clava, cristas, cúpula, osteodermos, penas e membranas;
+  - padrões de cor por vértice, com variação de tamanho e tom por indivíduo;
+  - IK das patas no terreno, inclinação do corpo em rampas, cauda ondulando;
+  - pescoço que desce para pastar, mandíbula que mastiga e ruge, deitar dobrando as patas, voo;
+  - malha leve à distância.
+- **Iluminação e céu:**
+  - céu físico (Preetham) com nuvens iluminadas pelo sol, cobertura ligada ao clima, estrelas e lua;
+  - cor do sol calculada pela atmosfera: branca ao meio-dia, alaranjada no fim da tarde;
+  - luz ambiente gerada do próprio céu (PMREM) mais luz rebatida do chão;
+  - neblina atmosférica com altura e brilho na direção do sol, aplicada antes do *tone mapping* com a mesma fórmula do céu, para o horizonte não ganhar faixa;
+  - sombras estabilizadas (sem tremido) com alcance e resolução por perfil;
+  - adaptação de exposição (entardecer, tempestade, noite);
+  - oclusão ambiental GTAO e antisserrilhado MSAA nos perfis Alto e Ultra;
+  - sombra de contato sob personagens e animais.
+- **Água:**
+  - superfície que acompanha o jogador, com profundidade por vértice;
+  - transparência na margem, espuma, cor rasa ou profunda;
+  - ondas pelo vento, reflexo do céu (Fresnel), brilho do sol e ondinhas de chuva.
+- **Chuva e neve:** partículas animadas na GPU, inclinadas pelo vento e com distância de desvanecimento.
+- **Construções e ruínas:** madeira em tábuas, casca, pedra, concreto e couro com texturas PBR.
+- **Câmera:** campo de visão 58° em 3ª pessoa e 72° em 1ª, enquadramento sobre o ombro, colisão com terreno e objetos, transições suaves.
+- **Modelos externos (opcional):**
+  - `public/models/manifest.json` permite trocar qualquer espécie, ou o personagem, por um GLB/glTF com animações (ver `public/models/README.md`);
+  - o jogo escolhe o clipe pelo estado e ajusta a velocidade do passo à velocidade real;
+  - o manifesto vem vazio: **não há modelos artísticos incluídos**.
+
+Comparação com capturas reais das mesmas cenas, antes e depois, no perfil Médio e com renderização por software: `docs/visual/antes-depois-1.jpg` e `antes-depois-2.jpg`. Close dos dinossauros: `docs/visual/dinossauros-close.jpg`. Ciclo de animação do personagem: `docs/visual/personagem-animacao.jpg`.
+
+#### Perfis gráficos
+
+| | Baixo | Médio | Alto | Ultra |
+|---|---|---|---|---|
+| Resolução do terreno (vértices por setor de 128 m) | 48 | 64 | 96 | 128 |
+| Texturas procedurais | 256 px | 512 px | 512 px | 1024 px |
+| Mapas normais (terreno, plantas) | não | sim | sim | sim |
+| Sombras | não (sombra de contato) | 1024, 55 m | 2048, 70 m | 4096, 90 m |
+| Grama densa perto do jogador | raio 28 m | 35 m | 46 m | 57 m |
+| Árvores distantes / luz do céu (PMREM) | não / não | sim / sim | sim / sim | sim / sim |
+| Oclusão ambiental (GTAO) + MSAA | não | não | sim | sim |
+| Distância de setores detalhados | 3 | 4 | 5 | 6 |
+
+- **Ajustes individuais** sobrepõem o perfil:
+  - resolução (40–100%), sombras e distância de visão;
+  - densidade da vegetação, **grama e detalhes do chão** e qualidade das texturas;
+  - partículas e efeitos;
+  - **oclusão ambiental**.
+- **O Automático** mede o tempo real de quadro e troca de perfil.
 - **Técnicas usadas:**
-  - instanciamento da vegetação e níveis de detalhe do terreno;
-  - limite de animais ativos por perfil e atualização mais espaçada dos distantes;
-  - geometrias e materiais compartilhados;
-  - liberação de recursos da GPU ao descarregar setores, demolir e trocar de mundo;
-  - tratamento de perda de contexto WebGL (salva e avisa).
+  - instâncias globais por modelo;
+  - nível de detalhe do terreno, das árvores e dos animais;
+  - Web Workers para terreno e texturas;
+  - descarte antecipado do terreno do horizonte sob a área detalhada;
+  - céu desenhado por último;
+  - liberação de recursos da GPU ao descarregar setores, trocar animais e trocar de mundo.
 
 ### Salvamento, importação e exportação
 
@@ -227,7 +317,7 @@ Português (padrão) e inglês, com seletor nas configurações. A escolha fica 
 
 ## Testes executados e resultados
 
-### Testes automatizados (`npm test`): **113 de 113 passando**
+### Testes automatizados (`npm test`): **128 de 128 passando**
 
 | Arquivo | Cobre |
 |---|---|
@@ -245,6 +335,7 @@ Português (padrão) e inglês, com seletor nas configurações. A escolha fica 
 | `mysteries.test.ts` | textos nos 2 idiomas, baterias, requisitos do final, coleta única, saneamento, rádio |
 | `save.test.ts` / `save2.test.ts` | migrações v0→v2, soma de verificação, arquivos inválidos, valores impossíveis, fallback para backup, IndexedDB |
 | `i18n.test.ts` / `settings.test.ts` | chaves completas (inclusive dinâmicas), troca de idioma, perfis gráficos e saneamento das configurações |
+| `graphics.test.ts` | texturas sem emenda e determinísticas, plantas (todas as variantes e níveis de detalhe, vento), pools de instâncias, pesos de solo e trilhas, esqueleto humano (pesos normalizados, altura), os 25 dinossauros (dados finitos, pesos e ossos válidos, tamanho), perfis gráficos e manifesto de modelos externos (rejeita URLs inseguras) |
 
 ### Teste no navegador (`npm run test:e2e`): **39 de 39 passando**
 
@@ -279,14 +370,40 @@ Feito no Chromium headless, sobre o build de produção. As ações usam teclado
 
 ### Medições reais de desempenho (sem números inventados)
 
-| Medição | Resultado | Onde |
-|---|---|---|
-| IA e ecossistema por quadro, 1.512 animais no mundo | 0,40 ms (16 ativos), 0,47 ms (32), 0,75 ms (48), 0,91 ms (64) | Node 22, Intel Xeon 2,8 GHz, 4 núcleos, sem GPU |
-| Tempo até jogar (novo mundo) | 0,9–1,3 s | Chromium headless |
-| FPS de renderização | 2–8 FPS no perfil Baixo | Chromium headless **com renderização por software (SwiftShader)**, ou seja, CPU emulando GPU. **Não representa celulares nem PCs reais** |
-| Tamanho do jogo | 871 KB de JS (249 KB gzip) + 12 KB de CSS | build de produção |
+Todas as medições abaixo foram feitas neste ambiente: Intel Xeon 2,8 GHz, 4 núcleos, **sem GPU**. O navegador é o Chromium headless com **renderização por software (SwiftShader)**, ou seja, a CPU emula a GPU. Esses FPS **não representam celulares nem PCs com GPU**. Eles servem para comparar versões e perfis entre si.
 
-**Não pude medir** FPS, memória nem tempo de carregamento em celulares Android, iPhone, tablets ou PCs com GPU real: o ambiente de desenvolvimento não tinha esses aparelhos. O perfil Automático foi feito para ajustar a qualidade nesses casos, mas **a meta de desempenho em dispositivos reais continua pendente de verificação**.
+**Renderização, 1280×720, cena inicial, média de 20 s:**
+
+| Perfil | v0.2 (antes) | v0.3 (agora) | Triângulos | Chamadas de desenho |
+|---|---|---|---|---|
+| Baixo | 6,2 FPS | 2,2 FPS | 195 mil (antes 60 mil) | 82 (antes 44) |
+| Médio | — | 0,3 FPS | 602 mil | 233 |
+| Alto | 1,6 FPS | 0,1 FPS | — (pós-processamento) | — |
+| Ultra | — | 0,15 FPS | — | — |
+
+**Carregamento e texturas:**
+
+| Medição | Resultado |
+|---|---|
+| Tempo até jogar (mundo novo) | Baixo 1,4–2,5 s; Médio 6 s; Alto e Ultra ~12 s (antes: 1,0–1,2 s) |
+| Texturas de partida (64 px, na thread principal) | 90–175 ms |
+| Texturas na resolução do perfil (Web Worker, sem travar) | 256 px: 1,1–2,0 s; 512 px: 4,2 s; 1024 px: 24 s. Ficam em cache no IndexedDB para as próximas visitas |
+| Malha de um setor detalhado (Web Worker) | 26 ms (64 vértices/lado), 41 ms (96), 64 ms (128) |
+| Terreno do horizonte (Web Worker separado) | 1,1 s com 240×240; 1,8 s com 320×320 |
+| IA e ecossistema por quadro | 0,40 ms (16 ativos) a 0,91 ms (64), medido em Node 22 |
+| Tamanho do jogo | 1,07 MB de JS (306 KB gzip) + workers de texturas (12 KB) e terreno (10 KB) + carregador glTF (45 KB, só executado se houver modelos no manifesto; entra no cache offline); CSS 12 KB |
+
+**Interpretação honesta:**
+- A v0.3 é bem mais pesada que a v0.2. São mais geometria e shaders por pixel muito mais elaborados (mistura de 7 materiais, céu com nuvens, neblina atmosférica, água com ondas).
+- No renderizador por software, o perfil Baixo ficou cerca de 2,8× mais lento que antes.
+- Numa GPU real o custo relativo é outro, mas **não pude medir em celulares nem em PCs com GPU**.
+- O perfil Automático reduz a qualidade se o tempo real de quadro passar do limite. O Baixo foi enxugado:
+  - um caminho rápido do shader do terreno (duas camadas por pixel);
+  - água opaca;
+  - grama e dinossauros distantes em versão leve;
+  - malha do horizonte menor;
+  - sem sombras dinâmicas, mapas normais nem pós-processamento.
+- **A meta de desempenho em aparelhos reais continua pendente de verificação.**
 
 ### Problemas encontrados e corrigidos nesta fase
 
@@ -301,17 +418,55 @@ Feito no Chromium headless, sobre o build de produção. As ações usam teclado
 - Os itens novos não iam para a barra de atalhos.
 - As dependências de desenvolvimento foram atualizadas (Vite 6.4.4, Vitest 3.2.7), eliminando o alerta do esbuild no servidor de dev.
 
+**Na transformação visual (v0.3), encontrados nas capturas e corrigidos:**
+- **Pele dos dinossauros desconectada:** patas, dedos e mandíbula flutuavam. As matrizes de ligação dos ossos eram calculadas antes de atualizar o grupo.
+- **Proporções:** os crânios saíam esféricos, com o dobro da altura real, e as coxas com até 2 m de diâmetro.
+- **Chuva invisível em alguns drivers:** uma conta de orientação (produto vetorial com o raio de visão) gerava NaN.
+- **`smoothstep` com limites invertidos** (comportamento indefinido no GLSL) na chuva, no céu, nas poças e na água.
+- **Padrões de repetição:**
+  - losangos de textura nas montanhas distantes, por repetição do ladrilho;
+  - quadriculado na água, por interferência de ondas regulares.
+- **Troncos pretos e casca em "favo":** tintas de vértice escuras multiplicadas pela textura.
+- **Passada do personagem** exagerada como investida: a 3,3 m/s o passo é de trote. O ciclo agora tem fase de apoio e de voo.
+- **Rosto:** nariz triangular e queixo pontudo.
+- **Luz e exposição:**
+  - entardecer quase preto;
+  - sombras negras;
+  - imagem leitosa por excesso de luz ambiente;
+  - neblina mais clara que as nuvens de tempestade.
+- **Travadas:**
+  - a malha do horizonte levava 1,1 s na thread principal e passou para um worker;
+  - os setores também passaram para worker;
+  - os modelos de plantas e animais agora são pré-gerados na tela de carregamento.
+
 ## Recursos externos ainda necessários
 
-- **Modelos 3D artísticos e animações (glTF).** Os dinossauros, o personagem e as construções são procedurais: reconhecíveis e animados pelo deslocamento real, mas **sem a qualidade cinematográfica** desejada. A arquitetura permite trocar o modelo de cada espécie (`src/animals/animalView.ts`), mas os arquivos não existem.
-- **Texturas fotográficas** de terreno, rochas e vegetação. Hoje há cores por vértice e uma textura de detalhe procedural.
+- **Modelos 3D artísticos com animações (GLB/glTF):**
+  - um por espécie (25) e um para o personagem;
+  - o jogo já sabe usá-los pelo `public/models/manifest.json`, escolhendo o clipe pelo estado e sincronizando o passo;
+  - não há arquivos incluídos, e os modelos atuais são procedurais.
+  - Para chegar a um visual realmente cinematográfico, seriam necessários:
+    - esculturas com anatomia detalhada (músculos, pele com dobras, rosto humano realista);
+    - texturas pintadas ou escaneadas;
+    - animações capturadas ou feitas à mão.
+- **Texturas fotográficas ou escaneadas** (PBR com cor, normal, rugosidade e AO) de solo, rochas, casca e folhas. Hoje elas são geradas proceduralmente: convincentes de média distância, mas sem a riqueza de uma foto.
+- **Vegetação feita por artista** (folhas recortadas de fotos, *impostors* para longe), para substituir os cartões de folha gerados.
+- **Possível uso de bibliotecas CC0** (Poly Haven, ambientCG): o ambiente de desenvolvimento não tinha acesso a esses sites, por isso não foram usadas.
 - **Sons gravados** (opcional). Todo o áudio atual é sintetizado; vocalizações gravadas ou desenhadas por um sound designer soariam mais naturais.
 - **Testes em aparelhos reais:** Android, iPhone (incluindo instalação como app pela tela inicial), tablets e PCs com GPU.
 
 ## Limitações conhecidas
 
-- **Visual:** modelos simples. O realismo cinematográfico depende dos recursos externos acima.
-- **Desempenho em dispositivos reais** não medido (ver acima).
+- **Visual (sem fotorrealismo):**
+  - o personagem e os dinossauros são procedurais, com esqueleto e pele contínua;
+  - o rosto humano é simples, sem expressões nem dedos articulados;
+  - os dinossauros não têm músculos, dobras de pele nem rugas esculpidas, e a anatomia é aproximada por seções;
+  - as animações são procedurais, não capturadas;
+  - as árvores usam cartões de folha;
+  - não há reflexos em tempo real (a água reflete só o céu), dispersão subsuperficial na pele nem nuvens volumétricas de verdade (a camada de nuvens é 2D com iluminação aproximada).
+- **Desempenho em dispositivos reais** não medido (ver acima). A v0.3 custa bem mais que a v0.2 por quadro; o perfil Automático deve compensar, mas isso não foi verificado em aparelhos.
+- **Luzes:** a oclusão ambiental (GTAO) não considera o balanço do vento nas folhas, só a pose de repouso.
+- **Horizonte:** o terreno distante é uma malha única de 40 a 100 m por vértice, então montanhas muito longe ficam facetadas. Ao teleportar, o chão próximo leva um instante para chegar do worker.
 - **Simplificações de jogabilidade:**
   - cavernas são câmaras únicas, alcançadas por transição, e não túneis contínuos no terreno;
   - construções não têm durabilidade e não são destruídas por animais;
@@ -331,15 +486,21 @@ Feito no Chromium headless, sobre o build de produção. As ações usam teclado
 ```
 src/
   core/          game.ts (orquestração, ciclo, salvamento), interactions.ts (tudo que o jogador faz no mundo), config, RNG, ruído
-  world/         terreno, biomas, setores e LOD, cavernas, vegetação, colisão, clima, visual do ambiente
-  animals/       espécies, estado do animal, ecossistema, modelos procedurais
+  world/         terreno, biomas, setores e LOD, cavernas, colisão, clima, visual do ambiente;
+                 plants (modelos de plantas), groundShading (materiais do solo), groundCover (grama densa),
+                 vegetationPools (instâncias globais), terrainMesh/terrainWorker e farTerrain (horizonte)
+  graphics/      texgen (texturas PBR procedurais), textureLibrary (carregamento progressivo e cache),
+                 terrainMaterial, vegetationMaterial, sky, atmosphere (neblina física), water,
+                 precipitation, wind, postfx (GTAO), contactShadow, externalModels (GLB/glTF opcionais)
+  animals/       espécies, estado do animal, ecossistema, dinoModel (dinossauros com esqueleto), animalView (pose e IK)
   ai/            cérebro (percepção, decisão, domesticados, montaria) e memória
   taming/        perfis por espécie, regras de confiança/treino, controlador (cochos, coletores, reprodução)
   combat/        armadura, tipos de dano, armadilhas
   progression/   disciplinas, XP, habilidades e seus efeitos
   exploration/   névoa do mapa, trilha, marcadores, fósseis
   mysteries/     documentos, estado da investigação, requisitos do final
-  player/  survival/  inventory/  crafting/  building/  input/  ui/  audio/  performance/  save/  localization/  dev/
+  player/        controle, câmera, humanModel (personagem com esqueleto), playerView (animação e IK)
+  survival/  inventory/  crafting/  building/  input/  ui/  audio/  performance/  save/  localization/  dev/
 tests/           testes unitários e de integração (Vitest) + tests/e2e/run.mjs (navegador)
 ```
 

@@ -1,13 +1,16 @@
 import * as THREE from 'three';
 import { WORLD, type QualityProfile } from '../core/config';
-import { clamp, lerp, smoothstep } from '../core/math';
+import { clamp } from '../core/math';
 import { Rng, hash2 } from '../core/rng';
 import { BIOMES, type BiomeId, type VegetationKind } from './biomes';
 import { CollisionWorld } from './collision';
 import { PLANNED_SITES, type PlannedSite, type Terrain } from './terrain';
 import { fossilSite } from '../exploration/exploration';
 import { DOCS } from '../mysteries/mysteries';
-import { VEG_COLLIDER, VEG_YIELD, vegetationGeometries } from './vegetationModels';
+import { VEG_COLLIDER, VEG_YIELD } from './vegetationModels';
+import { PLANT_VARIANTS, plantGeometry } from './plants';
+import { VegetationPools, type InstanceHandle } from './vegetationPools';
+import { terrainMeshData, type TerrainJobs, type TerrainMeshData } from './terrainMesh';
 
 /**
  * Streams the continent around the player. Sectors close to the player get
@@ -24,9 +27,8 @@ export interface ResourceNode {
   z: number;
   scale: number;
   biome: BiomeId;
-  /** Instanced mesh + index for hiding when depleted. */
-  mesh: THREE.InstancedMesh | null;
-  index: number;
+  /** Vegetation instance (removed when depleted). */
+  inst: InstanceHandle | null;
   colliderId: string | null;
 }
 
@@ -39,6 +41,12 @@ interface SectorView {
   nodes: ResourceNode[];
   colliders: string[];
   interactables: Interactable[];
+  /** Vegetation instances owned by this sector (released on unload). */
+  handles: InstanceHandle[];
+  /** Terrain mesh present at the requested detail (false while the worker builds it). */
+  terrainReady: boolean;
+  /** Distance from the player when it was built (readiness of the area near the player). */
+  d: number;
 }
 
 /** Depth of cave interiors below the surface (separate playable chambers). */
@@ -59,8 +67,27 @@ export interface Interactable {
   colliderId?: string;
 }
 
-const LOD_RES = [64, 32, 16, 8];
-const SKIRT = 12;
+/** LOD resolutions relative to the quality preset's finest terrain resolution. */
+const LOD_DIV = [1, 2, 4, 8];
+const UP = new THREE.Vector3(0, 1, 0);
+
+interface Placed {
+  x: number;
+  y: number;
+  z: number;
+  s: number;
+  r: number;
+  biome: BiomeId;
+  id: string;
+}
+
+/** Stable 0..1 hash of a string id (variant choice, tilt, tint). */
+function hashUnit(id: string, salt: number): number {
+  let h = 2166136261 ^ salt;
+  for (let i = 0; i < id.length; i++) h = Math.imul(h ^ id.charCodeAt(i), 16777619);
+  h = Math.imul(h ^ (h >>> 15), 2246822507);
+  return ((h ^ (h >>> 13)) >>> 0) / 4294967296;
+}
 
 export class SectorManager {
   readonly root = new THREE.Group();
@@ -74,6 +101,10 @@ export class SectorManager {
   private paperMat: THREE.MeshStandardMaterial;
   private screenMat: THREE.MeshStandardMaterial;
   private voidMat: THREE.MeshBasicMaterial;
+  /** World-wide instanced vegetation (shared by all sectors). */
+  readonly pools: VegetationPools;
+  /** Off-thread terrain builder (the game sets it; tests build synchronously). */
+  terrainJobs: TerrainJobs | null = null;
   private queue: { sx: number; sz: number; lod: number; detail: boolean; d: number }[] = [];
   private nodeHits = new Map<string, number>();
   private biomeCache = new Map<string, BiomeId>();
@@ -88,7 +119,7 @@ export class SectorManager {
     /** Persistent world flags that change authored places (e.g. 'open:bunker'). */
     public flags: Set<string> = new Set(),
   ) {
-    this.terrainMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0, side: THREE.DoubleSide, shadowSide: THREE.FrontSide });
+    this.terrainMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0 });
     this.vegMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, side: THREE.DoubleSide, alphaTest: 0.5 });
     this.ruinMat = new THREE.MeshStandardMaterial({ color: 0x8d8a80, roughness: 0.9 });
     this.metalMat = new THREE.MeshStandardMaterial({ color: 0x5e6266, roughness: 0.6, metalness: 0.6 });
@@ -97,49 +128,30 @@ export class SectorManager {
     this.paperMat = new THREE.MeshStandardMaterial({ color: 0xe8e2d0, roughness: 1 });
     this.screenMat = new THREE.MeshStandardMaterial({ color: 0x1a2a22, emissive: 0x2a6a4a, emissiveIntensity: 0.5 });
     this.voidMat = new THREE.MeshBasicMaterial({ color: 0x050403 });
+    this.pools = new VegetationPools(this.vegMat);
+    this.root.add(this.pools.root);
   }
 
-  /**
-   * Ground detail texture (procedural grain multiplied with the biome colours).
-   * 'low' uses a small texture; 'high' a larger one with anisotropic filtering.
-   */
-  setTextureQuality(q: 'low' | 'high', maxAnisotropy = 1): void {
-    if (typeof document === 'undefined') return;
-    const size = q === 'high' ? 512 : 128;
-    const c = document.createElement('canvas');
-    c.width = c.height = size;
-    const g = c.getContext('2d')!;
-    const img = g.createImageData(size, size);
-    let seed = 1234;
-    const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
-    // Tileable value noise: blobs + grain, averaged around mid-grey so colours are preserved.
-    const cells = 16;
-    const grid: number[] = Array.from({ length: cells * cells }, rnd);
-    const at = (x: number, y: number) => grid[((y + cells) % cells) * cells + ((x + cells) % cells)];
-    for (let y = 0; y < size; y++)
-      for (let x = 0; x < size; x++) {
-        const fx = (x / size) * cells;
-        const fy = (y / size) * cells;
-        const ix = Math.floor(fx);
-        const iy = Math.floor(fy);
-        const tx = fx - ix;
-        const ty = fy - iy;
-        const v = at(ix, iy) * (1 - tx) * (1 - ty) + at(ix + 1, iy) * tx * (1 - ty) + at(ix, iy + 1) * (1 - tx) * ty + at(ix + 1, iy + 1) * tx * ty;
-        const val = Math.round(200 + (v - 0.5) * 50 + (rnd() - 0.5) * 40);
-        const o = (y * size + x) * 4;
-        img.data[o] = val;
-        img.data[o + 1] = val;
-        img.data[o + 2] = val;
-        img.data[o + 3] = 255;
-      }
-    g.putImageData(img, 0, 0);
-    this.terrainMat.map?.dispose();
-    const tex = new THREE.CanvasTexture(c);
-    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-    tex.anisotropy = q === 'high' ? Math.min(8, maxAnisotropy) : 1;
-    this.terrainMat.map = tex;
-    this.terrainMat.color.setScalar(1.27); // compensate the texture's mean brightness
-    this.terrainMat.needsUpdate = true;
+  /** Replaces the shared materials (the game supplies textured ones; tests use the plain defaults). */
+  /** Ruins: weathered concrete, rusty metal, old wood (procedural PBR textures). */
+  applyTextures(lib: { bind: (m: THREE.MeshStandardMaterial, name: 'concrete' | 'planks' | 'leather', maps?: { map: boolean; normal: boolean; rough: boolean }) => unknown }): void {
+    lib.bind(this.ruinMat, 'concrete');
+    this.ruinMat.color.set(0xc8c4b8);
+    lib.bind(this.woodMat, 'planks');
+    this.woodMat.color.set(0xa08a70);
+    lib.bind(this.metalMat, 'concrete', { map: false, normal: true, rough: true });
+  }
+
+  setMaterials(m: { terrain?: THREE.Material; vegetation?: THREE.Material; vegetationDepth?: THREE.Material }): void {
+    if (m.terrain) this.terrainMat = m.terrain as THREE.MeshStandardMaterial;
+    if (m.vegetation) {
+      this.vegMat = m.vegetation as THREE.MeshStandardMaterial;
+      this.pools.setMaterials(m.vegetation, m.vegetationDepth ?? null);
+    }
+    for (const v of this.sectors.values())
+      v.group.traverse((o) => {
+        if (o instanceof THREE.Mesh && o.userData.terrain && m.terrain) o.material = m.terrain;
+      });
   }
 
   /** True once the sectors around the player exist (used by the loading screen). */
@@ -152,7 +164,7 @@ export class SectorManager {
   }
 
   get pending(): number {
-    return this.queue.length;
+    return this.queue.length + (this.terrainJobs?.inFlight ?? 0);
   }
 
   update(px: number, pz: number, q: QualityProfile, now: number, budgetMs = 6): void {
@@ -187,10 +199,15 @@ export class SectorManager {
     const t0 = performance.now();
     while (this.queue.length) {
       const w = this.queue.shift()!;
-      this.build(w.sx, w.sz, w.lod, w.detail, q, now);
+      this.build(w.sx, w.sz, w.lod, w.detail, q, now, w.d);
       if (performance.now() - t0 > budgetMs && this.ready) break;
     }
-    if (!this.queue.length || !this.queue.some((w) => w.d < S)) this.ready = true;
+    if (!this.queue.length || !this.queue.some((w) => w.d < S)) {
+      // Ready once the ground around the player exists (async terrain included).
+      let near = true;
+      for (const v of this.sectors.values()) if (v.d < S && !v.terrainReady) near = false;
+      if (near) this.ready = true;
+    }
   }
 
   private unload(key: string, v: SectorView): void {
@@ -207,6 +224,8 @@ export class SectorManager {
       }
     });
     for (const c of v.colliders) this.collision.remove(c);
+    for (const h of v.handles) h.pool.remove(h);
+    v.handles = [];
     this.sectors.delete(key);
   }
 
@@ -221,97 +240,60 @@ export class SectorManager {
     return b;
   }
 
-  private build(sx: number, sz: number, lod: number, detail: boolean, q: QualityProfile, now: number): void {
+  private build(sx: number, sz: number, lod: number, detail: boolean, q: QualityProfile, now: number, d = 0): void {
     const key = `${sx},${sz}`;
     const old = this.sectors.get(key);
-    if (old) this.unload(key, old);
+    const res = Math.max(8, Math.round(q.terrainRes / LOD_DIV[lod]));
     const group = new THREE.Group();
     group.name = `sector ${key}`;
-    const view: SectorView = { sx, sz, lod, detail, group, nodes: [], colliders: [], interactables: [] };
-    group.add(this.buildTerrain(sx, sz, LOD_RES[lod]));
+    const view: SectorView = { sx, sz, lod, detail, group, nodes: [], colliders: [], interactables: [], handles: [], terrainReady: false, d };
+    if (this.terrainJobs) {
+      // Keep the previous terrain visible until the new level of detail arrives.
+      const prev = old?.group.children.find((o) => o.userData.terrain && o.userData.ownGeometry) as THREE.Mesh | undefined;
+      if (prev && old && old.terrainReady) {
+        old.group.remove(prev);
+        prev.userData.placeholder = true;
+        group.add(prev);
+      }
+      if (old) this.unload(key, old);
+      void this.terrainJobs.request(sx, sz, res).then((data) => {
+        if (this.sectors.get(key) !== view) return; // superseded or unloaded
+        for (const c of [...group.children]) {
+          if (c.userData.placeholder) {
+            group.remove(c);
+            (c as THREE.Mesh).geometry.dispose();
+          }
+        }
+        group.add(this.terrainMesh(data));
+        view.terrainReady = true;
+      });
+    } else {
+      if (old) this.unload(key, old);
+      group.add(this.buildTerrain(sx, sz, res));
+      view.terrainReady = true;
+    }
+    this.pools.setShadows(q.shadows);
     if (detail) {
       this.buildVegetation(view, q, now);
       this.buildSites(view, now);
-    }
+    } else if (q.farTrees) this.buildFarTrees(view, q, now);
     this.root.add(group);
     this.sectors.set(key, view);
   }
 
   private buildTerrain(sx: number, sz: number, res: number): THREE.Mesh {
-    const S = WORLD.sectorSize;
-    const step = S / res;
-    const x0 = sx * S;
-    const z0 = sz * S;
-    const N = res + 1;
-    const G = res + 3; // with a 1-vertex border for normals
-    const hs = new Float32Array(G * G);
-    for (let j = 0; j < G; j++) for (let i = 0; i < G; i++) hs[j * G + i] = this.terrain.height(x0 + (i - 1) * step, z0 + (j - 1) * step);
+    return this.terrainMesh(terrainMeshData(this.terrain, (bx, bz) => this.biomeCoarse(bx, bz), sx, sz, res));
+  }
 
-    const vcount = N * N + 4 * N;
-    const pos = new Float32Array(vcount * 3);
-    const uvs = new Float32Array(vcount * 2);
-    const nor = new Float32Array(vcount * 3);
-    const col = new Float32Array(vcount * 3);
-    const tmp = new THREE.Color();
-    const n = new THREE.Vector3();
-    let v = 0;
-    for (let j = 0; j < N; j++)
-      for (let i = 0; i < N; i++) {
-        const gi = (j + 1) * G + (i + 1);
-        const h = hs[gi];
-        const x = x0 + i * step;
-        const z = z0 + j * step;
-        pos.set([x, h, z], v * 3);
-        uvs.set([x / 7, z / 7], v * 2);
-        const dx = hs[gi + 1] - hs[gi - 1];
-        const dz = hs[gi + G] - hs[gi - G];
-        n.set(-dx, 2 * step, -dz).normalize();
-        nor.set([n.x, n.y, n.z], v * 3);
-        this.groundColor(x, z, h, 1 - n.y, tmp);
-        col.set([tmp.r, tmp.g, tmp.b], v * 3);
-        v++;
-      }
-    // Skirt vertices hide cracks between neighbouring LODs.
-    const edge = (i: number, j: number) => {
-      const src = j * N + i;
-      // Slant the skirt inward so its top edge never z-fights with the neighbour's surface.
-      const cx = x0 + S / 2;
-      const cz = z0 + S / 2;
-      const ex = pos[src * 3];
-      const ez = pos[src * 3 + 2];
-      const len = Math.hypot(cx - ex, cz - ez) || 1;
-      pos.set([ex + ((cx - ex) / len) * 1.5, pos[src * 3 + 1] - SKIRT, ez + ((cz - ez) / len) * 1.5], v * 3);
-      uvs.set([uvs[src * 2], uvs[src * 2 + 1]], v * 2);
-      nor.set([nor[src * 3], nor[src * 3 + 1], nor[src * 3 + 2]], v * 3);
-      col.set([col[src * 3], col[src * 3 + 1], col[src * 3 + 2]], v * 3);
-      return v++;
-    };
-    const idx: number[] = [];
-    for (let j = 0; j < res; j++)
-      for (let i = 0; i < res; i++) {
-        const a = j * N + i;
-        const b = a + 1;
-        const c = a + N;
-        const d = c + 1;
-        idx.push(a, c, b, b, c, d);
-      }
-    const sides: [number, number][][] = [
-      Array.from({ length: N }, (_, i) => [i, 0]),
-      Array.from({ length: N }, (_, i) => [N - 1, i]),
-      Array.from({ length: N }, (_, i) => [N - 1 - i, N - 1]),
-      Array.from({ length: N }, (_, i) => [0, N - 1 - i]),
-    ];
-    for (const side of sides) {
-      const top = side.map(([i, j]) => j * N + i);
-      const bottom = side.map(([i, j]) => edge(i, j));
-      for (let k = 0; k < N - 1; k++) idx.push(top[k], top[k + 1], bottom[k], top[k + 1], bottom[k + 1], bottom[k]);
-    }
+  private terrainMesh(d: TerrainMeshData): THREE.Mesh {
     const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(pos.subarray(0, v * 3), 3));
-    geo.setAttribute('normal', new THREE.BufferAttribute(nor.subarray(0, v * 3), 3));
-    geo.setAttribute('color', new THREE.BufferAttribute(col.subarray(0, v * 3), 3));
-    geo.setAttribute('uv', new THREE.BufferAttribute(uvs.subarray(0, v * 2), 2));
-    geo.setIndex(idx);
+    geo.setAttribute('position', new THREE.BufferAttribute(d.position, 3));
+    geo.setAttribute('normal', new THREE.BufferAttribute(d.normal, 3));
+    geo.setAttribute('color', new THREE.BufferAttribute(d.color, 3));
+    geo.setAttribute('uv', new THREE.BufferAttribute(d.uv, 2));
+    geo.setAttribute('splatA', new THREE.BufferAttribute(d.splatA, 4));
+    geo.setAttribute('splatB', new THREE.BufferAttribute(d.splatB, 4));
+    geo.setIndex(new THREE.BufferAttribute(d.index, 1));
     geo.computeBoundingSphere();
     const mesh = new THREE.Mesh(geo, this.terrainMat);
     mesh.receiveShadow = true;
@@ -320,35 +302,12 @@ export class SectorManager {
     return mesh;
   }
 
-  private groundColor(x: number, z: number, h: number, slope: number, out: THREE.Color): void {
-    // Bilinear blend of coarse biome colours for soft transitions.
-    const g = 16;
-    const fx = x / g;
-    const fz = z / g;
-    const ix = Math.floor(fx);
-    const iz = Math.floor(fz);
-    const tx = fx - ix;
-    const tz = fz - iz;
-    let r = 0, gg = 0, b = 0;
-    const c = new THREE.Color();
-    const variation = this.terrain.groundNoise(x, z);
-    for (const [dx, dz, w] of [[0, 0, (1 - tx) * (1 - tz)], [1, 0, tx * (1 - tz)], [0, 1, (1 - tx) * tz], [1, 1, tx * tz]] as const) {
-      const biome = this.biomeCoarse((ix + dx) * g, (iz + dz) * g);
-      const [lo, hi] = BIOMES[biome].ground;
-      c.set(lo).lerp(new THREE.Color(hi), variation);
-      r += c.r * w;
-      gg += c.g * w;
-      b += c.b * w;
-    }
-    out.setRGB(r, gg, b);
-    // Steep slopes show bare rock; shorelines are wet and dark.
-    const rock = smoothstep(0.35, 0.6, slope);
-    const snowy = this.biomeCoarse(x, z) === 'snow';
-    if (rock > 0) out.lerp(new THREE.Color(snowy ? 0xa9adb3 : 0x6c675e), rock * (snowy ? 0.6 : 1));
-    if (h < 0.8) out.lerp(new THREE.Color(0x5a5040), clamp(lerp(0.6, 0, (h + 1) / 1.8), 0, 0.6));
-  }
-
-  private buildVegetation(view: SectorView, q: QualityProfile, now: number): void {
+  /**
+   * Deterministic placement of the sector's vegetation. The random sequence
+   * is consumed identically whatever `want` selects, so ids (used to persist
+   * harvesting) and positions match between detailed and distant versions.
+   */
+  private placeVegetation(view: SectorView, q: QualityProfile, now: number, want: (k: VegetationKind) => boolean): Map<VegetationKind, Placed[]> {
     const S = WORLD.sectorSize;
     const rng = new Rng(hash2(this.seed ^ 0x7e9, view.sx, view.sz));
     const x0 = view.sx * S;
@@ -357,24 +316,28 @@ export class SectorManager {
     // Gather rules from biomes present (sample 4 points so mixed sectors get both floras).
     const present = new Set<BiomeId>([centerBiome]);
     for (const [fx, fz] of [[0.2, 0.2], [0.8, 0.2], [0.2, 0.8], [0.8, 0.8]]) present.add(this.biomeCoarse(x0 + fx * S, z0 + fz * S));
-    const byKind = new Map<VegetationKind, { x: number; y: number; z: number; s: number; r: number; biome: BiomeId; id: string }[]>();
+    const byKind = new Map<VegetationKind, Placed[]>();
     let idx = 0;
     for (const biome of present) {
       for (const rule of BIOMES[biome].vegetation) {
         const isGrass = rule.kind === 'grass';
         if (isGrass && view.lod > 1) continue;
         const count = Math.round(((rule.density * S * S) / 1000 / present.size) * q.vegetationDensity * (isGrass ? 0.6 : 1));
+        const wanted = want(rule.kind);
         for (let k = 0; k < count; k++) {
           const x = x0 + rng.next() * S;
           const z = z0 + rng.next() * S;
           const s = rng.range(0.7, 1.35);
           const rot = rng.next() * Math.PI * 2;
           const id = `${view.sx},${view.sz}:${idx++}`;
+          if (!wanted) continue;
           if (this.biomeCoarse(x, z) !== biome) continue;
           const h = this.terrain.height(x, z);
           if (rule.kind === 'reeds' ? h < -0.6 || h > 1.5 : h < 0.4) continue;
           if (rule.kind !== 'rock' && rule.kind !== 'boulder' && this.terrain.slope(x, z) > 0.75) continue;
           if (this.terrain.nearSite(x, z) && VEG_COLLIDER[rule.kind] > 0) continue;
+          // Herds keep their trails clear of plants.
+          if (rule.kind !== 'rock' && rule.kind !== 'boulder' && this.terrain.trailMask(x, z) > 0.5) continue;
           const regrow = this.harvested[id];
           if (regrow !== undefined && regrow > now) continue;
           let list = byKind.get(rule.kind);
@@ -383,19 +346,41 @@ export class SectorManager {
         }
       }
     }
-    const geos = vegetationGeometries();
+    return byKind;
+  }
+
+  private instanceMatrix(p: Placed, kind: VegetationKind, out: THREE.Matrix4): THREE.Matrix4 {
+    const quat = new THREE.Quaternion().setFromAxisAngle(UP, p.r);
+    // Rocks sink a little and are tilted; plants stand upright.
+    const tilt = kind === 'rock' || kind === 'boulder' ? new THREE.Quaternion().setFromEuler(new THREE.Euler((hashUnit(p.id, 1) - 0.5) * 0.4, 0, (hashUnit(p.id, 2) - 0.5) * 0.4)) : null;
+    if (tilt) quat.multiply(tilt);
+    const y = kind === 'rock' || kind === 'boulder' ? p.y - 0.15 * p.s : p.y;
+    return out.compose(new THREE.Vector3(p.x, y, p.z), quat, new THREE.Vector3(p.s, p.s * (0.9 + hashUnit(p.id, 3) * 0.2), p.s));
+  }
+
+  /** Subtle per-instance colour variation (lusher in the jungle, drier on the plains). */
+  private instanceColor(p: Placed, kind: VegetationKind, out: THREE.Color): THREE.Color {
+    const v = 0.88 + hashUnit(p.id, 4) * 0.24;
+    if (kind === 'rock' || kind === 'boulder') {
+      const tint = p.biome === 'volcanic' ? [0.55, 0.52, 0.5] : p.biome === 'snow' ? [1.05, 1.06, 1.08] : p.biome === 'beach' ? [1.1, 1.02, 0.9] : [1, 0.98, 0.94];
+      return out.setRGB(tint[0] * v, tint[1] * v, tint[2] * v);
+    }
+    const dry = p.biome === 'plains' || p.biome === 'ruins' ? 0.08 : p.biome === 'jungle' ? -0.05 : 0;
+    return out.setRGB(v * (1 + dry), v, v * (1 - dry * 1.5));
+  }
+
+  private buildVegetation(view: SectorView, q: QualityProfile, now: number): void {
+    const byKind = this.placeVegetation(view, q, now, () => true);
     const m = new THREE.Matrix4();
-    const quat = new THREE.Quaternion();
-    const up = new THREE.Vector3(0, 1, 0);
+    const c = new THREE.Color();
+    const lod = view.lod >= q.treeLod ? 1 : 0;
     for (const [kind, list] of byKind) {
-      if (!list.length) continue;
-      const mesh = new THREE.InstancedMesh(geos[kind], this.vegMat, list.length);
-      mesh.castShadow = kind !== 'grass' && kind !== 'fern' && q.shadows;
-      mesh.receiveShadow = kind !== 'grass';
-      list.forEach((p, i) => {
-        quat.setFromAxisAngle(up, p.r);
-        m.compose(new THREE.Vector3(p.x, p.y, p.z), quat, new THREE.Vector3(p.s, p.s, p.s));
-        mesh.setMatrixAt(i, m);
+      for (const p of list) {
+        const variant = Math.floor(hashUnit(p.id, 0) * PLANT_VARIANTS);
+        const shadow = q.shadows && kind !== 'grass';
+        const pool = this.pools.pool(`${kind}:${variant}:${lod}`, plantGeometry(kind, variant, lod), shadow);
+        const inst = pool.add(this.instanceMatrix(p, kind, m), this.instanceColor(p, kind, c));
+        view.handles.push(inst);
         const yieldDef = VEG_YIELD[kind];
         let colliderId: string | null = null;
         const cr = VEG_COLLIDER[kind] * p.s;
@@ -404,12 +389,23 @@ export class SectorManager {
           this.collision.add({ kind: 'circle', id: colliderId, x: p.x, z: p.z, r: cr, y0: p.y - 1, y1: p.y + (kind === 'rock' ? 1.2 : kind === 'boulder' ? 4 : 12) * p.s });
           view.colliders.push(colliderId);
         }
-        if (yieldDef) view.nodes.push({ id: p.id, kind, x: p.x, y: p.y, z: p.z, scale: p.s, biome: p.biome, mesh, index: i, colliderId });
-      });
-      mesh.instanceMatrix.needsUpdate = true;
-      mesh.computeBoundingSphere();
-      view.group.add(mesh);
+        if (yieldDef) view.nodes.push({ id: p.id, kind, x: p.x, y: p.y, z: p.z, scale: p.s, biome: p.biome, inst, colliderId });
+      }
     }
+  }
+
+  /** Distant sectors: low-detail trees only (same positions), no colliders or resources. */
+  private buildFarTrees(view: SectorView, q: QualityProfile, now: number): void {
+    const trees = new Set<VegetationKind>(['conifer', 'broadleaf', 'palm', 'deadTree', 'boulder']);
+    const byKind = this.placeVegetation(view, q, now, (k) => trees.has(k));
+    const m = new THREE.Matrix4();
+    const c = new THREE.Color();
+    for (const [kind, list] of byKind)
+      for (const p of list) {
+        const variant = Math.floor(hashUnit(p.id, 0) * PLANT_VARIANTS);
+        const pool = this.pools.pool(`${kind}:${variant}:1`, plantGeometry(kind, variant, 1), false);
+        view.handles.push(pool.add(this.instanceMatrix(p, kind, m), this.instanceColor(p, kind, c)));
+      }
   }
 
   /** Authored ruins/research sites and cave entrances. */
@@ -433,7 +429,7 @@ export class SectorManager {
       g.position.set(f.x, y, f.z);
       g.userData.nodeId = f.id;
       view.group.add(g);
-      view.nodes.push({ id: f.id, kind: 'fossil', x: f.x, y, z: f.z, scale: 1, biome: this.biomeCoarse(f.x, f.z), mesh: null, index: -1, colliderId: null });
+      view.nodes.push({ id: f.id, kind: 'fossil', x: f.x, y, z: f.z, scale: 1, biome: this.biomeCoarse(f.x, f.z), inst: null, colliderId: null });
     }
   }
 
@@ -581,7 +577,7 @@ export class SectorManager {
       const mesh = this.ownMesh(kind === 'crate' ? new THREE.BoxGeometry(1, 0.7, 0.7) : new THREE.DodecahedronGeometry(0.5, 0), kind === 'crate' ? this.metalMat : this.ruinMat, x, y + 0.35, z);
       mesh.userData.nodeId = id;
       view.group.add(mesh);
-      view.nodes.push({ id, kind, x, y, z, scale: 1, biome: 'ruins', mesh: null, index: -1, colliderId: null });
+      view.nodes.push({ id, kind, x, y, z, scale: 1, biome: 'ruins', inst: null, colliderId: null });
     }
   }
 
@@ -591,11 +587,10 @@ export class SectorManager {
    */
   private buildCave(view: SectorView, site: PlannedSite, now: number): void {
     const y = this.terrain.height(site.x, site.z);
-    const geos = vegetationGeometries();
     const arch = new THREE.Group();
     for (let i = 0; i < 7; i++) {
       const a = (i / 6) * Math.PI;
-      const m = new THREE.Mesh(geos.boulder, this.vegMat);
+      const m = new THREE.Mesh(plantGeometry('boulder', i % PLANT_VARIANTS, 0), this.vegMat);
       m.position.set(Math.cos(a) * 5, Math.sin(a) * 5, 0);
       m.scale.setScalar(0.8);
       m.castShadow = true;
@@ -615,7 +610,7 @@ export class SectorManager {
     if (!((this.harvested[rubbleId] ?? -1) > now)) {
       const g = new THREE.Group();
       for (let i = 0; i < 5; i++) {
-        const m = new THREE.Mesh(geos.rock, this.vegMat);
+        const m = new THREE.Mesh(plantGeometry('rock', i % PLANT_VARIANTS, 0), this.vegMat);
         m.position.set((i - 2) * 1.3, 0.6 + (i % 2) * 0.8, 0.5);
         m.scale.setScalar(1.3);
         g.add(m);
@@ -626,7 +621,7 @@ export class SectorManager {
       const cid = `site:${site.id}:rubble`;
       this.collision.add({ kind: 'circle', id: cid, x: site.x, z: site.z + 0.5, r: 3, y0: y - 1, y1: y + 3 });
       view.colliders.push(cid);
-      view.nodes.push({ id: rubbleId, kind: 'rubble', x: site.x, y, z: site.z + 2, scale: 1, biome: 'mountain', mesh: null, index: -1, colliderId: cid });
+      view.nodes.push({ id: rubbleId, kind: 'rubble', x: site.x, y, z: site.z + 2, scale: 1, biome: 'mountain', inst: null, colliderId: cid });
     }
     this.addInteractable(view, { id: `cave_enter:${site.id}`, kind: 'cave_enter', ref: site.id, site: site.id, x: site.x, y, z: site.z + 2.5, object: null });
     this.buildCaveInterior(view, site, now);
@@ -696,7 +691,7 @@ export class SectorManager {
       cg.position.set(x, 0, z);
       cg.userData.nodeId = id;
       g.add(cg);
-      view.nodes.push({ id, kind: 'crystal', x: site.x + x, y: CAVE_Y, z: site.z + z, scale: 1, biome: 'mountain', mesh: null, index: -1, colliderId: null });
+      view.nodes.push({ id, kind: 'crystal', x: site.x + x, y: CAVE_Y, z: site.z + z, scale: 1, biome: 'mountain', inst: null, colliderId: null });
     }
     const crystalLight = new THREE.PointLight(0x6ab4ff, 10, 18, 1.6);
     crystalLight.position.set(0, 2, -6);
@@ -713,7 +708,7 @@ export class SectorManager {
       fg.rotation.y = Math.PI / 2;
       fg.userData.nodeId = fid;
       g.add(fg);
-      view.nodes.push({ id: fid, kind: 'fossil', x: site.x - R + 2.5, y: CAVE_Y, z: site.z, scale: 1, biome: 'mountain', mesh: null, index: -1, colliderId: null });
+      view.nodes.push({ id: fid, kind: 'fossil', x: site.x - R + 2.5, y: CAVE_Y, z: site.z, scale: 1, biome: 'mountain', inst: null, colliderId: null });
     }
     // Cave painting on the far wall.
     const doc = DOCS.find((d) => d.site === site.id && d.kind === 'painting');
@@ -791,10 +786,9 @@ export class SectorManager {
     const permanent = n.kind === 'crate' || n.kind === 'scrap' || n.kind === 'rubble' || n.kind === 'fossil';
     const regrowDays = permanent ? 1e6 : n.kind === 'crystal' ? 8 : n.kind === 'rock' || n.kind === 'boulder' ? 10 : 3;
     this.harvested[n.id] = now + regrowDays * WORLD.dayLengthSeconds;
-    if (n.mesh) {
-      const m = new THREE.Matrix4().makeScale(0, 0, 0);
-      n.mesh.setMatrixAt(n.index, m);
-      n.mesh.instanceMatrix.needsUpdate = true;
+    if (n.inst) {
+      n.inst.pool.remove(n.inst);
+      for (const v of this.sectors.values()) v.handles = v.handles.filter((h) => h !== n.inst);
     } else {
       for (const v of this.sectors.values())
         v.group.traverse((o) => {
@@ -813,6 +807,7 @@ export class SectorManager {
 
   dispose(): void {
     for (const [k, v] of this.sectors) this.unload(k, v);
+    this.pools.dispose();
   }
 }
 

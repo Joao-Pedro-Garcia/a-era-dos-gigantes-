@@ -1050,6 +1050,8 @@ export class Hud {
       select(t('gfx.textures'), q.textures, [['low', t('quality.low')], ['high', t('quality.high')]], (v) => set({ textures: v as 'low' | 'high' }));
       range(t('gfx.particles'), q.particles, 0, 1, 0.05, (v) => set({ particles: v }), (v) => `${Math.round(v * 100)}%`);
       check(t('gfx.effects'), q.effects, (v) => set({ effects: v }));
+      range(t('gfx.groundCover'), q.groundCover, 0, 1.5, 0.05, (v) => set({ groundCover: v }), (v) => (v < 0.01 ? t('gfx.off') : `${Math.round(v * 100)}%`));
+      check(t('gfx.ao'), q.postFx, (v) => set({ ambientOcclusion: v }));
       const reset = h('button', '', t('gfx.reset'));
       reset.onclick = () => {
         g.applySettings({ graphics: {} });

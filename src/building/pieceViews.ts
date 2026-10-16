@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { PIECES, WALL_H, type Piece, type PieceType } from './building';
+import type { TextureLibrary } from '../graphics/textureLibrary';
 
 const mats = {
   wood: new THREE.MeshStandardMaterial({ color: 0x7a5a38, roughness: 0.9 }),
@@ -20,6 +21,23 @@ const mats = {
 
 // Materials are shared by every piece; geometries are per object and disposed with it.
 for (const m of Object.values(mats)) m.userData.shared = true;
+
+/** Gives the building materials their procedural PBR textures (wood grain, stone, hide). */
+export function applyBuildingTextures(lib: TextureLibrary): void {
+  lib.bind(mats.wood, 'planks');
+  lib.bind(mats.darkWood, 'bark');
+  lib.bind(mats.stone, 'concrete');
+  lib.bind(mats.cut, 'concrete');
+  lib.bind(mats.hide, 'leather');
+  lib.bind(mats.thatch, 'hair');
+  mats.thatch.alphaTest = 0;
+  mats.wood.color.set(0xd8c0a0);
+  mats.darkWood.color.set(0xb8a088);
+  mats.stone.color.set(0xb0aa9c);
+  mats.cut.color.set(0xc8c0b0);
+  mats.hide.color.set(0xc09070);
+  mats.thatch.color.set(0xc8a860);
+}
 
 function mesh(geo: THREE.BufferGeometry, mat: THREE.Material, x = 0, y = 0, z = 0): THREE.Mesh {
   const m = new THREE.Mesh(geo, mat);

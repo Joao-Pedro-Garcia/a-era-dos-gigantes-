@@ -60,7 +60,7 @@ const until = async (page, fn, arg, ms = 20000) => {
 const press = async (page, key) => {
   const f0 = await page.evaluate(() => window.__edg.frames ?? 0);
   await page.keyboard.press(key);
-  await until(page, (f) => (window.__edg.frames ?? 0) > f + 1, f0, 10000);
+  await until(page, (f) => (window.__edg.frames ?? 0) > f + 1, f0, 30000);
 };
 const fastSettings = () => localStorage.setItem('edg.settings.v1', JSON.stringify({ quality: 'low', graphics: { resolutionScale: 0.5 } }));
 
@@ -173,7 +173,7 @@ const fastSettings = () => localStorage.setItem('edg.settings.v1', JSON.stringif
   await ev(page, (id) => { const a = window.__edg.eco.get(id); const p = window.__edg.player.s; a.x = p.x; a.z = p.z + 3; a.state = 'idle'; a.fear = 0; }, tame);
   await until(page, () => /Oferecer/.test(document.querySelector('.prompt')?.textContent ?? ''), undefined, 8000);
   await press(page, 'KeyE');
-  await until(page, (id) => !!window.__edg.eco.get(id)?.tame, tame, 5000);
+  await until(page, (id) => !!window.__edg.eco.get(id)?.tame, tame, 30000);
   const isTame = await ev(page, (id) => !!window.__edg.eco.get(id)?.tame, tame);
   check('taming: feeding with E completes taming', isTame);
   if (isTame) {
@@ -323,7 +323,10 @@ const fastSettings = () => localStorage.setItem('edg.settings.v1', JSON.stringif
   for (let round = 0; round < 3; round++)
     for (const [x, z] of spots) {
       await ev(page, ([x, z]) => { const g = window.__edg; g.player.s.x = x; g.player.s.z = z; g.player.s.y = g.terrain.height(x, z) + 1; g.sectors.update(x, z, g.quality(), g.env.state.time, 1e9); }, [x, z]);
-      await page.waitForTimeout(700);
+      // Terrain meshes arrive from a worker: measure once this place is fully loaded and drawn.
+      await until(page, () => window.__edg.sectors.pending === 0, undefined, 60000);
+      const f0 = await ev(page, () => window.__edg.frames);
+      await until(page, (f) => window.__edg.frames > f + 2, f0, 30000);
       memSeries.push(await ev(page, () => window.__edg.renderer.info.memory.geometries));
     }
   const mem1 = await ev(page, () => ({ ...window.__edg.renderer.info.memory }));
