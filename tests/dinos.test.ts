@@ -1,0 +1,103 @@
+import { describe, expect, it } from 'vitest';
+import { AQUATIC_MIN_DEPTH } from '../src/animals/aquatic';
+import { reactionScale } from '../src/animals/animalView';
+import { buildDinoTemplate } from '../src/animals/dinoModel';
+import { SPECIES, SPECIES_IDS } from '../src/animals/species';
+import { Rng } from '../src/core/rng';
+import { ctx, makeWorld, player } from './helpers';
+
+const tris = (g: { index: { count: number } | null }) => (g.index?.count ?? 0) / 3;
+
+describe('dinosaur models', () => {
+  it('every species builds three levels of detail that keep the same silhouette', () => {
+    for (const id of SPECIES_IDS) {
+      const t = buildDinoTemplate(SPECIES[id]);
+      const [hi, mid, lo] = [t.geometry, t.mid, t.low];
+      expect(tris(hi), id).toBeGreaterThan(tris(mid));
+      expect(tris(mid), id).toBeGreaterThan(tris(lo));
+      for (const g of [hi, mid, lo]) {
+        const p = g.attributes.position.array as Float32Array;
+        for (let i = 0; i < p.length; i++) expect(Number.isFinite(p[i])).toBe(true);
+        // Skin weights sum to one.
+        const w = g.attributes.skinWeight;
+        for (let i = 0; i < w.count; i += 7) expect(Math.abs(w.getX(i) + w.getY(i) + w.getZ(i) + w.getW(i) - 1)).toBeLessThan(1e-3);
+      }
+      hi.computeBoundingBox();
+      lo.computeBoundingBox();
+      const a = hi.boundingBox!.getSize(hi.boundingBox!.min.clone().set(0, 0, 0));
+      const b = lo.boundingBox!.getSize(lo.boundingBox!.min.clone().set(0, 0, 0));
+      // Far version within 12 % of the close one in length and height (feathers/teeth aside).
+      expect(Math.abs(a.z - b.z) / a.z, id).toBeLessThan(0.12);
+      expect(Math.abs(a.y - b.y) / a.y, id).toBeLessThan(0.15);
+    }
+  });
+
+  it('juveniles have their own proportions (bigger head and eyes, small display structures)', () => {
+    for (const id of ['tyrannosaurus', 'triceratops', 'stegosaurus', 'parasaurolophus']) {
+      const adult = buildDinoTemplate(SPECIES[id]);
+      const young = buildDinoTemplate(SPECIES[id], true);
+      expect(young.bp.juvenile).toBe(true);
+      expect(young.bp.head.height / SPECIES[id].hipHeightM).toBeGreaterThan((adult.bp.head.height / SPECIES[id].hipHeightM) * 1.25);
+      expect(young.hipHeight).toBeGreaterThan(adult.hipHeight);
+    }
+  });
+
+  it('pterosaurs have a wing finger bone long enough for their wingspan', () => {
+    for (const id of ['pteranodon', 'quetzalcoatlus']) {
+      const t = buildDinoTemplate(SPECIES[id]);
+      expect(t.bones.some((b) => b.name === 'wingLF')).toBe(true);
+      const wing = t.legs.find((l) => l.name === 'wingL')!;
+      const finger = wing.fingerTip!.distanceTo(wing.joints[3]);
+      const arm = wing.lengths[0] + wing.lengths[1] + wing.lengths[2];
+      expect(finger).toBeGreaterThan(arm);
+    }
+  });
+
+  it('hit reactions shrink with body size', () => {
+    expect(reactionScale(10)).toBeGreaterThan(reactionScale(500));
+    expect(reactionScale(500)).toBeGreaterThan(reactionScale(8000));
+    expect(reactionScale(50000)).toBeGreaterThanOrEqual(0.15);
+  });
+});
+
+describe('Mosasaurus (marine squamate)', () => {
+  it('is classified correctly and lives only in deep water', () => {
+    const sp = SPECIES.mosasaurus;
+    expect(sp.clade).toBe('squamate');
+    expect(sp.locomotion.aquatic).toBe(true);
+    expect(sp.habitat).toEqual(['ocean']);
+  });
+
+  it('stays in deep water while it swims and hunts', () => {
+    const { terrain, eco } = makeWorld(42);
+    // Find deep sea.
+    let sx = 0;
+    let sz = 0;
+    let found = false;
+    for (let r = 0; r < 6000 && !found; r += 200)
+      for (let k = 0; k < 16 && !found; k++) {
+        const x = Math.cos(k) * r;
+        const z = Math.sin(k) * r;
+        if (terrain.height(x, z) < -12) {
+          sx = x;
+          sz = z;
+          found = true;
+        }
+      }
+    expect(found).toBe(true);
+    const grp = eco.spawnGroup('mosasaurus', sx, sz, new Rng(3));
+    expect(grp.length).toBeGreaterThan(0);
+    const a = grp[0];
+    a.hunger = 0.9;
+    const p = player(sx + 30, sz + 30);
+    let minDepth = 0;
+    for (let i = 0; i < 1800; i++) {
+      eco.update(0.25, ctx(p));
+      const h = terrain.height(a.x, a.z);
+      expect(h).toBeLessThan(AQUATIC_MIN_DEPTH + 0.5);
+      expect(a.y).toBeLessThan(0.5);
+      minDepth = Math.min(minDepth, a.y);
+    }
+    expect(minDepth).toBeLessThan(-2); // it dives
+  });
+});

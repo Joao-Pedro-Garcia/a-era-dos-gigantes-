@@ -44,6 +44,7 @@ export const TAME_PROFILES: Record<string, TameProfile> = {
   protoceratops: { method: 'feeding', uses: ['companion', 'gatherer'] },
   pachyrhinosaurus: { method: 'feeding', uses: ['mount', 'guard'], mountSpeed: 0.85 },
   troodon: { method: 'observation', uses: ['companion'] },
+  mosasaurus: { method: 'none', uses: [] },
 };
 
 export const canUse = (speciesId: string, use: TameUse): boolean => TAME_PROFILES[speciesId]?.uses.includes(use) ?? false;

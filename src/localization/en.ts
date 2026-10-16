@@ -65,7 +65,7 @@ export const en: Record<string, string> = {
   'item.herb': 'Medicinal herb', 'item.cycad_fronds': 'Cycad fronds', 'item.fern_fronds': 'Fern shoots', 'item.berries': 'Wild berries',
   'item.raw_meat': 'Raw meat', 'item.cooked_meat': 'Cooked meat', 'item.raw_fish': 'Raw fish', 'item.egg': 'Egg', 'item.waterskin': 'Empty waterskin',
   'item.waterskin_full': 'Full waterskin', 'item.stone_axe': 'Stone axe', 'item.stone_pickaxe': 'Stone pickaxe', 'item.stone_knife': 'Stone knife',
-  'item.spear': 'Spear', 'item.obsidian_spear': 'Obsidian spear', 'item.bow': 'Bow', 'item.arrow': 'Arrow', 'item.torch': 'Torch',
+  'item.spear': 'Spear', 'item.wooden_club': 'Wooden club', 'item.obsidian_spear': 'Obsidian spear', 'item.bow': 'Bow', 'item.arrow': 'Arrow', 'item.torch': 'Torch',
   'item.bandage': 'Bandage', 'item.herbal_poultice': 'Herbal poultice', 'item.hide_hood': 'Hide hood', 'item.hide_tunic': 'Hide tunic',
   'item.hide_leggings': 'Hide leggings', 'item.fur_coat': 'Fur coat', 'item.backpack': 'Backpack', 'item.trap_snare': 'Snare trap',
   'item.field_journal': 'Field journal', 'item.research_scanner': 'Research scanner',

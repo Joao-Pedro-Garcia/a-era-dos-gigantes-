@@ -107,6 +107,7 @@ export class SectorManager {
   terrainJobs: TerrainJobs | null = null;
   private queue: { sx: number; sz: number; lod: number; detail: boolean; d: number }[] = [];
   private nodeHits = new Map<string, number>();
+  private shakes: { h: InstanceHandle; base: THREE.Matrix4; t: number; amp: number; axis: THREE.Vector3; pos: THREE.Vector3 }[] = [];
   private biomeCache = new Map<string, BiomeId>();
   private ready = false;
 
@@ -773,6 +774,42 @@ export class SectorManager {
     const special: Partial<Record<ResourceNode['kind'], number>> = { rubble: 6, fossil: 3, crystal: 2 };
     const max = def ? Math.ceil(def.hits * n.scale) : special[n.kind] ?? 1;
     return this.nodeHits.get(n.id) ?? max;
+  }
+
+  /**
+   * A plant or rock that is struck shakes: the instance tilts away from the
+   * blow about its base and springs back (trees sway, bushes rustle; rocks
+   * barely move). Restored exactly when the shake ends.
+   */
+  shakeNode(n: ResourceNode, dirX: number, dirZ: number, strength: number): void {
+    if (!n.inst) return;
+    const existing = this.shakes.find((s) => s.h === n.inst);
+    if (existing) {
+      existing.t = 0;
+      existing.amp = Math.max(existing.amp, strength);
+      return;
+    }
+    const base = new THREE.Matrix4();
+    if (!n.inst.pool.getMatrix(n.inst, base)) return;
+    const l = Math.hypot(dirX, dirZ) || 1;
+    // Tilt axis: horizontal, perpendicular to the blow.
+    this.shakes.push({ h: n.inst, base, t: 0, amp: strength, axis: new THREE.Vector3(dirZ / l, 0, -dirX / l), pos: new THREE.Vector3().setFromMatrixPosition(base) });
+  }
+
+  updateShakes(dt: number): void {
+    if (!this.shakes.length) return;
+    const m = new THREE.Matrix4();
+    const r = new THREE.Matrix4();
+    this.shakes = this.shakes.filter((s) => {
+      s.t += dt;
+      const done = s.t > 1.2 || s.h.slot < 0;
+      if (s.h.slot < 0) return false;
+      const a = done ? 0 : s.amp * Math.sin(s.t * 16) * Math.exp(-s.t * 4.5);
+      r.makeRotationAxis(s.axis, a);
+      m.makeTranslation(s.pos.x, s.pos.y, s.pos.z).multiply(r).multiply(new THREE.Matrix4().makeTranslation(-s.pos.x, -s.pos.y, -s.pos.z)).multiply(s.base);
+      s.h.pool.setMatrix(s.h, m);
+      return !done;
+    });
   }
 
   /** Registers one harvesting hit; returns true when the node is depleted (and hides it). */

@@ -6,6 +6,8 @@ import { Rng } from '../core/rng';
 import { installAtmosphere } from '../graphics/atmosphere';
 import { TextureLibrary } from '../graphics/textureLibrary';
 import { PlayerView } from '../player/playerView';
+import { Viewmodel } from '../player/viewmodel';
+import { ACTIONS, CombatController, actionKindFor } from '../combat/actions';
 import type { PlayerController } from '../player/player';
 
 /**
@@ -15,8 +17,16 @@ import type { PlayerController } from '../player/player';
  */
 export function runShowcase(canvas: HTMLCanvasElement): void {
   const params = new URLSearchParams(location.search);
+  if (params.has('combat')) {
+    runCombatShowcase(canvas, params);
+    return;
+  }
   if (params.has('human')) {
     runHumanShowcase(canvas, params);
+    return;
+  }
+  if (params.has('sheet')) {
+    runSpeciesSheet(canvas, params);
     return;
   }
   const only = params.get('species');
@@ -141,9 +151,10 @@ function runHumanShowcase(canvas: HTMLCanvasElement, params: URLSearchParams): v
   const actors = modes.map((m, i) => {
     const v = new PlayerView(tex);
     scene.add(v.root);
-    if (i === 0 && params.has('tool')) v.setHeld('stone_axe');
+    const c = new CombatController();
+    if (i === 0 && params.has('tool')) c.shown = 'stone_axe';
     const p = { s: { x: (i - 2) * 1.6, y: 0, z: 0, yaw: 0, pitch: 0 }, bodyYaw: params.has('side') ? Math.PI / 2 : params.has('back') ? Math.PI : 0, horizontalSpeed: m.speed, onGround: true, swimming: false, crouching: m.crouch, sprinting: m.sprint, stride: i * 0.3 };
-    return { v, p, m };
+    return { v, p, m, c };
   });
   const camera = new THREE.PerspectiveCamera(params.has('close') ? 22 : 35, 1, 0.1, 100);
   const fit = () => {
@@ -167,9 +178,295 @@ function runHumanShowcase(canvas: HTMLCanvasElement, params: URLSearchParams): v
     last = now;
     for (const a of actors) {
       a.p.stride += (a.m.speed * dt) / (a.m.sprint ? 1.6 : 1.1);
-      a.v.update(dt, a.p as unknown as PlayerController, false);
+      a.v.update(dt, a.p as unknown as PlayerController, false, undefined, a.c);
     }
     renderer.render(scene, camera);
+  };
+  requestAnimationFrame(loop);
+  (window as unknown as { __showcaseReady: boolean }).__showcaseReady = true;
+}
+
+/**
+ * Combat review (?showcase&combat): every weapon frozen at one action phase,
+ * in third person (a row of survivors seen from the side or the front) or
+ * in first person (&fp: the arms as the player sees them).
+ *   &phase=ready|windup|impact|follow|recover|draw  &item=<id> (fp)  &front
+ *   &anim : loop the attacks instead of freezing them.
+ */
+function freeze(c: CombatController, item: string, phase: string): void {
+  c.shown = item;
+  const kind = actionKindFor(item);
+  c.def = ACTIONS[kind];
+  c.hand = 'R';
+  c.lowered = 0;
+  if (phase === 'ready') {
+    c.phase = 'idle';
+    c.t = 0;
+  } else if (phase === 'windup') {
+    c.phase = 'windup';
+    c.t = c.def.windup;
+  } else if (phase === 'impact') {
+    c.phase = kind === 'bow' ? 'release' : 'strike';
+    c.t = c.def.strike * c.def.impactAt;
+  } else if (phase === 'follow') {
+    c.phase = 'strike';
+    c.t = c.def.strike;
+  } else if (phase === 'recover') {
+    c.phase = 'recover';
+    c.t = c.def.recover * 0.5;
+  } else if (phase === 'draw') {
+    c.phase = kind === 'bow' ? 'draw' : 'windup';
+    c.t = 0.5;
+    c.draw = 1;
+  } else if (phase === 'left') {
+    c.phase = 'strike';
+    c.hand = 'L';
+    c.t = c.def.strike * c.def.impactAt;
+  }
+}
+
+function runCombatShowcase(canvas: HTMLCanvasElement, params: URLSearchParams): void {
+  installAtmosphere();
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.shadowMap.enabled = true;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 0.9;
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x8fa7bd);
+  const sun = new THREE.DirectionalLight(0xfff1dc, 3);
+  sun.position.set(4, 8, 6);
+  sun.castShadow = true;
+  sun.shadow.mapSize.set(2048, 2048);
+  const sc = sun.shadow.camera as THREE.OrthographicCamera;
+  sc.left = sc.bottom = -8;
+  sc.right = sc.top = 8;
+  const hemi = new THREE.HemisphereLight(0xbfd8ff, 0x5a4a35, 0.7);
+  scene.add(sun, hemi);
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), new THREE.MeshStandardMaterial({ color: 0x5f6b45, roughness: 0.95 }));
+  ground.rotation.x = -Math.PI / 2;
+  ground.receiveShadow = true;
+  scene.add(ground);
+  const tex = new TextureLibrary();
+  tex.request(512);
+  const phase = params.get('phase') ?? 'impact';
+  const anim = params.has('anim');
+  const camera = new THREE.PerspectiveCamera(35, 1, 0.1, 100);
+  const fit = () => {
+    if (renderer.domElement.width === innerWidth * renderer.getPixelRatio() && camera.aspect === innerWidth / innerHeight) return;
+    renderer.setSize(innerWidth, innerHeight, false);
+    camera.aspect = innerWidth / innerHeight;
+    camera.updateProjectionMatrix();
+  };
+  fit();
+  addEventListener('resize', fit);
+
+  if (params.has('fp')) {
+    // First person: a world camera at eye height and the viewmodel pass on top.
+    const item = params.get('item') ?? '';
+    const c = new CombatController();
+    freeze(c, item, phase);
+    const vm = new Viewmodel(tex);
+    vm.visible = true;
+    camera.fov = 72;
+    camera.position.set(0, 1.65, 0);
+    camera.rotation.set(-0.05, 0, 0, 'YXZ');
+    // Something to hit: a tree trunk and a rock in front.
+    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.3, 6, 12), new THREE.MeshStandardMaterial({ color: 0x5a4632, roughness: 0.9 }));
+    trunk.position.set(0.3, 3, -1.8);
+    const rock = new THREE.Mesh(new THREE.DodecahedronGeometry(0.7, 1), new THREE.MeshStandardMaterial({ color: 0x77736c, roughness: 0.9 }));
+    rock.position.set(-1.4, 0.3, -2.6);
+    scene.add(trunk, rock);
+    let last = performance.now();
+    let time = 0;
+    const loop = (now: number) => {
+      requestAnimationFrame(loop);
+      const dt = Math.min(0.05, (now - last) / 1000);
+      last = now;
+      time += dt;
+      if (anim) {
+        if (!c.busy) c.request();
+        c.update(dt, { pressed: false, held: false, wanted: item, hasAmmo: true });
+      }
+      fit();
+      camera.updateMatrixWorld();
+      vm.update(anim ? dt : 0.5, camera, c, { x: 0, y: 0 }, 0, time, { dir: sun.position.clone().normalize(), color: sun.color, intensity: sun.intensity, sky: hemi.color, ground: hemi.groundColor, hemi: hemi.intensity, env: null });
+      renderer.autoClear = true;
+      renderer.render(scene, camera);
+      vm.render(renderer);
+    };
+    requestAnimationFrame(loop);
+    (window as unknown as { __showcaseReady: boolean }).__showcaseReady = true;
+    return;
+  }
+
+  const items = (params.get('items') ?? ',stone_axe,stone_pickaxe,spear,stone_knife,wooden_club,bow').split(',');
+  const actors = items.map((item, i) => {
+    const v = new PlayerView(tex);
+    scene.add(v.root);
+    const c = new CombatController();
+    freeze(c, item, phase);
+    const p = { s: { x: (i - (items.length - 1) / 2) * 1.5, y: 0, z: 0, yaw: 0, pitch: 0 }, bodyYaw: params.has('front') ? 0 : Math.PI / 2, horizontalSpeed: 0, onGround: true, swimming: false, crouching: false, sprinting: false, stride: 0 };
+    return { v, p, c, item };
+  });
+  const span = items.length * 1.5;
+  camera.position.set(0, 1.3, span * 1.05 + 2);
+  camera.lookAt(0, 1.0, 0);
+  const close = params.get('close');
+  if (close !== null) {
+    // Close-up of one survivor (index), seen from its front-right.
+    const x = actors[Number(close)]?.p.s.x ?? 0;
+    camera.fov = 30;
+    camera.position.set(x + 1.2, 1.55, 3.0);
+    camera.lookAt(x + 0.25, 1.25, 0);
+    camera.updateProjectionMatrix();
+  }
+  let last = performance.now();
+  const loop = (now: number) => {
+    requestAnimationFrame(loop);
+    const dt = Math.min(0.05, (now - last) / 1000);
+    last = now;
+    for (const a of actors) {
+      if (anim) {
+        if (!a.c.busy) a.c.request();
+        a.c.update(dt, { pressed: false, held: false, wanted: a.item, hasAmmo: true });
+      }
+      // Frozen poses still need the IK weights to settle: step with a large dt.
+      a.v.update(anim ? dt : 0.5, a.p as unknown as PlayerController, false, undefined, a.c);
+    }
+    renderer.render(scene, camera);
+  };
+  requestAnimationFrame(loop);
+  (window as unknown as { __showcaseReady: boolean }).__showcaseReady = true;
+}
+
+/**
+ * Review sheet for one species (?showcase&sheet&species=id): six views in
+ * one frame, all of the same individual at the same moment of a walk:
+ * side, front, back, three-quarter head close-up, far (low-detail LOD) and
+ * a shaded "flex" view (neck turned, mouth open, as when threatening).
+ * &juvenile shows a young animal instead of an adult.
+ */
+function runSpeciesSheet(canvas: HTMLCanvasElement, params: URLSearchParams): void {
+  const id = params.get('species') ?? 'tyrannosaurus';
+  const sp = SPECIES[id];
+  installAtmosphere();
+  const lib = new TextureLibrary();
+  lib.request(512);
+  setAnimalContext(lib, null);
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  renderer.setPixelRatio(1);
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 0.85;
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.setScissorTest(true);
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0xb8c8d4);
+  const sun = new THREE.DirectionalLight(0xfff4e6, 3);
+  sun.castShadow = true;
+  sun.shadow.mapSize.set(2048, 2048);
+  const L = sp.lengthM;
+  Object.assign(sun.shadow.camera, { left: -L, right: L, top: L, bottom: -L, far: L * 6 });
+  sun.position.set(L * 0.8, L * 2, L * 1.2);
+  const hemi = new THREE.HemisphereLight(0xcfe0ff, 0x5a5040, 1);
+  scene.add(sun, hemi);
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(Math.max(L * 40, 900), Math.max(L * 40, 900)), new THREE.MeshStandardMaterial({ color: 0x7a8a48, roughness: 1 }));
+  ground.rotation.x = -Math.PI / 2;
+  ground.receiveShadow = true;
+  scene.add(ground);
+  if (sp.locomotion.aquatic) {
+    // Marine animals are reviewed over a dark sea floor.
+    ground.position.y = -1.5;
+    (ground.material as THREE.MeshStandardMaterial).color.set(0x2d4a55);
+    scene.background = new THREE.Color(0x9fb8c8);
+  }
+  const rng = new Rng(1);
+  const juvenile = params.has('juvenile');
+  // Born 1/4 of the way to maturity (juvenile) or long ago (adult).
+  const bornAt = juvenile ? -sp.reproduction.maturityDays * 1200 * 0.25 : -1e9;
+  const a = createAnimal({ id: `sheet-${id}`, speciesId: id, x: 0, z: 0, bornAt, groupId: 'g', rng });
+  const v = createAnimalView(id, `sheet-${id}`, juvenile);
+  scene.add(v.root);
+  (window as unknown as { __sheet: unknown }).__sheet = { v, a, pose: poseAnimalView, THREE };
+  // Flyers are reviewed standing (&air shows them airborne, legs tucked).
+  const flies = sp.locomotion.flies && params.has('air');
+  const W = innerWidth;
+  const Hh = innerHeight;
+  renderer.setSize(W, Hh, false);
+  const cam = new THREE.PerspectiveCamera(30, (W / 3) / (Hh / 2), 0.05, Math.max(L * 60, 1500));
+  const label = document.createElement('div');
+  label.style.cssText = 'position:fixed;left:8px;top:8px;color:#111;font:13px system-ui;background:#fff9;padding:4px 8px;border-radius:6px';
+  label.textContent = `${sp.name['pt-BR']} (${sp.scientificName})${juvenile ? ' — filhote' : ''} · lateral · frente · trás · cabeça 3/4 · longe (LOD) · ${sp.locomotion.flies ? 'em voo' : 'sombra/ameaça'}`;
+  document.body.appendChild(label);
+  const H = sp.hipHeightM * (juvenile ? 0.5 : 1);
+  const S = juvenile ? 0.5 : 1;
+  const views: { pos: THREE.Vector3; look: THREE.Vector3; fov: number; shade?: boolean; flex?: boolean; far?: boolean }[] = [
+    { pos: new THREE.Vector3(L * 1.9 * S, H * 0.9, 0), look: new THREE.Vector3(0, H * 0.8, 0), fov: 32 },
+    { pos: new THREE.Vector3(0, H * 1.1, L * 1.5 * S), look: new THREE.Vector3(0, H * 0.9, 0), fov: 32 },
+    { pos: new THREE.Vector3(0, H * 1.2, -L * 1.5 * S), look: new THREE.Vector3(0, H * 0.9, 0), fov: 32 },
+    { pos: new THREE.Vector3(L * 0.35 * S, H * 1.25, L * 0.62 * S), look: new THREE.Vector3(0, H * 1.0, L * 0.3 * S), fov: 34 },
+    // Beyond the LOD distance (far, single-material mesh), framed so the animal fills the view.
+    { pos: new THREE.Vector3(80, 12, 80), look: new THREE.Vector3(0, H * 0.8, 0), fov: Math.max(1.2, (2 * Math.atan((L * 0.75) / 113) * 180) / Math.PI), far: true },
+    { pos: new THREE.Vector3(L * 1.1 * S, H * 1.0, L * 1.1 * S), look: new THREE.Vector3(0, H * 0.9, L * 0.1 * S), fov: 34, shade: true, flex: true },
+  ];
+  // Flyers: the last view shows the animal in flight (wings spread) from below and behind.
+  const flyer = sp.locomotion.flies;
+  if (flyer) views[5] = { pos: new THREE.Vector3(L * 1.6, H * 0.4 + 2, -L * 1.4), look: new THREE.Vector3(0, H + 2, 0), fov: 38, flex: false };
+  let t = 0;
+  let last = performance.now();
+  const stride = 0.3;
+  const loop = (now: number) => {
+    requestAnimationFrame(loop);
+    const dt = Math.min(0.05, (now - last) / 1000);
+    last = now;
+    t += dt;
+    views.forEach((vw, i) => {
+      const col = i % 3;
+      const row = 1 - Math.floor(i / 3);
+      const x = Math.floor((col * W) / 3);
+      const y = Math.floor((row * Hh) / 2);
+      renderer.setViewport(x, y, Math.floor(W / 3) - 2, Math.floor(Hh / 2) - 2);
+      renderer.setScissor(x, y, Math.floor(W / 3) - 2, Math.floor(Hh / 2) - 2);
+      a.heading = 0; // facing +Z
+      a.speed = vw.flex ? 0 : sp.walkSpeed;
+      a.state = vw.flex ? 'defend' : 'wander';
+      a.x = a.z = 0;
+      const camDist = vw.far ? 200 : 10;
+      // A large step lets every smoothed value settle to this view's pose (views share one model).
+      const inAir = flies || (flyer && i === 5);
+      if (inAir) v.flap = 0.9;
+      poseAnimalView(v, a, stride, inAir ? 10 : 0, t, inAir ? 0 : 1, camDist, 70);
+      v.root.position.y = inAir ? 2 + H * 0.2 : 0;
+      if (vw.flex) {
+        // Head turned toward the viewer, jaw open (threat display).
+        for (const n of ['neck1', 'neck2', 'neck3']) {
+          const b = v.bones.get(n);
+          if (b) b.rotation.y += 0.25;
+        }
+      }
+      sun.intensity = vw.shade ? 0.25 : 3;
+      hemi.intensity = vw.shade ? 0.55 : 1;
+      cam.fov = vw.fov;
+      cam.aspect = (W / 3) / (Hh / 2);
+      cam.position.copy(vw.pos);
+      cam.lookAt(vw.look);
+      if (i === 3) {
+        // Head close-up: frame the head bone wherever the neck put it.
+        const hb = v.bones.get('head');
+        if (hb) {
+          v.root.updateMatrixWorld(true);
+          const hp = hb.getWorldPosition(new THREE.Vector3());
+          const r = Math.max(0.12, (sp.lengthM * (sp.locomotion.plan === 'pterosaur' ? 0.4 : sp.locomotion.plan === 'quadruped' || sp.locomotion.plan === 'crocodyliform' ? 0.22 : 0.14)) * S);
+          cam.position.set(hp.x + r * 1.6, hp.y + r * 0.5, hp.z + r * 2.2);
+          cam.lookAt(hp.x, hp.y, hp.z + r * 0.5);
+        }
+      }
+      cam.updateProjectionMatrix();
+      renderer.render(scene, cam);
+    });
   };
   requestAnimationFrame(loop);
   (window as unknown as { __showcaseReady: boolean }).__showcaseReady = true;

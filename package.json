@@ -1,7 +1,7 @@
 {
   "name": "era-dos-gigantes",
   "private": true,
-  "version": "0.3.0",
+  "version": "0.4.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit && tsc -p tsconfig.node.json",
     "test": "vitest run",
     "test:e2e": "node tests/e2e/run.mjs e2e-out",
+    "test:combat": "node tests/e2e/combat.mjs e2e-out/combat",
     "shots": "node tests/visual/shots.mjs shots"
   },
   "dependencies": {

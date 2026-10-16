@@ -112,6 +112,8 @@ const fastSettings = () => localStorage.setItem('edg.settings.v1', JSON.stringif
     await until(page, () => /Coletar/.test(document.querySelector('.prompt')?.textContent ?? ''));
     const prompt = await page.locator('.prompt').textContent();
     await press(page, 'KeyE');
+    // The wood arrives at the impact frame of the gathering swing (v0.4), not on the key press.
+    await until(page, (b) => window.__edg.inventory.count('wood') > b, before, 30000);
     const after = await ev(page, () => window.__edg.inventory.count('wood'));
     check('gathering: E collects wood from the tree in front', after > before, `prompt="${prompt}" ${before}->${after}`);
   } else check('collision: found a tree to test', false);

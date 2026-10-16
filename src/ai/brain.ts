@@ -2,6 +2,7 @@ import { angleDiff, clamp, damp } from '../core/math';
 import type { Terrain } from '../world/terrain';
 import { type AnimalData, type AIState, effectiveMass, growthScale, lifeStage, maxHealth } from '../animals/animal';
 import { HUMAN_MASS, SPECIES, type SpeciesDef, isPredator } from '../animals/species';
+import { AQUATIC_MIN_DEPTH, swimDepth } from '../animals/aquatic';
 import { dangerAt, nearestMemory, recallSubject, remember } from './memory';
 import { canUse } from '../taming/profiles';
 
@@ -132,8 +133,11 @@ export class AnimalBrain {
     r.threatZ = fromZ;
     r.threatIsPlayer = byPlayer;
     r.lastHurtAt = now;
-    a.speed *= 0.4;
+    // Stagger: a small animal is stopped by a blow, a giant barely slows.
+    a.speed *= sp.massKg > 3000 ? 0.85 : sp.massKg > 500 ? 0.6 : 0.35;
     if (a.tame) return;
+    // Whatever it was doing (grazing, drinking, resting) is interrupted.
+    if (a.state === 'graze' || a.state === 'drink' || a.state === 'eat' || a.state === 'rest' || a.state === 'idle' || a.state === 'wander' || a.state === 'nest') this.setState(a, 'alert');
     const ratio = a.health / maxHealth(a, now);
     const brave = (a.personality.courage + a.personality.aggression) / 2;
     if (ratio < 0.3 || (sp.threat.response === 'flee' && ratio < 0.9)) {
@@ -556,6 +560,8 @@ export class AnimalBrain {
     if (a.tameProgress > 0.5 && !hostileNow && !p.running) flight = 0;
 
     // Predators: is the player food?
+    // A marine predator only notices a player who is in the water.
+    if (sp.locomotion.aquatic && w.terrain.height(p.x, p.z) > -1.2) return false;
     if (isPredator(sp) && sp.huntsHumans && stage !== 'juvenile') {
       const mass = myMass;
       const pack = sp.social.type === 'pack' ? Math.max(1, groupNear + 1) : 1;
@@ -708,6 +714,8 @@ export class AnimalBrain {
         continue;
       }
       if (osp.id === a.speciesId || osp.locomotion.flies && !(sp.diet === 'piscivore')) continue;
+      // A marine predator can only take what is in the water; land animals only on the hunt in it.
+      if (sp.locomotion.aquatic && w.terrain.height(o.x, o.z) > -1.2) continue;
       if (isPredator(osp) && effectiveMass(o, now) > myMass * 0.5) continue;
       if (sp.diet === 'piscivore' && osp.massKg > 300) continue;
       const om = effectiveMass(o, now);
@@ -801,6 +809,7 @@ export class AnimalBrain {
       const z = cz + Math.cos(ang) * d;
       const h = w.terrain.height(x, z);
       if (h < -0.3 && !sp.locomotion.swims && !sp.locomotion.flies) continue;
+      if (sp.locomotion.aquatic && h > AQUATIC_MIN_DEPTH) continue;
       const s = -dangerAt(a, x, z, w.now) + w.random() * 0.5;
       if (s > bs) {
         bs = s;
@@ -981,7 +990,9 @@ export class AnimalBrain {
       const px = a.x + Math.sin(a.heading) * probe;
       const pz = a.z + Math.cos(a.heading) * probe;
       const h = w.terrain.height(px, pz);
-      const bad = (h < -0.5 && !sp.locomotion.swims) || Math.abs(h - w.terrain.height(a.x, a.z)) / probe > 1.1 || w.blocked(px, pz, sp.lengthM * 0.15 + 0.3);
+      const bad = sp.locomotion.aquatic
+        ? h > AQUATIC_MIN_DEPTH
+        : (h < -0.5 && !sp.locomotion.swims) || Math.abs(h - w.terrain.height(a.x, a.z)) / probe > 1.1 || w.blocked(px, pz, sp.lengthM * 0.15 + 0.3);
       if (bad) {
         a.heading += (a.id.charCodeAt(0) % 2 ? 1 : -1) * Math.min(1, turn * 3 + 0.05);
         targetSpeed *= 0.4;
@@ -993,7 +1004,9 @@ export class AnimalBrain {
     const nx = a.x + Math.sin(a.heading) * a.speed * dt;
     const nz = a.z + Math.cos(a.heading) * a.speed * dt;
     const deep = manual && !sp.locomotion.swims && w.terrain.height(nx, nz) < -1.2;
-    if (!deep && (airborne || !w.blocked(nx, nz, sp.lengthM * 0.12 + 0.25))) {
+    // Marine animals never leave deep water.
+    const shore = !!sp.locomotion.aquatic && w.terrain.height(nx, nz) > AQUATIC_MIN_DEPTH;
+    if (!deep && !shore && (airborne || !w.blocked(nx, nz, sp.lengthM * 0.12 + 0.25))) {
       a.x = nx;
       a.z = nz;
     } else a.speed *= 0.5;
@@ -1005,7 +1018,7 @@ export class AnimalBrain {
     const ground = w.terrain.height(a.x, a.z);
     const sp2 = SPECIES[a.speciesId];
     const swimLevel = -sp2.hipHeightM * growthScale(a, w.now) * 0.8;
-    a.y = Math.max(ground, airborne ? 0 : swimLevel) + r.altitude;
+    a.y = sp.locomotion.aquatic ? swimDepth(a, w.now, ground) : Math.max(ground, airborne ? 0 : swimLevel) + r.altitude;
     r.stride += (a.speed * dt) / Math.max(0.1, sp.locomotion.stride * growthScale(a, w.now));
   }
 }

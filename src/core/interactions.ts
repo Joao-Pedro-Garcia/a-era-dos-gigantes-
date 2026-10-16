@@ -3,6 +3,10 @@ import { growthScale, lifeStage, maxHealth, type AnimalData } from '../animals/a
 import { SPECIES, SPECIES_IDS } from '../animals/species';
 import { CROP_SEED, type CropType, type Piece } from '../building/building';
 import { resolveDamage, weaponKind } from '../combat/combat';
+import { actionKindFor, isHoldable, type ActionDef } from '../combat/actions';
+import { reactionScale } from '../animals/animalView';
+import type { ImpactMaterial } from '../graphics/impactFx';
+import { arrowModel } from '../player/itemModels';
 import type { ItemList, Stack } from '../inventory/inventory';
 import { ITEMS } from '../inventory/items';
 import { language, t } from '../localization/i18n';
@@ -20,17 +24,16 @@ export interface Interaction {
 }
 
 interface Projectile {
-  mesh: THREE.Mesh;
+  mesh: THREE.Object3D;
   pos: THREE.Vector3;
   vel: THREE.Vector3;
   damage: number;
   life: number;
+  /** 1 once it has stuck in the ground or a wall. */
+  stuck: number;
+  /** Where it was released (diagnostics). */
+  origin: THREE.Vector3;
 }
-
-const arrowGeo = new THREE.CylinderGeometry(0.015, 0.015, 0.8, 4);
-const arrowMat = new THREE.MeshStandardMaterial({ color: 0x6a4a2a });
-arrowGeo.userData.shared = true;
-arrowMat.userData.shared = true;
 
 /**
  * Everything the player can do with the world in front of them: gathering,
@@ -56,13 +59,13 @@ export class Interactions {
     return dot > minDot ? d : null;
   }
 
-  nodeInFront(): ResourceNode | null {
+  nodeInFront(range = 2.2, minDot = 0.35): ResourceNode | null {
     const p = this.g.player!;
     let best: ResourceNode | null = null;
     let bd = Infinity;
-    for (const n of this.g.sectors!.nodesNear(p.s.x, p.s.z, 4.5)) {
-      const reach = 2.2 + (n.kind === 'boulder' ? 2.4 : n.kind === 'rock' || n.kind === 'rubble' ? 1.2 : 0.3) * n.scale;
-      const d = this.inFront(n.x, n.z, reach, 0.35, n.y);
+    for (const n of this.g.sectors!.nodesNear(p.s.x, p.s.z, range + 2.5)) {
+      const reach = range + (n.kind === 'boulder' ? 2.4 : n.kind === 'rock' || n.kind === 'rubble' ? 1.2 : 0.3) * n.scale;
+      const d = this.inFront(n.x, n.z, reach, minDot, n.y);
       if (d !== null && d < bd) {
         bd = d;
         best = n;
@@ -144,11 +147,11 @@ export class Interactions {
       if (a.alive || a.meat <= 0) continue;
       const sp = SPECIES[a.speciesId];
       if (this.inFront(a.x, a.z, 2.2 + sp.lengthM * 0.45 * growthScale(a, now), 0.1, a.y) !== null)
-        return { label: t('prompt.butcher', { key, what: sp.name[language()] }), run: () => this.butcher(a.id) };
+        return { label: t('prompt.butcher', { key, what: sp.name[language()] }), run: () => this.g.combat.request(() => this.butcher(a.id)) };
     }
 
     const n = this.nodeInFront();
-    if (n) return { label: t('prompt.harvest', { key, what: this.nodeName(n) }), run: () => this.harvest(n) };
+    if (n) return { label: t('prompt.harvest', { key, what: this.nodeName(n) }), run: () => this.g.combat.request(() => this.strikeNode(n)) };
 
     // Water.
     if (!g.inCave) {
@@ -388,73 +391,238 @@ export class Interactions {
 
   // ------------------------------------------------------------------ actions
 
-  /** Interact (E) and attack/use (click) handling for the frame. */
+  /** Interact (E) handling for the frame (attacks go through `updateCombat`). */
   update(interaction: Interaction | null): void {
     const g = this.g;
     if (g.input.consume('interact') && interaction) interaction.run();
-    const wantsAttack = g.input.consume('attack') || (g.input.mode === 'touch' && g.input.held('attack'));
-    if (wantsAttack && g.attackCooldown <= 0) this.attack();
   }
 
-  attack(): void {
+  /**
+   * Drives the action state machine once per frame. `input` is false while
+   * a menu or the building mode owns the attack button: the hands still
+   * finish what they were doing and follow inventory changes.
+   */
+  updateCombat(dt: number, input: boolean): void {
+    const g = this.g;
+    const c = g.combat;
+    const held = g.heldItem();
+    const wanted = !g.mountedId && held && isHoldable(held.id) ? held.id : '';
+    const pressed = input && g.input.consume('attack');
+    const events = c.update(dt, { pressed, held: input && g.input.held('attack'), wanted, hasAmmo: g.inventory.count('arrow') > 0 });
+    for (const e of events) {
+      switch (e.type) {
+        case 'equip':
+          g.audio.sfx('equip');
+          break;
+        case 'unequip':
+          g.audio.sfx('unequip');
+          break;
+        case 'swing':
+          g.audio.sfx(e.def.kind === 'punch' ? 'swingLight' : e.def.heavy || e.def.twoHanded ? 'swingHeavy' : 'swing');
+          break;
+        case 'drawStart':
+          g.audio.sfx('bowDraw');
+          break;
+        case 'noAmmo':
+          g.notify('notify.noArrows', {}, 'warn');
+          break;
+        case 'release':
+          if (g.inventory.remove('arrow', 1)) {
+            g.audio.sfx('bow');
+            this.fireArrow(e.draw);
+            g.wearHeld();
+          }
+          break;
+        case 'use':
+          if (e.task) e.task();
+          else if (e.item === 'spyglass') this.useSpyglass();
+          else if (e.item === 'flare') this.useFlare();
+          break;
+        case 'impact':
+          if (e.task) e.task();
+          else this.strike(e.def, e.item, e.hand);
+          break;
+      }
+    }
+    // While an action runs the attack button is busy (the building mode keeps its own cooldown).
+    if (c.busy) g.attackCooldown = Math.max(g.attackCooldown, 0.1);
+  }
+
+  /** Direction the player is attacking in (camera yaw and pitch). */
+  private attackDir(out: THREE.Vector3): THREE.Vector3 {
+    const s = this.g.player!.s;
+    const cp = Math.cos(s.pitch);
+    return out.set(Math.sin(s.yaw) * cp, Math.sin(s.pitch), Math.cos(s.yaw) * cp).normalize();
+  }
+
+  /**
+   * True when something solid (a wall, a rock, a tree trunk, the terrain)
+   * lies between the player's chest and a point.
+   */
+  private obstructed(x: number, y: number, z: number): boolean {
+    const g = this.g;
+    const p = g.player!.s;
+    const y0 = p.y + 1.3;
+    const d = Math.hypot(x - p.x, z - p.z);
+    const steps = Math.max(2, Math.ceil(d / 0.35));
+    for (let i = 1; i < steps; i++) {
+      const t = i / steps;
+      const sx = p.x + (x - p.x) * t;
+      const sz = p.z + (z - p.z) * t;
+      const sy = y0 + (y - y0) * t;
+      if (!g.inCave && sy < g.terrain!.height(sx, sz) - 0.05) return true;
+      if (g.collision.blocked(sx, sz, 0.05, sy - 0.1, 0.2)) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Resolves a melee blow at the impact frame of the animation: the
+   * nearest living animal or resource inside the weapon's reach and arc,
+   * not hidden behind an obstacle. One target per swing; a miss just ends
+   * the swing (or splashes when it ends in water).
+   */
+  strike(def: ActionDef, item: string, hand: 'L' | 'R'): void {
     const g = this.g;
     const p = g.player!;
-    const held = g.heldItem();
-    g.attackCooldown = held?.id === 'bow' ? 0.9 : 0.6;
-    g.playerView!.attackSwing();
-    if (held?.id === 'spyglass') return this.useSpyglass();
-    if (held?.id === 'flare') return this.useFlare();
-    if (held?.id === 'bow') {
-      if (!g.inventory.remove('arrow', 1)) {
-        g.notify('notify.noArrows', {}, 'warn');
-        return;
-      }
-      g.audio.sfx('bow');
-      this.fireArrow();
-      g.wearHeld();
-      return;
-    }
-    g.audio.sfx('swing');
-    const def = held ? ITEMS[held.id] : null;
-    const reach = held?.id.includes('spear') ? 3.2 : held ? 2.4 : 1.8;
     const now = g.env!.state.time;
-    const target = this.animalInFront(reach, (a) => {
+    const dir = this.attackDir(new THREE.Vector3());
+    const target = this.animalInFront(def.reach, (a) => {
       if (!a.alive || (a.tame && a.tame.ridden)) return false;
       const sp = SPECIES[a.speciesId];
       return Math.abs(a.y + sp.hipHeightM * growthScale(a, now) - p.s.y) < sp.hipHeightM * 2 + 2.5;
-    });
+    }, def.arc);
     if (target) {
-      const raw = (def?.damage ?? 4) * g.progression.meleeDamage();
-      this.damageAnimal(target, resolveDamage(target, raw, weaponKind(held?.id)));
-      g.wearHeld();
-      return;
+      const sp = SPECIES[target.speciesId];
+      const gs = growthScale(target, now);
+      const r = sp.lengthM * 0.3 * gs;
+      const d = Math.max(0.01, Math.hypot(target.x - p.s.x, target.z - p.s.z));
+      // Contact point: on the near side of the body, at chest height (clamped to the animal's height).
+      const cx = target.x - ((target.x - p.s.x) / d) * Math.min(r, d * 0.7);
+      const cz = target.z - ((target.z - p.s.z) / d) * Math.min(r, d * 0.7);
+      const cy = THREE.MathUtils.clamp(p.s.y + 1.25 + dir.y * Math.min(d, def.reach), target.y + 0.15 * gs, target.y + sp.hipHeightM * gs * 1.4);
+      if (!this.obstructed(cx, cy, cz)) {
+        const def2 = item ? ITEMS[item] : null;
+        const raw = (def2?.damage ?? 4) * g.progression.meleeDamage();
+        const dmg = resolveDamage(target, raw, item ? weaponKind(item) : 'blunt');
+        this.damageAnimal(target, dmg, def.kind === 'punch' ? 'punch' : 'hit');
+        this.react(target, dir.x, dir.z, dmg);
+        g.fx.spawn('flesh', new THREE.Vector3(cx, cy, cz), dir, def.heavy ? 1.2 : 0.8);
+        g.hitStop(def.heavy ? 0.06 : 0.04);
+        if (item) g.wearHeld();
+        return;
+      }
     }
-    const n = this.nodeInFront();
-    if (n) this.harvest(n);
+    const n = this.nodeInFront(def.reach + 0.4, def.arc);
+    if (n && this.strikeNode(n, item, hand)) return;
+    // Miss. A swing that ends in water splashes.
+    if (!g.inCave) {
+      const ex = p.s.x + dir.x * def.reach;
+      const ez = p.s.z + dir.z * def.reach;
+      const ey = p.s.y + 1.25 + dir.y * def.reach;
+      const water = g.env!.waterLevel;
+      if (g.terrain!.height(ex, ez) < water && ey < water + 0.6) {
+        g.fx.spawn('water', new THREE.Vector3(ex, water + 0.02, ez), dir, 1);
+        g.audio.sfx('splash', [ex, water, ez]);
+      }
+    }
   }
 
-  private damageAnimal(target: AnimalData, dmg: number): void {
+  /** Size-scaled reaction of a struck animal (view flinch; the AI reaction is in brain.onHurt). */
+  private react(a: AnimalData, dirX: number, dirZ: number, dmg: number): void {
+    const g = this.g;
+    const sp = SPECIES[a.speciesId];
+    const now = g.env!.state.time;
+    const share = Math.min(1, (dmg / Math.max(1, maxHealth(a, now))) * 6);
+    g.animalHit(a.id, dirX, dirZ, (0.35 + share * 0.65) * reactionScale(sp.massKg * growthScale(a, now) ** 3));
+    // Pain / alarm call (urgent), scaled by the animal's size.
+    if (a.alive) g.audio.call(sp, a.x, a.y + sp.hipHeightM, a.z, growthScale(a, now), 1, false, '');
+  }
+
+  /** Material of a resource node for effects and sounds. */
+  private nodeMaterial(n: ResourceNode): ImpactMaterial {
+    switch (n.kind) {
+      case 'rock':
+      case 'boulder':
+      case 'rubble':
+      case 'fossil':
+        return 'stone';
+      case 'crystal':
+        return 'crystal';
+      case 'crate':
+      case 'scrap':
+        return 'metal';
+      case 'bush':
+      case 'fern':
+      case 'reeds':
+        return 'plant';
+      default:
+        return 'wood';
+    }
+  }
+
+  /**
+   * Hits a resource node at the impact frame (axe on wood, pickaxe on stone,
+   * hands on bushes…). Returns false when the node is no longer reachable.
+   */
+  strikeNode(n: ResourceNode, item = this.g.combat.shown, hand: 'L' | 'R' = 'R'): boolean {
+    const g = this.g;
+    const p = g.player!;
+    void hand;
+    const reach = 2.4 + (n.kind === 'boulder' ? 2.4 : n.kind === 'rock' || n.kind === 'rubble' ? 1.2 : 0.3) * n.scale;
+    if (this.inFront(n.x, n.z, reach + 0.4, 0.2, n.y) === null) return false;
+    const mat = this.nodeMaterial(n);
+    const dir = this.attackDir(new THREE.Vector3());
+    const d = Math.max(0.01, Math.hypot(n.x - p.s.x, n.z - p.s.z));
+    const surf = Math.max(0, d - (n.kind === 'boulder' ? 1.6 : n.kind === 'rock' ? 0.7 : 0.25) * n.scale);
+    const hx = p.s.x + ((n.x - p.s.x) / d) * surf;
+    const hz = p.s.z + ((n.z - p.s.z) / d) * surf;
+    const hy = THREE.MathUtils.clamp(p.s.y + 1.1 + dir.y * surf, n.y + 0.1, n.y + (mat === 'plant' ? 0.8 : 1.6) * n.scale);
+    const kind = actionKindFor(item);
+    const heavy = kind === 'chop' || kind === 'mine' || kind === 'bash';
+    g.fx.spawn(mat === 'stone' && !item ? 'dirt' : mat, new THREE.Vector3(hx, hy, hz), dir, heavy ? 1.2 : 0.7);
+    g.sectors!.shakeNode(n, dir.x, dir.z, mat === 'stone' || mat === 'metal' || mat === 'crystal' ? 0.004 : mat === 'plant' ? 0.12 : 0.03 * (heavy ? 1.5 : 1));
+    this.harvest(n);
+    return true;
+  }
+
+  private damageAnimal(target: AnimalData, dmg: number, sound: 'hit' | 'punch' = 'hit'): void {
     const g = this.g;
     const p = g.player!;
     const wasAlive = target.alive;
     g.eco!.playerAttack(target, dmg, p.s.x, p.s.z);
     g.hostileUntil = g.env!.state.time + 10;
     if (!target.tame) g.setCompanionTarget(target.id);
-    g.audio.sfx('hit', [target.x, target.y + 1, target.z]);
+    g.audio.sfx(sound, [target.x, target.y + 1, target.z]);
     g.xp('combat', dmg * 0.2);
     if (wasAlive && !target.alive) g.xp('combat', Math.sqrt(SPECIES[target.speciesId].massKg) * 0.5);
   }
 
-  private fireArrow(): void {
+  /**
+   * Releases an arrow from the bow's nock (the first-person bow in first
+   * person, the body's bow in third person), aimed at the point under the
+   * crosshair so the offset between hand and eye does not spoil the aim.
+   * Speed grows with the draw.
+   */
+  private fireArrow(draw: number): void {
     const g = this.g;
     const dir = new THREE.Vector3();
     g.camera.getWorldDirection(dir);
     const p = g.player!;
-    const pos = new THREE.Vector3(p.s.x, p.s.y + 1.5, p.s.z).addScaledVector(dir, 0.8);
-    const mesh = new THREE.Mesh(arrowGeo, arrowMat);
+    const fp = g.settings.firstPerson;
+    const pos = new THREE.Vector3();
+    const from = fp ? g.viewmodel.nockWorld(pos) : g.playerView!.nockWorld(pos);
+    if (!from) pos.set(p.s.x, p.s.y + 1.5, p.s.z).addScaledVector(dir, 0.6);
+    const aim = g.camera.position.clone().addScaledVector(dir, 40);
+    const v = aim.sub(pos).normalize();
+    const mesh = new THREE.Group();
+    const model = arrowModel(null, g.textures);
+    model.rotation.x = Math.PI / 2;
+    mesh.add(model);
     g.worldRoot.add(mesh);
-    const speed = g.progression.has('archer') ? 55 : 45;
-    this.projectiles.push({ mesh, pos, vel: dir.multiplyScalar(speed), damage: (ITEMS.arrow.damage ?? 20) * g.progression.arrowDamage(), life: 4 });
+    const speed = (g.progression.has('archer') ? 55 : 45) * (0.55 + 0.45 * draw);
+    const dmg = (ITEMS.arrow.damage ?? 20) * g.progression.arrowDamage() * (0.5 + 0.5 * draw);
+    this.projectiles.push({ mesh, pos, vel: v.multiplyScalar(speed), damage: dmg, life: 4, stuck: 0, origin: pos.clone() });
   }
 
   updateProjectiles(dt: number): void {
@@ -462,15 +630,40 @@ export class Interactions {
     const now = g.env!.state.time;
     const seg = new THREE.Line3();
     const closest = new THREE.Vector3();
+    const prev = new THREE.Vector3();
+    const fwd = new THREE.Vector3(0, 0, 1);
     for (const pr of this.projectiles) {
-      const prev = pr.pos.clone();
+      pr.life -= dt;
+      if (pr.stuck > 0) continue; // stuck in the ground: stays a moment, then disappears
+      prev.copy(pr.pos);
       pr.vel.y -= 9.8 * dt;
       pr.pos.addScaledVector(pr.vel, dt);
-      pr.life -= dt;
       pr.mesh.position.copy(pr.pos);
-      pr.mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), pr.vel.clone().normalize());
+      pr.mesh.quaternion.setFromUnitVectors(fwd, closest.copy(pr.vel).normalize());
+      const water = g.inCave ? -Infinity : g.env!.waterLevel;
       const ground = g.inCave ? CAVE_Y : g.terrain!.height(pr.pos.x, pr.pos.z);
-      if (pr.pos.y < ground) pr.life = 0;
+      if (pr.pos.y < ground) {
+        // Sinks into the soil, pointing along its flight.
+        pr.pos.y = ground + 0.05;
+        pr.mesh.position.copy(pr.pos).addScaledVector(closest.copy(pr.vel).normalize(), -0.25);
+        g.fx.spawn('dirt', pr.pos, pr.vel, 0.5);
+        g.audio.sfx('impactDirt', [pr.pos.x, pr.pos.y, pr.pos.z]);
+        pr.stuck = 1;
+        pr.life = Math.min(pr.life, 6);
+        continue;
+      }
+      if (prev.y > water && pr.pos.y <= water && ground < water) {
+        g.fx.spawn('water', new THREE.Vector3(pr.pos.x, water, pr.pos.z), pr.vel, 0.6);
+        g.audio.sfx('splash', [pr.pos.x, water, pr.pos.z]);
+        pr.vel.multiplyScalar(0.25);
+      }
+      if (g.collision.blocked(pr.pos.x, pr.pos.z, 0.02, pr.pos.y - 0.05, 0.1)) {
+        g.fx.spawn('wood', pr.pos, pr.vel, 0.5);
+        g.audio.sfx('chop', [pr.pos.x, pr.pos.y, pr.pos.z]);
+        pr.stuck = 1;
+        pr.life = Math.min(pr.life, 6);
+        continue;
+      }
       for (const a of g.eco!.active) {
         if (!a.alive || pr.life <= 0 || a.tame) continue;
         const sp = SPECIES[a.speciesId];
@@ -479,7 +672,10 @@ export class Interactions {
         seg.set(prev, pr.pos);
         seg.closestPointToPoint(center, true, closest);
         if (closest.distanceTo(center) < Math.max(0.4, sp.lengthM * 0.22 * gs)) {
-          this.damageAnimal(a, resolveDamage(a, pr.damage, 'arrow'));
+          const dmg = resolveDamage(a, pr.damage, 'arrow');
+          this.damageAnimal(a, dmg);
+          this.react(a, pr.vel.x, pr.vel.z, dmg);
+          g.fx.spawn('flesh', closest, pr.vel, 0.7);
           pr.life = 0;
         }
       }
@@ -487,12 +683,16 @@ export class Interactions {
     this.projectiles = this.projectiles.filter((pr) => {
       if (pr.life > 0) return true;
       pr.mesh.removeFromParent();
+      pr.mesh.traverse((o) => o instanceof THREE.Mesh && o.geometry.dispose());
       return false;
     });
   }
 
   clear(): void {
-    for (const pr of this.projectiles) pr.mesh.removeFromParent();
+    for (const pr of this.projectiles) {
+      pr.mesh.removeFromParent();
+      pr.mesh.traverse((o) => o instanceof THREE.Mesh && o.geometry.dispose());
+    }
     this.projectiles = [];
     this.analyzed.clear();
   }
@@ -547,15 +747,13 @@ export class Interactions {
     const g = this.g;
     const held = g.heldItem();
     const now = g.env!.state.time;
-    g.attackCooldown = 0.45;
-    g.playerView!.attackSwing();
     const sectors = g.sectors!;
     if (n.kind === 'crate' || n.kind === 'scrap') {
       const loot: ItemList = n.kind === 'crate' ? { metal_scrap: 3, bandage: 2 } : { metal_scrap: 2 };
       if (n.kind === 'crate' && g.rng.chance(0.5)) loot.sulfur = 2;
       if (n.kind === 'crate' && g.rng.chance(0.4)) loot.battery = 1;
       sectors.hitNode(n, now, 99);
-      g.audio.sfx('stone');
+      g.audio.sfx('impactMetal', [n.x, n.y + 0.5, n.z]);
       this.give(loot);
       g.xp('exploration', 3);
       return;
@@ -565,7 +763,7 @@ export class Interactions {
       const knife = held ? ITEMS[held.id].gather?.meat ?? 0 : 0;
       const ok = n.kind === 'fossil' ? stoneTool >= 3 || knife > 0 : stoneTool >= 3;
       if (!ok) return g.notify('notify.needPickaxe', {}, 'warn');
-      g.audio.sfx('stone');
+      g.audio.sfx(n.kind === 'crystal' ? 'impactCrystal' : 'stone', [n.x, n.y + 0.5, n.z]);
       g.wearHeld();
       if (!sectors.hitNode(n, now, stoneTool >= 5 ? 2 : 1)) return;
       if (n.kind === 'rubble') {
@@ -600,7 +798,7 @@ export class Interactions {
     if (n.kind === 'reeds' && n.biome === 'swamp' && r.chance(0.35)) drops.clay = 1;
     const herbChance = g.progression.has('herbalist') ? 0.6 : 0.35;
     if ((n.kind === 'bush' || n.kind === 'fern') && (n.biome === 'jungle' || n.biome === 'swamp') && r.chance(herbChance)) drops.herb = g.progression.has('herbalist') ? 2 : 1;
-    g.audio.sfx(def.tool === 'wood' ? 'chop' : def.tool === 'stone' ? 'stone' : 'pickup', [n.x, n.y + 1, n.z]);
+    g.audio.sfx(def.tool === 'wood' ? 'chop' : def.tool === 'stone' ? 'stone' : 'impactPlant', [n.x, n.y + 1, n.z]);
     this.give(drops);
     if (tool > 0) g.wearHeld();
     sectors.hitNode(n, now, power);
@@ -622,7 +820,7 @@ export class Interactions {
     if (sp.diet === 'piscivore' && g.rng.chance(0.3)) items.raw_fish = 1;
     this.give(items);
     if (knife > 0) g.wearHeld();
-    g.playerView!.attackSwing();
+    g.fx.spawn('flesh', new THREE.Vector3(a.x, a.y + 0.4, a.z), new THREE.Vector3(a.x - g.player!.s.x, -0.5, a.z - g.player!.s.z), 0.6);
   }
 
   private fillWaterskin(slot: number): void {

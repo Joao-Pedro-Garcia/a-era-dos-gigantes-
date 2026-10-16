@@ -33,6 +33,7 @@ export const RECIPES: Recipe[] = [
   { id: 'metal_pickaxe', output: 'metal_pickaxe', qty: 1, inputs: { metal_ingot: 3, wood: 2, rope: 1 }, time: 8, station: 'workbench', category: 'mining', unlock: 'skill:metallurgy' },
   { id: 'metal_knife', output: 'metal_knife', qty: 1, inputs: { metal_ingot: 1, wood: 1 }, time: 5, station: 'workbench', category: 'gathering', unlock: 'skill:metallurgy' },
   // Weapons & ammo
+  { id: 'wooden_club', output: 'wooden_club', qty: 1, inputs: { wood: 3, fiber: 2 }, time: 3, station: 'hand', category: 'weapons' },
   { id: 'spear', output: 'spear', qty: 1, inputs: { wood: 3, flint: 2, fiber: 4 }, time: 5, station: 'hand', category: 'weapons' },
   { id: 'bow', output: 'bow', qty: 1, inputs: { wood: 4, rope: 2, hide: 1 }, time: 8, station: 'workbench', category: 'weapons', tool: KNIFE },
   { id: 'arrow', output: 'arrow', qty: 8, inputs: { wood: 2, flint: 2, fiber: 2 }, time: 4, station: 'workbench', category: 'ammo', tool: KNIFE },

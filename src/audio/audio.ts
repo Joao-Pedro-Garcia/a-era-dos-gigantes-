@@ -8,7 +8,10 @@ import type { BiomeId } from '../world/biomes';
  * (open air, shelter, cave). Repetition is avoided with randomized pitch,
  * timing and per-sound cooldowns.
  */
-export type SfxName = 'chop' | 'stone' | 'hit' | 'swing' | 'bow' | 'place' | 'craft' | 'eat' | 'drink' | 'pickup' | 'ui' | 'shock' | 'flare' | 'snap' | 'demolish';
+export type SfxName =
+  | 'chop' | 'stone' | 'hit' | 'swing' | 'bow' | 'place' | 'craft' | 'eat' | 'drink' | 'pickup' | 'ui' | 'shock' | 'flare' | 'snap' | 'demolish'
+  // Combat (v0.4): swing weights, impacts by material, bow and equipment.
+  | 'swingHeavy' | 'swingLight' | 'punch' | 'impactPlant' | 'impactDirt' | 'impactMetal' | 'impactCrystal' | 'splash' | 'bowDraw' | 'equip' | 'unequip';
 export type Surface = 'grass' | 'sand' | 'snow' | 'rock' | 'wood' | 'water' | 'mud';
 export type MusicMood = 'calm' | 'night' | 'tension' | 'cave' | 'off';
 export type Indoor = 'open' | 'sheltered' | 'cave';
@@ -296,7 +299,9 @@ export class AudioSystem {
         this.blip({ freq: 1400 * v, noise: true, dur: 0.18, vol: 0.12, filter: 3000, reverb: false });
         break;
       case 'bow':
+        // Release: string twang plus the slap of the limbs.
         this.blip({ freq: 220 * v, type: 'triangle', dur: 0.25, vol: 0.25, slide: 0.7 });
+        this.blip({ freq: 1500 * v, noise: true, dur: 0.05, vol: 0.2, filter: 3000, reverb: false });
         break;
       case 'place':
         this.blip({ freq: 160 * v, type: 'triangle', dur: 0.15, vol: 0.4, slide: 0.7, pos });
@@ -330,6 +335,49 @@ export class AudioSystem {
         break;
       case 'snap':
         this.blip({ freq: 2500, noise: true, dur: 0.06, vol: 0.4, filter: 6000, pos });
+        break;
+      case 'swingHeavy':
+        // A heavy tool cuts the air lower and longer.
+        this.blip({ freq: 650 * v, noise: true, dur: 0.26, vol: 0.16, filter: 1400, reverb: false });
+        break;
+      case 'swingLight':
+        this.blip({ freq: 2200 * v, noise: true, dur: 0.12, vol: 0.1, filter: 4500, reverb: false });
+        break;
+      case 'punch':
+        this.blip({ freq: 95 * v, type: 'sine', dur: 0.12, vol: 0.45, slide: 0.6, pos });
+        this.blip({ freq: 500 * v, noise: true, dur: 0.05, vol: 0.25, filter: 900, pos });
+        break;
+      case 'impactPlant':
+        this.blip({ freq: 1800 * v, noise: true, dur: 0.22, vol: 0.22, filter: 3500, pos });
+        this.blip({ freq: 3200 * v, noise: true, dur: 0.12, vol: 0.1, filter: 7000, pos });
+        break;
+      case 'impactDirt':
+        this.blip({ freq: 400 * v, noise: true, dur: 0.16, vol: 0.3, filter: 900, pos });
+        break;
+      case 'impactMetal':
+        this.blip({ freq: 1250 * v, type: 'triangle', dur: 0.35, vol: 0.14, slide: 0.98, pos });
+        this.blip({ freq: 1870 * v, type: 'sine', dur: 0.25, vol: 0.08, pos });
+        this.blip({ freq: 3000 * v, noise: true, dur: 0.05, vol: 0.3, filter: 6000, pos });
+        break;
+      case 'impactCrystal':
+        this.blip({ freq: 2600 * v, type: 'sine', dur: 0.4, vol: 0.1, slide: 1.02, pos });
+        this.blip({ freq: 4000 * v, noise: true, dur: 0.06, vol: 0.25, filter: 8000, pos });
+        break;
+      case 'splash':
+        this.blip({ freq: 1100 * v, noise: true, dur: 0.3, vol: 0.32, filter: 2600, pos });
+        this.blip({ freq: 300 * v, type: 'sine', dur: 0.1, vol: 0.15, slide: 2.2, pos });
+        break;
+      case 'bowDraw':
+        // Creak of the limbs and the string being drawn.
+        this.blip({ freq: 180 * v, type: 'sawtooth', dur: 0.5, vol: 0.035, slide: 1.25, filter: 700, reverb: false });
+        this.blip({ freq: 900 * v, noise: true, dur: 0.45, vol: 0.05, filter: 1500, reverb: false });
+        break;
+      case 'equip':
+        this.blip({ freq: 700 * v, noise: true, dur: 0.1, vol: 0.12, filter: 2500, reverb: false });
+        this.blip({ freq: 240 * v, type: 'triangle', dur: 0.06, vol: 0.08, reverb: false });
+        break;
+      case 'unequip':
+        this.blip({ freq: 500 * v, noise: true, dur: 0.12, vol: 0.09, filter: 1800, reverb: false });
         break;
     }
   }

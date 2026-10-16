@@ -9,7 +9,8 @@ import { BIOMES } from '../world/biomes';
 import type { Environment } from '../world/environment';
 import { SPAWN, type Terrain } from '../world/terrain';
 import { type AnimalData, createAnimal, effectiveMass, lifeStage, maxHealth } from './animal';
-import { SPECIES, type SpeciesDef, isPredator } from './species';
+import { SPECIES, SPECIES_IDS, type SpeciesDef, isPredator } from './species';
+import { AQUATIC_MIN_DEPTH, swimDepth } from './aquatic';
 
 /**
  * Living ecosystem. Animals near the player run the full AI every frame; the
@@ -167,7 +168,12 @@ export class Ecosystem {
     const cx = (sx + 0.5) * S;
     const cz = (sz + 0.5) * S;
     const h = this.terrain.height(cx, cz);
-    if (h < -1) return;
+    if (h < -1) {
+      // Open sea: occasionally a marine predator's home range.
+      const marine = SPECIES_IDS.filter((id) => SPECIES[id].locomotion.aquatic);
+      if (h < -8 && marine.length && rng.chance(0.06)) this.spawnGroup(marine[rng.int(0, marine.length - 1)], cx, cz, rng);
+      return;
+    }
     const biome = BIOMES[this.terrain.biomeAt(cx, cz, h)];
     const entries = Object.entries(biome.fauna);
     if (!entries.length) return;
@@ -203,11 +209,12 @@ export class Ecosystem {
       const ax = x + rng.range(-spread, spread);
       const az = z + rng.range(-spread, spread);
       if (this.terrain.height(ax, az) < -0.5 && !sp.locomotion.swims) continue;
+      if (sp.locomotion.aquatic && this.terrain.height(ax, az) > AQUATIC_MIN_DEPTH) continue;
       const parent = juvenile ? members.find((m) => m.sex === 'f' && lifeStage(m, now) === 'adult') : undefined;
       const a = createAnimal({ id: this.newId('a'), speciesId, x: ax, z: az, bornAt, groupId, parentId: parent?.id ?? null, rng });
       a.homeX = x;
       a.homeZ = z;
-      a.y = this.terrain.height(ax, az);
+      a.y = sp.locomotion.aquatic ? swimDepth(a, now, this.terrain.height(ax, az)) : this.terrain.height(ax, az);
       this.animals.set(a.id, a);
       members.push(a);
     }
@@ -639,7 +646,14 @@ export class Ecosystem {
       const nx = a.x + Math.sin(ang) * step;
       const nz = a.z + Math.cos(ang) * step;
       const h = this.terrain.height(nx, nz);
-      if (h > -0.5 || sp.locomotion.swims || sp.locomotion.flies) {
+      if (sp.locomotion.aquatic) {
+        if (h < AQUATIC_MIN_DEPTH) {
+          a.x = nx;
+          a.z = nz;
+          a.heading = ang;
+          a.y = swimDepth(a, this.env.state.time, h);
+        }
+      } else if (h > -0.5 || sp.locomotion.swims || sp.locomotion.flies) {
         a.x = nx;
         a.z = nz;
         a.heading = ang;
@@ -691,6 +705,7 @@ export class Ecosystem {
         const x = (sx + dx + 0.5) * S;
         const z = (sz + dz + 0.5) * S;
         if (this.terrain.height(x, z) < -1 && !sp.locomotion.swims && !sp.locomotion.flies) continue;
+        if (sp.locomotion.aquatic && this.terrain.height(x, z) > AQUATIC_MIN_DEPTH) continue;
         const e = this.sectorEco(x, z);
         let s = needWater ? (e.water ? 2 : 0) : isPredator(sp) ? (this.sectorIndex.get(sectorKey(sx + dx, sz + dz))?.length ?? 0) : e.forage;
         if (!sp.habitat.includes(this.terrain.biomeAt(x, z))) s -= 0.3;
@@ -725,6 +740,18 @@ export class Ecosystem {
     if (!mates || local > sp.social.size[1] * 2.5) return;
     if (!this.rng.chance(0.08)) return;
     a.lastBredAt = now;
+    if (sp.locomotion.aquatic) {
+      // Mosasaurs were viviparous (embryos are known inside mothers): live young, no nest.
+      const n = this.rng.int(sp.reproduction.clutch[0], sp.reproduction.clutch[1]);
+      for (let i = 0; i < n; i++) {
+        const c = createAnimal({ id: this.newId('a'), speciesId: a.speciesId, x: a.x + this.rng.range(-3, 3), z: a.z + this.rng.range(-3, 3), bornAt: now, groupId: a.groupId, parentId: a.id, rng: this.rng });
+        c.homeX = a.homeX;
+        c.homeZ = a.homeZ;
+        c.y = a.y;
+        this.animals.set(c.id, c);
+      }
+      return;
+    }
     const n: Nest = {
       id: this.newId('n'), speciesId: a.speciesId, x: a.x, z: a.z,
       eggs: this.rng.int(sp.reproduction.clutch[0], sp.reproduction.clutch[1]),
@@ -750,3 +777,4 @@ export class Ecosystem {
 }
 
 export { PLAYER_ID };
+

@@ -30,6 +30,10 @@ export class EnvironmentView {
   private fireMat: THREE.PointsMaterial;
   private sunDir = new THREE.Vector3();
   private lightDir = new THREE.Vector3();
+  /** Direction toward the current key light (sun, or the moon at night). */
+  get keyLightDir(): THREE.Vector3 {
+    return this.lightDir;
+  }
   readonly fog: THREE.FogExp2;
   /** Inside a cave: no sky light, dark fog. */
   indoor = false;

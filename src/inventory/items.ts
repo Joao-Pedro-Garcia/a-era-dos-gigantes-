@@ -52,6 +52,7 @@ export const ITEMS: Record<string, ItemDef> = Object.fromEntries(
     I('stone_pickaxe', 'tool', 1.8, 1, { damage: 12, gather: { stone: 3, wood: 1 }, durability: 150 }),
     I('stone_knife', 'tool', 0.5, 1, { damage: 10, gather: { meat: 3, fiber: 2 }, durability: 120 }),
     I('spear', 'weapon', 1.8, 1, { damage: 26, durability: 100 }),
+    I('wooden_club', 'weapon', 1.4, 1, { damage: 12, durability: 120 }),
     I('obsidian_spear', 'weapon', 2, 1, { damage: 40, durability: 160 }),
     I('bow', 'weapon', 1, 1, { damage: 0, durability: 200 }),
     I('arrow', 'ammo', 0.05, 40, { damage: 22 }),

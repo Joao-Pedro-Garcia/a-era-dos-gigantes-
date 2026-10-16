@@ -11,20 +11,20 @@ import type { BiomeId } from '../world/biomes';
  * dinosaurs).
  */
 export type Diet = 'herbivore' | 'carnivore' | 'piscivore' | 'omnivore';
-export type BodyPlan = 'theropod' | 'quadruped' | 'sauropod' | 'hadrosaur' | 'pterosaur' | 'bird' | 'crocodyliform';
+export type BodyPlan = 'theropod' | 'quadruped' | 'sauropod' | 'hadrosaur' | 'pterosaur' | 'bird' | 'crocodyliform' | 'mosasaur';
 export type SocialType = 'solitary' | 'pair' | 'family' | 'herd' | 'pack' | 'flock';
 export type ThreatResponse = 'flee' | 'defend' | 'charge' | 'mob' | 'freeze';
 export type Activity = 'diurnal' | 'nocturnal' | 'crepuscular' | 'cathemeral';
 export type Feature =
   | 'horns3' | 'frill' | 'frillSpikes' | 'nasalBoss' | 'crestTube' | 'sail' | 'plates' | 'tailSpikes'
   | 'club' | 'armor' | 'longNeck' | 'feathers' | 'dualCrest' | 'dome' | 'longClaws' | 'longSnout'
-  | 'wings' | 'beak' | 'thumbSpike' | 'browHorns' | 'headCrest' | 'scutes';
+  | 'wings' | 'beak' | 'thumbSpike' | 'browHorns' | 'headCrest' | 'scutes' | 'fluke';
 
 export interface SpeciesDef {
   id: string;
   name: { 'pt-BR': string; en: string };
   scientificName: string;
-  clade: 'dinosaur' | 'pterosaur' | 'crocodyliform' | 'avialan';
+  clade: 'dinosaur' | 'pterosaur' | 'crocodyliform' | 'avialan' | 'squamate';
   period: string;
   diet: Diet;
   ecology: 'apexPredator' | 'mesoPredator' | 'smallPredator' | 'megaHerbivore' | 'largeHerbivore' | 'mediumHerbivore' | 'smallHerbivore' | 'flyer';
@@ -50,7 +50,8 @@ export interface SpeciesDef {
   taming: { possible: boolean; difficulty: number; preferredFood: string[] };
   habitat: BiomeId[];
   tempRange: [number, number];
-  locomotion: { plan: BodyPlan; stride: number; turnRate: number; swims: boolean; flies: boolean };
+  /** aquatic: lives only in deep water (never comes ashore). */
+  locomotion: { plan: BodyPlan; stride: number; turnRate: number; swims: boolean; flies: boolean; aquatic?: boolean };
   audio: { pitch: number; call: 'roar' | 'bellow' | 'honk' | 'chirp' | 'hiss' | 'screech' | 'grunt' };
   look: { base: number; belly: number; accent: number; pattern: 'plain' | 'stripes' | 'spots' | 'countershade'; features: Feature[] };
   /** Will consider a lone human a potential meal when hungry. */
@@ -383,6 +384,22 @@ const S: Record<string, Def> = {
     taming: { possible: true, difficulty: 0.65, preferredFood: ['raw_meat', 'berries'] }, habitat: ['snow', 'mountain', 'plains'], tempRange: [-10, 30],
     locomotion: { plan: 'theropod', stride: 1, turnRate: 4, swims: false, flies: false },
     audio: { pitch: 800, call: 'chirp' }, look: { base: 0x8a8070, belly: 0xd6d0c2, accent: 0x4a4236, pattern: 'spots', features: ['feathers', 'longClaws'] },
+    huntsHumans: true,
+  },
+  mosasaurus: {
+    // Not a dinosaur: a giant marine squamate (a lizard related to monitors and snakes).
+    // Paddle-shaped limbs, a long tail ending in a downturned crescent fluke (known
+    // from exceptionally preserved mosasaurs), dark back and pale belly.
+    name: { 'pt-BR': 'Mosassauro', en: 'Mosasaurus' }, scientificName: 'Mosasaurus hoffmannii', clade: 'squamate',
+    period: 'Cretáceo Superior (~82–66 Ma)', diet: 'carnivore', ecology: 'apexPredator',
+    lengthM: 12.5, hipHeightM: 1.3, massKg: 9000, walkSpeed: 2.2, runSpeed: 9, stamina: 20, foodNeed: 0.6, waterNeed: 0,
+    social: { type: 'solitary', size: [1, 1] }, senses: { sight: 90, hearing: 60, smell: 140, fovDeg: 160 },
+    temperament: { aggression: 0.75, fearfulness: 0.05, curiosity: 0.3 }, territory: { radius: 700, defends: true },
+    activity: 'cathemeral', reproduction: { clutch: [1, 2], incubationDays: 8, maturityDays: 40, parentalCare: 0.1, season: [10, 18] },
+    threat: { response: 'charge', flightDistance: 0 }, attack: { damage: 90, range: 4.5, cooldown: 2.4 }, health: 1500,
+    taming: { possible: false, difficulty: 1, preferredFood: ['raw_fish'] }, habitat: ['ocean'], tempRange: [12, 34],
+    locomotion: { plan: 'mosasaur', stride: 3, turnRate: 0.8, swims: true, flies: false, aquatic: true },
+    audio: { pitch: 50, call: 'grunt' }, look: { base: 0x2c3438, belly: 0xc8c8be, accent: 0x1c2226, pattern: 'countershade', features: ['fluke'] },
     huntsHumans: true,
   },
 };

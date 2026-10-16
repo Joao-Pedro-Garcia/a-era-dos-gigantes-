@@ -80,6 +80,18 @@ export class InstancePool {
     this.mesh.instanceColor!.needsUpdate = true;
   }
 
+  getMatrix(h: InstanceHandle, out: THREE.Matrix4): boolean {
+    if (h.pool !== this || h.slot < 0) return false;
+    this.mesh.getMatrixAt(h.slot, out);
+    return true;
+  }
+
+  setMatrix(h: InstanceHandle, m: THREE.Matrix4): void {
+    if (h.pool !== this || h.slot < 0) return;
+    this.mesh.setMatrixAt(h.slot, m);
+    this.mesh.instanceMatrix.needsUpdate = true;
+  }
+
   private grow(): void {
     const old = this.mesh;
     const next = this.create(old.instanceMatrix.count * 2);

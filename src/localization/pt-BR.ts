@@ -168,7 +168,7 @@ export const ptBR: Record<string, string> = {
   'item.ice': 'Gelo', 'item.herb': 'Erva medicinal', 'item.cycad_fronds': 'Folhas de cica', 'item.fern_fronds': 'Brotos de samambaia',
   'item.berries': 'Frutas silvestres', 'item.raw_meat': 'Carne crua', 'item.cooked_meat': 'Carne assada', 'item.raw_fish': 'Peixe cru', 'item.egg': 'Ovo',
   'item.waterskin': 'Cantil vazio', 'item.waterskin_full': 'Cantil cheio', 'item.stone_axe': 'Machado de pedra', 'item.stone_pickaxe': 'Picareta de pedra',
-  'item.stone_knife': 'Faca de pedra', 'item.spear': 'Lança', 'item.obsidian_spear': 'Lança de obsidiana', 'item.bow': 'Arco', 'item.arrow': 'Flecha',
+  'item.stone_knife': 'Faca de pedra', 'item.spear': 'Lança', 'item.wooden_club': 'Porrete de madeira', 'item.obsidian_spear': 'Lança de obsidiana', 'item.bow': 'Arco', 'item.arrow': 'Flecha',
   'item.torch': 'Tocha', 'item.bandage': 'Curativo', 'item.herbal_poultice': 'Cataplasma de ervas', 'item.hide_hood': 'Capuz de couro',
   'item.hide_tunic': 'Túnica de couro', 'item.hide_leggings': 'Calças de couro', 'item.fur_coat': 'Casaco de pele', 'item.backpack': 'Mochila',
   'item.trap_snare': 'Armadilha de laço', 'item.field_journal': 'Diário de campo', 'item.research_scanner': 'Scanner de pesquisa',

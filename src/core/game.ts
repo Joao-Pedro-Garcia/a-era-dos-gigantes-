@@ -1,7 +1,10 @@
 import * as THREE from 'three';
 import { AudioSystem, type Surface } from '../audio/audio';
 import { growthScale, lifeStage, type AIState, type AnimalData, type TameCommand } from '../animals/animal';
-import { createAnimalView, createNestView, disposeAnimalView, poseAnimalView, prewarmAnimals, setAnimalContext, type AnimalView } from '../animals/animalView';
+import { createAnimalView, createNestView, disposeAnimalView, hitAnimalView, poseAnimalView, prewarmAnimals, setAnimalContext, type AnimalView } from '../animals/animalView';
+import { CombatController } from '../combat/actions';
+import { ImpactFx } from '../graphics/impactFx';
+import { Viewmodel } from '../player/viewmodel';
 import { prewarmPlants } from '../world/plants';
 import { Ecosystem, createEcosystemState, type EcoContext, type EcoEvent } from '../animals/ecosystem';
 import { SPECIES } from '../animals/species';
@@ -126,6 +129,15 @@ export class Game {
   private storageOpen: Piece | null = null;
   hostileUntil = 0;
   attackCooldown = 0;
+  /** Combat/tool action state (shared by every input device and both camera modes). */
+  readonly combat = new CombatController();
+  /** First-person arms and held item. */
+  readonly viewmodel: Viewmodel;
+  /** Impact particles (splinters, chips, dust, splashes). */
+  readonly fx = new ImpactFx();
+  private kick = 0;
+  private tmpSize = new THREE.Vector2();
+  private lookDelta = { x: 0, y: 0 };
   private respawnPoint: { x: number; z: number; pieceId?: string } | null = null;
   private deaths = 0;
   private lastBiome: BiomeId | null = null;
@@ -180,6 +192,9 @@ export class Game {
     };
     for (const m of Object.values(this.vegMats)) m.userData.shared = true;
     this.postfx = new PostFx(this.renderer, this.scene, this.camera);
+    this.viewmodel = new Viewmodel(this.textures);
+    this.combat.clock = () => performance.now() / 1000;
+    this.scene.add(this.fx.root);
     applyBuildingTextures(this.textures);
     this.scene.add(this.worldRoot);
     this.rig = new CameraRig(this.camera);
@@ -303,6 +318,7 @@ export class Game {
     });
     this.groundCover?.setQuality(q.groundCover, !q.normalMaps);
     this.postfx.enabled = q.postFx;
+    this.fx.detail = q.normalMaps ? 1 : 0.5;
     this.postfx.setSize(innerWidth, innerHeight);
     // The far plane reaches the horizon (the continent is ~10 km across).
     this.camera.near = 0.2;
@@ -377,6 +393,8 @@ export class Game {
     this.sectors?.terrainJobs?.dispose();
     this.sectors?.dispose();
     this.actions.clear();
+    this.fx.clear();
+    this.combat.cancel();
     for (const v of this.animalViews.values()) disposeAnimalView(v);
     this.animalViews.clear();
     for (const o of [...this.nestViews.values(), ...this.pieceViews.values(), ...this.bagViews.values()]) disposeObject(o);
@@ -637,12 +655,49 @@ export class Game {
       this.hud.notify(`${t('error.frame')}: ${e instanceof Error ? e.message : String(e)}`, 'warn');
     }
     this.input.clearPresses();
-    if (this.player && this.envView) this.postfx.render();
-    else {
+    if (this.player && this.envView) {
+      this.postfx.render();
+      if (this.state === 'playing' || this.state === 'paused') this.viewmodel.render(this.renderer);
+    } else {
       this.renderer.setClearColor(0x1c1a16);
       this.renderer.clear();
     }
   };
+
+  /** First-person arms: follow the camera, the action state and the world's light. */
+  private updateViewmodel(dt: number, p: PlayerController, mounted: boolean): void {
+    const vm = this.viewmodel;
+    const env = this.envView!;
+    const h = this.renderer.getDrawingBufferSize(this.tmpSize).y;
+    this.fx.uniforms.uScale.value = h / (2 * Math.tan(THREE.MathUtils.degToRad(this.camera.fov) / 2));
+    // Dust takes the brightness of the ambient light (dark at night, in caves).
+    const amb = Math.min(1.2, env.hemi.intensity * 0.9 + (this.inCave ? 0.15 : env.sun.intensity * 0.15));
+    this.fx.uniforms.uLight.value.setRGB(amb, amb, amb);
+    vm.visible = !!this.settings.firstPerson && !mounted && !(p.swimming && !this.combat.busy) && !this.hud.panelOpen;
+    if (!vm.visible) return;
+    vm.update(dt, this.camera, this.combat, this.lookDelta, p.horizontalSpeed, p.stride, {
+      dir: env.keyLightDir,
+      color: env.sun.color,
+      intensity: this.inCave ? 0 : env.sun.intensity,
+      sky: env.hemi.color,
+      ground: env.hemi.groundColor,
+      hemi: env.hemi.intensity + (this.inCave ? 0.3 : 0),
+      env: this.scene.environment,
+    });
+    vm.kick(this.kick);
+  }
+
+  /** Called by the combat code on contact. */
+  hitStop(amount: number): void {
+    this.kick = Math.max(this.kick, amount);
+  }
+
+  /** Hit reaction of an animal's view (size-scaled strength). */
+  animalHit(id: string, dirX: number, dirZ: number, strength: number): void {
+    const v = this.animalViews.get(id);
+    const a = this.eco?.get(id);
+    if (v && a) hitAnimalView(v, dirX, dirZ, a.heading, strength);
+  }
 
   /** Per-frame shader inputs shared by terrain, vegetation and water. */
   private updateWorldShading(px: number, pz: number, q: QualityProfile): void {
@@ -663,7 +718,10 @@ export class Game {
     const p = this.player!;
     const q = this.quality();
     // Generate plant and animal models now rather than mid-game.
-    const modelsReady = prewarmPlants(25) && prewarmAnimals([...new Set([...this.eco!.animals.values()].map((a) => a.speciesId))], 25);
+    // Juvenile bodies are only prepared for the young animals near the start (others are built when first seen).
+    const now = this.env!.state.time;
+    const young = [...this.eco!.animals.values()].filter((a) => lifeStage(a, now) === 'juvenile' && Math.hypot(a.x - p.s.x, a.z - p.s.z) < 260).map((a) => a.speciesId);
+    const modelsReady = prewarmPlants(25) && prewarmAnimals([...new Set([...this.eco!.animals.values()].map((a) => a.speciesId))], 25, [...new Set(young)]);
     this.sectors!.update(p.s.x, p.s.z, q, this.env!.state.time, 40);
     this.eco!.seedAround(p.s.x, p.s.z);
     const total = (q.loadRadius * 2 + 1) ** 2;
@@ -725,7 +783,9 @@ export class Game {
       const sens = input.mode === 'touch' ? 0.004 : 0.0024 * this.settings.mouseSensitivity;
       p.s.yaw -= look.x * sens;
       p.s.pitch -= look.y * sens * (this.settings.invertY ? -1 : 1);
-    }
+      this.lookDelta.x = look.x * sens;
+      this.lookDelta.y = look.y * sens;
+    } else this.lookDelta.x = this.lookDelta.y = 0;
 
     // --- Skill effects into the systems.
     surv.mods = { needs: prog.needsRate(), damage: prog.damageTaken(), heal: prog.healMultiplier(), stamina: prog.staminaDrain(), ironStomach: prog.has('iron_stomach') };
@@ -807,6 +867,8 @@ export class Game {
     this.attackCooldown -= realDt;
     if (this.building) this.updateBuild();
     else if (!panel) this.actions.update(this.interaction);
+    if (mount || this.sleeping) this.combat.cancel();
+    this.actions.updateCombat(realDt, !panel && !this.building && !mount && !this.sleeping);
     if (!panel && input.consume('eat')) this.useHeld();
     this.actions.updateProjectiles(realDt);
 
@@ -880,9 +942,17 @@ export class Game {
     this.updateWorldShading(p.s.x, p.s.z, q);
     this.envView!.groundFires((x, z) => terrain.height(x, z));
     this.rig.update(realDt, p, this.settings.firstPerson, this.groundFn(), this.collision, this.inCave ? 3.5 : mount ? 9 : Infinity);
-    this.playerView!.setHeld(held && ['tool', 'weapon'].includes(ITEMS[held.id].category) ? held.id : '');
+    // First-person impact kick: a short jolt of the view on contact.
+    if (this.kick > 0.001) {
+      this.camera.rotation.x += this.kick * (this.settings.reduceMotion ? 0.05 : 0.25);
+      this.kick *= Math.exp(-realDt * 18);
+    }
     this.playerView!.riding = !!mount;
-    this.playerView!.update(realDt, p, this.settings.firstPerson || false, this.inCave ? undefined : (x, z) => terrain.height(x, z));
+    this.playerView!.update(realDt, p, this.settings.firstPerson || false, this.inCave ? undefined : (x, z) => terrain.height(x, z), this.combat);
+    this.updateViewmodel(realDt, p, !!mount);
+    this.fx.ground = this.inCave ? () => CAVE_Y : (x, z) => terrain.height(x, z);
+    this.fx.update(realDt);
+    this.sectors!.updateShakes(realDt);
     if (mount) this.playerView!.root.position.y = mount.y + SPECIES[mount.speciesId].hipHeightM * growthScale(mount, env.state.time) * 1.15;
     this.updateFlares();
 
@@ -1696,8 +1766,15 @@ export class Game {
     for (const a of eco.active) {
       activeIds.add(a.id);
       let v = this.animalViews.get(a.id);
+      // Juveniles have their own proportions: swap the model when the animal grows up.
+      const young = lifeStage(a, now) === 'juvenile';
+      if (v && v.juvenile !== young) {
+        disposeAnimalView(v);
+        this.animalViews.delete(a.id);
+        v = undefined;
+      }
       if (!v) {
-        v = createAnimalView(a.speciesId, a.id);
+        v = createAnimalView(a.speciesId, a.id, young);
         this.animalViews.set(a.id, v);
         this.worldRoot.add(v.root);
       }

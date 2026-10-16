@@ -46,6 +46,10 @@ interface LegDef {
   phase: number;
   claws: number;
   clawLen: number;
+  /** Flattening of the limb section (flippers). */
+  flat?: number;
+  /** Pterosaurs: tip of the wing finger (rest pose, extended). */
+  fingerTip?: THREE.Vector3;
 }
 
 export interface Blueprint {
@@ -55,14 +59,18 @@ export interface Blueprint {
   /** Reference scale for texture tiling (m). */
   tile: number;
   feathered: boolean;
+  /** Young body proportions (bigger head and eyes, small horns, plates and crests). */
+  juvenile: boolean;
 }
 
 export interface DinoTemplate {
   geometry: THREE.BufferGeometry;
+  /** Mid-distance level of detail. */
+  mid: THREE.BufferGeometry;
   low: THREE.BufferGeometry;
   bones: { name: string; parent: string | null; pos: THREE.Vector3 }[];
   bp: Blueprint;
-  legs: { name: string; front: boolean; phase: number; lengths: number[]; joints: THREE.Vector3[] }[];
+  legs: { name: string; front: boolean; phase: number; lengths: number[]; joints: THREE.Vector3[]; fingerTip?: THREE.Vector3 }[];
   hipHeight: number;
 }
 
@@ -111,9 +119,10 @@ class Part {
 
 // ------------------------------------------------------------------ blueprints
 
-function blueprint(sp: SpeciesDef): Blueprint {
+function blueprint(sp: SpeciesDef, juvenile = false): Blueprint {
   const L = sp.lengthM;
-  const H = sp.hipHeightM;
+  // Juveniles stand relatively taller (long legs for their size).
+  const H = sp.hipHeightM * (juvenile ? 1.08 : 1);
   const f = new Set(sp.look.features);
   const plan = sp.locomotion.plan;
   const feathered = f.has('feathers');
@@ -126,16 +135,19 @@ function blueprint(sp: SpeciesDef): Blueprint {
     const hadro = plan === 'hadrosaur';
     const apex = sp.ecology === 'apexPredator' || sp.massKg > 1500;
     const b = hadro ? 1.25 : sp.id === 'tyrannosaurus' ? 1.18 : sp.id === 'gallimimus' ? 0.82 : f.has('feathers') && L < 3 ? 0.95 : sp.id === 'therizinosaurus' ? 1.2 : 1;
+    // Body breadth (back view): large theropods are broad at the hips and ribs, not slab-sided.
+    const wb = apexW(sp) ? 1.3 : hadro ? 0.95 : 1.08;
     const Hh = H;
     const longNeck = f.has('longNeck');
     cp(-0.56 * L, Hh * 0.72, 0.004 * L, 0.005 * L, 0, null);
     cp(-0.44 * L, Hh * 0.84, 0.016 * L * b, 0.02 * L * b, 0, 'tail4');
     cp(-0.31 * L, Hh * 0.95, 0.031 * L * b, 0.04 * L * b, 0, 'tail3');
-    cp(-0.19 * L, Hh * 1.02, 0.047 * L * b, 0.062 * L * b, 0.004 * L, 'tail2');
-    cp(-0.08 * L, Hh * 1.06, 0.05 * L * b, 0.066 * L * b, 0.008 * L, 'tail1');
-    cp(0.02 * L, Hh * 1.08, 0.056 * L * b, 0.074 * L * b, 0.014 * L * b, 'pelvis');
-    cp(0.1 * L, Hh * 1.07, 0.06 * L * b, 0.08 * L * b, 0.026 * L * b, 'torso');
-    cp(0.17 * L, Hh * 1.05, 0.052 * L * b, 0.072 * L * b, 0.022 * L * b, 'chest');
+    // The tail base is thick (caudofemoralis muscles that pull the thighs).
+    cp(-0.19 * L, Hh * 1.02, 0.05 * L * b * wb, 0.062 * L * b, 0.006 * L, 'tail2');
+    cp(-0.08 * L, Hh * 1.06, 0.056 * L * b * wb, 0.068 * L * b, 0.012 * L, 'tail1');
+    cp(0.02 * L, Hh * 1.08, 0.062 * L * b * wb, 0.074 * L * b, 0.016 * L * b, 'pelvis');
+    cp(0.1 * L, Hh * 1.07, 0.064 * L * b * wb, 0.08 * L * b, 0.028 * L * b, 'torso');
+    cp(0.17 * L, Hh * 1.05, 0.054 * L * b * wb, 0.072 * L * b, 0.022 * L * b, 'chest');
     if (longNeck) {
       cp(0.22 * L, Hh * 1.14, 0.038 * L * b, 0.046 * L * b, 0.006 * L, 'neck1');
       cp(0.255 * L, Hh * 1.34, 0.028 * L * b, 0.032 * L * b, 0, 'neck2');
@@ -153,17 +165,21 @@ function blueprint(sp: SpeciesDef): Blueprint {
       cp(0.285 * L, Hh * 1.31, 0.034 * L * b, 0.042 * L * b, 0, null);
     }
     const end = cps[cps.length - 1].p;
-    const hl = f.has('longSnout') ? 0.16 * L : apex ? 0.125 * L : hadro ? 0.12 * L : f.has('beak') && longNeck ? 0.07 * L : 0.1 * L;
+    // Carnotaurus: short, deep, bulldog-like skull.
+    const hl = f.has('longSnout') ? 0.16 * L : sp.id === 'carnotaurus' ? 0.075 * L : apex ? 0.125 * L : hadro ? 0.12 * L : f.has('beak') && longNeck ? 0.07 * L : 0.1 * L;
     const hh = apex ? 0.034 * L : hadro ? 0.027 * L : 0.024 * L;
     head = { bone: 'head', at: end.clone(), len: hl, height: hh, width: apex ? hh * 1.05 : hh * 0.8, pitch: longNeck ? 0.25 : 0.12 };
     // Hind legs (digitigrade).
     for (const side of [1, -1]) {
-      const x = side * 0.05 * L * b;
+      // Hip socket on the flank; the knee sits forward under the belly (thigh slants forward),
+      // the shin slopes back to a long metatarsus (digitigrade, the ankle well off the ground).
+      const x = side * 0.055 * L * b * wb;
       const legScale = H;
       legs.push({
         name: side > 0 ? 'hindL' : 'hindR',
-        joints: [V(x, Hh * 1.0, 0.02 * L), V(x * 1.08, Hh * 0.55, 0.02 * L + 0.17 * legScale), V(x * 1.02, Hh * 0.2, 0.02 * L - 0.07 * legScale), V(x, Hh * 0.035, 0.02 * L + 0.02 * legScale), V(x, 0, 0.02 * L + 0.2 * legScale)],
-        radii: [0.036 * L * b * (apex ? 1.1 : 1), 0.02 * L * b, 0.012 * L * b, 0.009 * L * b, 0.006 * L],
+        joints: [V(x, Hh * 1.0, 0.02 * L), V(x * 1.12, Hh * 0.56, 0.02 * L + 0.2 * legScale), V(x * 1.04, Hh * 0.22, 0.02 * L - 0.08 * legScale), V(x, Hh * 0.035, 0.02 * L + 0.02 * legScale), V(x, 0, 0.02 * L + 0.2 * legScale)],
+        // Massive muscular thigh ("drumstick"), strong shin, slender metatarsus.
+        radii: [0.046 * L * b * (apex ? 1.15 : 1), 0.024 * L * b * (apex ? 1.1 : 1), 0.0125 * L * b, 0.009 * L * b, 0.006 * L],
         parent: 'pelvis',
         front: false,
         phase: side > 0 ? 0 : 0.5,
@@ -197,22 +213,24 @@ function blueprint(sp: SpeciesDef): Blueprint {
     const cera = f.has('frill');
     const Hh = H;
     const wide = ankylo ? 1.35 : croc ? 1.0 : 1.0;
-    const tailY = stego ? 0.85 : croc ? 0.25 : 0.55;
+    // Tails are held clear of the ground (trackways show no tail drag).
+    const tailY = stego ? 0.9 : croc ? 0.25 : 0.72;
     cp(-0.55 * L, Hh * tailY, 0.004 * L, 0.005 * L, 0, null);
     cp(-0.42 * L, Hh * lerp(tailY, 1, 0.3), 0.022 * L * wide, 0.024 * L, 0, 'tail4');
     cp(-0.3 * L, Hh * lerp(tailY, 1, 0.6), 0.04 * L * wide, 0.045 * L, 0, 'tail3');
     cp(-0.18 * L, Hh * (croc ? 0.8 : 0.98), 0.06 * L * wide, 0.065 * L, 0.004 * L, 'tail2');
     cp(-0.09 * L, Hh * (croc ? 0.85 : 1.08), 0.085 * L * wide, 0.09 * L * (croc ? 0.6 : 1), 0.015 * L, 'tail1');
-    cp(0.0, Hh * (croc ? 0.86 : stego ? 1.32 : 1.14), 0.1 * L * wide, (croc ? 0.06 : 0.095) * L, (croc ? 0.008 : 0.03) * L, 'pelvis');
-    cp(0.08 * L, Hh * (croc ? 0.85 : stego ? 1.2 : 1.12), 0.105 * L * wide, (croc ? 0.06 : 0.1) * L, (croc ? 0.01 : 0.04) * L, 'torso');
+    cp(0.0, Hh * (croc ? 0.86 : stego ? 1.32 : 1.1), 0.1 * L * wide, (croc ? 0.06 : 0.095) * L, (croc ? 0.008 : 0.03) * L, 'pelvis');
+    cp(0.08 * L, Hh * (croc ? 0.85 : stego ? 1.2 : 1.1), 0.105 * L * wide, (croc ? 0.06 : 0.1) * L, (croc ? 0.01 : 0.04) * L, 'torso');
     cp(0.16 * L, Hh * (croc ? 0.82 : stego ? 0.95 : 1.02), 0.085 * L * wide, (croc ? 0.05 : 0.085) * L, (croc ? 0.008 : 0.03) * L, 'chest');
     cp(0.22 * L, Hh * (croc ? 0.76 : stego ? 0.8 : 0.9), 0.055 * L * wide, (croc ? 0.04 : 0.065) * L, 0.012 * L, 'neck1');
-    cp(0.255 * L, Hh * (croc ? 0.74 : stego ? 0.72 : 0.84), 0.045 * L * wide, (croc ? 0.035 : 0.055) * L, 0.006 * L, 'neck2');
-    cp(0.275 * L, Hh * (croc ? 0.73 : stego ? 0.68 : 0.8), 0.042 * L * wide, (croc ? 0.033 : 0.05) * L, 0, null);
+    // Ceratopsians carry the heavy head higher (beak around knee height), not drooping.
+    cp(0.255 * L, Hh * (croc ? 0.74 : stego ? 0.72 : cera ? 0.9 : 0.84), 0.045 * L * wide, (croc ? 0.035 : 0.055) * L, 0.006 * L, 'neck2');
+    cp(0.275 * L, Hh * (croc ? 0.73 : stego ? 0.68 : cera ? 0.9 : 0.8), 0.042 * L * wide, (croc ? 0.033 : 0.05) * L, 0, null);
     const end = cps[cps.length - 1].p;
     const hl = croc ? 0.22 * L : cera ? (f.has('horns3') ? 0.21 * L : 0.17 * L) : ankylo ? 0.08 * L : stego ? 0.06 * L : 0.12 * L;
     const hh = croc ? 0.018 * L : cera ? 0.042 * L : ankylo ? 0.03 * L : 0.022 * L;
-    head = { bone: 'head', at: end.clone(), len: hl, height: hh, width: croc ? hh * 1.4 : ankylo ? hh * 1.6 : hh * 0.95, pitch: croc ? 0.02 : 0.35 };
+    head = { bone: 'head', at: end.clone(), len: hl, height: hh, width: croc ? hh * 1.4 : ankylo ? hh * 1.6 : hh * 0.95, pitch: croc ? 0.02 : cera ? 0.22 : 0.35 };
     const legY = croc ? Hh * 0.95 : Hh;
     for (const [front, side] of [[false, 1], [false, -1], [true, 1], [true, -1]] as [boolean, number][]) {
       const z = front ? 0.15 * L : -0.04 * L;
@@ -226,13 +244,15 @@ function blueprint(sp: SpeciesDef): Blueprint {
       legs.push({
         name: `${front ? 'front' : 'hind'}${side > 0 ? 'L' : 'R'}`,
         joints: [top, knee, ankle, toe, toe.clone().add(V(0, -0.02 * len, 0.14 * len))],
-        radii: [(front ? 0.032 : 0.042) * L * (croc ? 0.6 : 1), (front ? 0.026 : 0.03) * L * (croc ? 0.6 : 1), 0.023 * L * (croc ? 0.6 : 1), 0.025 * L * (croc ? 0.6 : 1), 0.02 * L * (croc ? 0.5 : 1)],
+        // Pillar-like limbs of heavy quadrupeds (thick thigh and upper arm, stout forearm and shin).
+        radii: [(front ? 0.036 : 0.05) * L * (croc ? 0.55 : 1), (front ? 0.031 : 0.036) * L * (croc ? 0.55 : 1), 0.027 * L * (croc ? 0.6 : 1), 0.028 * L * (croc ? 0.6 : 1), 0.022 * L * (croc ? 0.5 : 1)],
         parent: front ? 'chest' : 'pelvis',
         front,
         // Lateral-sequence walk: LH, LF, RH, RF.
         phase: (front ? 0.25 : 0) + (side > 0 ? 0 : 0.5),
-        claws: croc ? 4 : 4,
-        clawLen: croc ? 0.012 * L : 0.01 * L,
+        // Ceratopsians and thyreophorans walked on short toes ending in blunt hooves.
+        claws: croc ? 4 : front ? 5 : 4,
+        clawLen: croc ? 0.012 * L : 0.006 * L,
       });
     }
   } else if (plan === 'sauropod') {
@@ -267,6 +287,40 @@ function blueprint(sp: SpeciesDef): Blueprint {
         clawLen: 0.008 * L,
       });
     }
+  } else if (plan === 'mosasaur') {
+    // Marine squamate: long streamlined body, short neck, long lizard skull, four
+    // paddles and a long laterally flattened tail that bends down into a crescent fluke.
+    const Hh = H;
+    cp(-0.52 * L, Hh * 0.55, 0.004 * L, 0.012 * L, 0, null);
+    cp(-0.44 * L, Hh * 0.82, 0.012 * L, 0.03 * L, 0, 'tail4');
+    cp(-0.32 * L, Hh * 0.97, 0.022 * L, 0.045 * L, 0, 'tail3');
+    cp(-0.2 * L, Hh * 1.0, 0.034 * L, 0.055 * L, 0, 'tail2');
+    cp(-0.09 * L, Hh * 1.0, 0.046 * L, 0.062 * L, 0.004 * L, 'tail1');
+    cp(0.0, Hh * 1.0, 0.055 * L, 0.066 * L, 0.008 * L, 'pelvis');
+    cp(0.08 * L, Hh * 1.0, 0.06 * L, 0.068 * L, 0.01 * L, 'torso');
+    cp(0.16 * L, Hh * 1.0, 0.055 * L, 0.06 * L, 0.008 * L, 'chest');
+    cp(0.22 * L, Hh * 1.01, 0.043 * L, 0.046 * L, 0.004 * L, 'neck1');
+    cp(0.26 * L, Hh * 1.02, 0.036 * L, 0.038 * L, 0, null);
+    const end = cps[cps.length - 1].p;
+    head = { bone: 'head', at: end.clone(), len: 0.13 * L, height: 0.03 * L, width: 0.028 * L, pitch: 0.03 };
+    for (const [front, side] of [[true, 1], [true, -1], [false, 1], [false, -1]] as [boolean, number][]) {
+      const z = front ? 0.14 * L : -0.02 * L;
+      const len = (front ? 0.09 : 0.075) * L;
+      const top = V(side * 0.045 * L, Hh * 0.93, z);
+      const dir = V(side, -0.35, -0.55).normalize();
+      const j = [0, 0.3, 0.62, 0.86, 1].map((t) => top.clone().addScaledVector(dir, len * t).add(V(0, 0, -t * t * len * 0.15)));
+      legs.push({
+        name: `${front ? 'front' : 'hind'}${side > 0 ? 'L' : 'R'}`,
+        joints: j,
+        radii: [0.016 * L, 0.018 * L, 0.016 * L, 0.011 * L, 0.004 * L],
+        parent: front ? 'chest' : 'pelvis',
+        front,
+        phase: front ? 0 : 0.5,
+        claws: 0,
+        clawLen: 0,
+        flat: 0.3,
+      });
+    }
   } else {
     // Pterosaur: compact torso, long neck, huge beaked head, membrane wings.
     const Hh = H * 0.85;
@@ -280,7 +334,9 @@ function blueprint(sp: SpeciesDef): Blueprint {
     cp(0.24 * L, Hh * (longNeck ? 1.75 : 1.28), 0.022 * L, 0.024 * L, 0, 'neck2');
     cp(0.26 * L, Hh * (longNeck ? 2.05 : 1.34), 0.02 * L, 0.022 * L, 0, null);
     const end = cps[cps.length - 1].p;
-    head = { bone: 'head', at: end.clone(), len: 0.42 * L, height: 0.03 * L, width: 0.02 * L, pitch: longNeck ? 0.5 : 0.15 };
+    head = { bone: 'head', at: end.clone(), len: 0.42 * L, height: 0.03 * L, width: 0.02 * L, pitch: longNeck ? 0.75 : 0.35 };
+    // Wingspan relative to body length (Pteranodon ~3.3×, azhdarchids ~2×).
+    const span = (longNeck ? 2.1 : 3.2) * L;
     for (const side of [1, -1]) {
       const x = side * 0.035 * L;
       legs.push({
@@ -293,22 +349,53 @@ function blueprint(sp: SpeciesDef): Blueprint {
         claws: 3,
         clawLen: 0.012 * L,
       });
-      // Folded wing used as a front limb on the ground (quadrupedal launch posture).
+      // Forelimb used for walking on the ground (quadrupedal stance): humerus,
+      // forearm, long metacarpal down to the small three-fingered hand. The
+      // huge fourth (wing) finger is its own bone.
       const s0 = V(side * 0.05 * L, Hh * 1.08, 0.14 * L);
+      const e = s0.clone().add(V(side * 0.05 * L, -Hh * 0.3, -0.04 * L));
+      const w = e.clone().add(V(side * 0.01 * L, -Hh * 0.45, 0.07 * L));
+      const hand = V(w.x, 0.03 * Hh, w.z + 0.02 * L);
+      const armLen = s0.distanceTo(e) + e.distanceTo(w) + w.distanceTo(hand);
+      const fingerLen = Math.max(0.3 * L, span / 2 - armLen - 0.05 * L);
+      // The wing finger is modelled extended (straight out to the side): the membrane
+      // is built spread, and folding the finger back along the flank on the ground
+      // gathers it into a narrow band (see animalView).
+      const fold = V(side, 0, -0.15).normalize();
       legs.push({
         name: side > 0 ? 'wingL' : 'wingR',
-        joints: [s0, s0.clone().add(V(side * 0.1 * L, -Hh * 0.35, -0.02 * L)), s0.clone().add(V(side * 0.12 * L, -Hh * 0.95, 0.05 * L)), V(side * 0.17 * L, 0.03 * Hh, 0.08 * L), V(side * 0.6 * L, Hh * 0.3, -0.2 * L)],
-        radii: [0.022 * L, 0.016 * L, 0.012 * L, 0.009 * L, 0.003 * L],
+        joints: [s0, e, w, hand, hand.clone().add(V(0, -0.01 * Hh, 0.04 * L))],
+        radii: [0.02 * L, 0.014 * L, 0.011 * L, 0.008 * L, 0.004 * L],
         parent: 'chest',
         front: true,
         phase: side > 0 ? 0.25 : 0.75,
         claws: 3,
         clawLen: 0.01 * L,
+        fingerTip: hand.clone().addScaledVector(fold, fingerLen),
       });
     }
   }
-  return { cps, legs, head: head!, tile: 0.1 + 0.06 * Math.pow(L, 0.75), feathered };
+  // The neck ends inside the back of the skull: its last section is narrower than
+  // the skull and sits a little forward, so the head grows out of the neck without a collar.
+  const hd = head!;
+  if (juvenile) {
+    // Young dinosaurs: proportionally bigger head with a shorter snout, shorter tail.
+    hd.height *= 1.4;
+    hd.width *= 1.4;
+    hd.len *= 1.15;
+    for (const c of cps) if (c.p.z < -0.1 * L) c.p.z = -0.1 * L + (c.p.z + 0.1 * L) * 0.85;
+  }
+  const last = cps[cps.length - 1];
+  const prev = cps[cps.length - 2];
+  last.rx = Math.min(last.rx, hd.width * 0.7);
+  last.ry = Math.min(last.ry, hd.height * 0.75);
+  last.drop = 0;
+  prev.rx = Math.min(prev.rx, Math.max(last.rx * 1.25, hd.width * 0.95));
+  last.p.add(V(0, -Math.sin(hd.pitch), Math.cos(hd.pitch)).multiplyScalar(hd.len * 0.08));
+  return { cps, legs, head: hd, tile: 0.1 + 0.06 * Math.pow(L, 0.75), feathered, juvenile };
 }
+
+const apexW = (sp: SpeciesDef) => sp.ecology === 'apexPredator' || sp.massKg > 1500;
 
 // ------------------------------------------------------------------ painting
 
@@ -371,8 +458,8 @@ interface BoneInfo {
   pos: THREE.Vector3;
 }
 
-export function buildDinoTemplate(sp: SpeciesDef): DinoTemplate {
-  const bp = blueprint(sp);
+export function buildDinoTemplate(sp: SpeciesDef, juvenile = false): DinoTemplate {
+  const bp = blueprint(sp, juvenile);
   const bones: BoneInfo[] = [{ name: 'root', parent: null, pos: V() }];
   const boneIndex = new Map<string, number>([['root', 0]]);
   const addBone = (name: string, parent: string, pos: THREE.Vector3) => {
@@ -399,19 +486,28 @@ export function buildDinoTemplate(sp: SpeciesDef): DinoTemplate {
     prev = b;
   }
   addBone('head', prev, bp.head.at);
-  const jawHinge = bp.head.at.clone().add(V(0, -bp.head.height * 0.35, bp.head.len * 0.12));
+  // Jaw hinge: behind the eye, on the mouth line (see buildHead).
+  const hp = bp.head.pitch;
+  const hf = V(0, -Math.sin(hp), Math.cos(hp));
+  const hu = V(0, Math.cos(hp), Math.sin(hp));
+  const jawHinge = bp.head.at.clone().addScaledVector(hf, -bp.head.len * 0.04).addScaledVector(hu, skullProfile(skullFamily(sp), 0.08).lip * bp.head.height);
   addBone('jaw', 'head', jawHinge);
   for (const leg of bp.legs) {
     const names = ['0', '1', '2', '3'].map((k) => `${leg.name}${k}`);
     addBone(names[0], leg.parent, leg.joints[0]);
     for (let k = 1; k < 4; k++) addBone(names[k], names[k - 1], leg.joints[k]);
+    // Pterosaur wing finger: its own bone at the end of the metacarpal.
+    if (leg.fingerTip) addBone(`${leg.name}F`, names[3], leg.joints[3]);
   }
 
-  const build = (detail: boolean): THREE.BufferGeometry => {
+  // Three levels of detail from the same blueprint (the silhouette is identical):
+  // 0 = close, 1 = mid distance, 2 = far (one material, one draw call).
+  const build = (lod: number): THREE.BufferGeometry => {
+    const detail = lod === 0;
     const parts = [new Part(), new Part(), new Part(), new Part(), new Part()];
     const paint = painter(sp);
-    const segs = detail ? 22 : 9;
-    const perSeg = detail ? 9 : 3;
+    const segs = [26, 14, 9][lod];
+    const perSeg = [10, 5, 3][lod];
     const tile = bp.tile;
     const feathered = bp.feathered;
     const bodyMat = feathered ? DMAT.feathers : DMAT.scales;
@@ -466,17 +562,25 @@ export function buildDinoTemplate(sp: SpeciesDef): DinoTemplate {
         const b = a + segs + 1;
         body.idx.push(a, a + 1, b, a + 1, b + 1, b);
       }
+    // Close both ends (tail tip and the neck end, which sits inside the back of the skull).
+    for (const [ri, flip] of [[0, true], [samples.length - 1, false]] as [number, boolean][]) {
+      const r0 = base + ri * (segs + 1);
+      const [bi, bw] = spineWeights(samples[ri].s);
+      const c = body.v(samples[ri].p, 0.5, 0.5, paint(samples[ri].p, 0, 'body'), bi, bw);
+      for (let k = 0; k < segs; k++) body.idx.push(...(flip ? [r0 + k + 1, r0 + k, c] : [r0 + k, r0 + k + 1, c]));
+    }
 
     // --- Head (skull + jaw).
-    buildHead(sp, bp, parts, boneIndex, paint, detail);
+    buildHead(sp, bp, parts, boneIndex, paint, lod);
     // --- Legs.
     for (const leg of bp.legs) buildLeg(sp, leg, parts, boneIndex, paint, detail, tile, feathered && leg.front ? DMAT.feathers : DMAT.scales);
     // --- Features.
     buildFeatures(sp, bp, parts, boneIndex, samples, spineWeights, paint, detail);
 
-    const geos = parts.map((p) => p.geometry()).filter((g) => g.attributes.position.count > 0 || detail);
-    // The distant version is a single group (one draw call); details keep their materials.
-    const g = mergeGeometries(geos, detail)!;
+    const grouped = lod < 2;
+    const geos = parts.map((p) => p.geometry()).filter((g) => g.attributes.position.count > 0 || grouped);
+    // The distant version is a single group (one draw call); closer ones keep their materials.
+    const g = mergeGeometries(geos, grouped)!;
     g.computeBoundingSphere();
     return g;
   };
@@ -487,8 +591,9 @@ export function buildDinoTemplate(sp: SpeciesDef): DinoTemplate {
     phase: l.phase,
     joints: l.joints.map((j) => j.clone()),
     lengths: [0, 1, 2, 3].map((k) => l.joints[k].distanceTo(l.joints[k + 1])),
+    fingerTip: l.fingerTip?.clone(),
   }));
-  return { geometry: build(true), low: build(false), bones, bp, legs: legsInfo, hipHeight: sp.hipHeightM };
+  return { geometry: build(0), mid: build(1), low: build(2), bones, bp, legs: legsInfo, hipHeight: sp.hipHeightM * (juvenile ? 1.08 : 1) };
 }
 
 /** Generic tapered tube along points, skinned rigidly or by segment. */
@@ -556,7 +661,9 @@ function buildLeg(sp: SpeciesDef, leg: LegDef, parts: Part[], boneIndex: Map<str
   const inside = V(leg.joints[0].x * 0.35, leg.joints[0].y + leg.radii[0] * 1.4, leg.joints[0].z);
   path.unshift({ p: inside, seg: 0, t: 0 });
   radii.unshift(leg.radii[0] * 0.55);
-  tube(parts[mat], path.map((x) => x.p), radii, detail ? 14 : 6, (p) => paint(p, 0.2, 'limb'), (i) => {
+  // Colour: the top of the thigh/shoulder continues the flank colour; lower limbs are a little paler.
+  const topY = leg.joints[0].y;
+  tube(parts[mat], path.map((x) => x.p), radii, detail ? 14 : 6, (p) => paint(p, p.y > topY - leg.radii[0] ? lerp(0.2, -0.35, smooth(topY - leg.radii[0], topY + leg.radii[0], p.y)) : 0.2, p.y > topY - leg.radii[0] * 2 ? 'body' : 'limb'), (i) => {
     const { seg, t } = path[i];
     if (seg === 0 && t < 0.25) return [[parentI, bonesI[0]], [1 - t * 4 * 0.6 - 0.4, t * 4 * 0.6 + 0.4]];
     if (t < 0.15 && seg > 0) {
@@ -564,7 +671,7 @@ function buildLeg(sp: SpeciesDef, leg: LegDef, parts: Part[], boneIndex: Map<str
       return [[bonesI[seg - 1], bonesI[seg]], [1 - w, w]];
     }
     return [[bonesI[seg]], [1]];
-  }, tile, true);
+  }, tile, true, leg.flat ?? 1);
   // Toes with claws.
   const toeRoot = leg.joints[3];
   const tip = leg.joints[4];
@@ -589,117 +696,284 @@ function buildLeg(sp: SpeciesDef, leg: LegDef, parts: Part[], boneIndex: Map<str
   void sp;
 }
 
-function buildHead(sp: SpeciesDef, bp: Blueprint, parts: Part[], boneIndex: Map<string, number>, paint: ReturnType<typeof painter>, detail: boolean): void {
+/** Skull family: decides the shape of the head, jaws, teeth and eyes. */
+type SkullFamily = 'theropod' | 'apex' | 'longSnout' | 'croc' | 'duck' | 'beak' | 'sauropod' | 'ptero' | 'small' | 'mosa';
+
+function skullFamily(sp: SpeciesDef): SkullFamily {
   const f = new Set(sp.look.features);
   const plan = sp.locomotion.plan;
+  if (plan === 'pterosaur') return 'ptero';
+  if (plan === 'mosasaur') return 'mosa';
+  if (plan === 'crocodyliform') return 'croc';
+  if (f.has('longSnout')) return 'longSnout';
+  if (plan === 'hadrosaur') return 'duck';
+  if (plan === 'sauropod') return 'sauropod';
+  if (f.has('beak') || f.has('frill') || f.has('dome') || f.has('plates') || f.has('armor') || f.has('thumbSpike')) return 'beak';
+  if (sp.ecology === 'apexPredator' || sp.massKg > 1500) return 'apex';
+  if (sp.lengthM < 2.6) return 'small';
+  return 'theropod';
+}
+
+/**
+ * Head profile along the skull (t = 0 at the back of the skull, 1 at the
+ * tip of the snout), in units of the head height / width:
+ *  - top: height of the skull roof above the mouth line;
+ *  - hw: half width;
+ *  - lip: height of the mouth line (relative to the head axis);
+ *  - jaw: depth of the lower jaw below the mouth line.
+ */
+function skullProfile(fam: SkullFamily, t: number): { top: number; hw: number; lip: number; jaw: number } {
+  const bump = (c: number, w: number) => Math.exp(-((t - c) * (t - c)) / (w * w));
+  switch (fam) {
+    case 'apex':
+      // Deep, broad-backed skull (binocular vision forward), tall muzzle, heavy jaw.
+      return { top: 1.25 - 0.62 * Math.pow(t, 1.25) + 0.08 * bump(0.3, 0.08), hw: 1.15 - 0.62 * Math.pow(t, 0.75), lip: -0.3 + 0.1 * (1 - t), jaw: 0.62 - 0.35 * t };
+    case 'theropod':
+      return { top: 1.1 - 0.6 * Math.pow(t, 1.15) + 0.07 * bump(0.28, 0.08), hw: 1 - 0.6 * Math.pow(t, 0.85), lip: -0.3 + 0.08 * (1 - t), jaw: 0.5 - 0.3 * t };
+    case 'small':
+      // Small theropods: rounder braincase, bigger eyes, slender snout.
+      return { top: 1.15 - 0.75 * Math.pow(t, 0.9), hw: 1 - 0.7 * Math.pow(t, 0.8), lip: -0.28, jaw: 0.4 - 0.25 * t };
+    case 'longSnout':
+      // Spinosaurids: long low snout with a terminal rosette; nostrils set back.
+      return { top: 0.95 - 0.62 * smooth(0, 0.55, t) - 0.05 * t, hw: 0.95 - 0.68 * smooth(0, 0.45, t) + 0.12 * bump(0.93, 0.05), lip: -0.25 - 0.06 * t + 0.06 * bump(0.6, 0.1), jaw: 0.42 - 0.28 * smooth(0, 0.6, t) };
+    case 'croc':
+      return { top: 0.75 - 0.42 * smooth(0, 0.55, t), hw: 1.05 - 0.6 * smooth(0, 0.5, t) + 0.18 * bump(0.92, 0.06), lip: -0.15, jaw: 0.38 - 0.24 * smooth(0, 0.6, t) };
+    case 'duck':
+      // Hadrosaur: tall back of the skull, narrowing face, broad flat bill.
+      return { top: 1.15 - 0.78 * smooth(0.1, 0.95, t), hw: 0.95 - 0.52 * smooth(0, 0.6, t) + 0.2 * smooth(0.75, 1, t), lip: -0.3 - 0.1 * t, jaw: 0.5 - 0.36 * t };
+    case 'beak':
+      // Ceratopsians, ornithomimids, thyreophorans: deep face ending in a hooked keratin beak.
+      return { top: 1.1 - 0.55 * Math.pow(t, 1.3), hw: 1 - 0.75 * Math.pow(t, 1.2), lip: -0.3 - 0.18 * smooth(0.75, 1, t), jaw: 0.5 - 0.35 * t };
+    case 'sauropod':
+      // Brachiosaurid: boxy snout, tall nasal arch over the eyes.
+      return { top: 1.0 + 0.45 * bump(0.38, 0.14) - 0.45 * t, hw: 1 - 0.25 * t, lip: -0.3, jaw: 0.42 - 0.2 * t };
+    case 'mosa':
+      // Monitor-like skull: long, fairly narrow, pointed snout, deep lower jaw.
+      return { top: 0.9 - 0.55 * Math.pow(t, 0.9), hw: 0.95 - 0.62 * Math.pow(t, 0.85), lip: -0.3 + 0.05 * t, jaw: 0.5 - 0.32 * t };
+    case 'ptero':
+      // Long, pointed, toothless beak.
+      return { top: 1 - 0.95 * Math.pow(t, 0.75), hw: 1 - 0.95 * Math.pow(t, 0.7), lip: -0.15 * (1 - t), jaw: 0.45 * (1 - Math.pow(t, 0.8)) };
+  }
+}
+
+/**
+ * Lofts closed rings into a surface, capping both ends with fans. Each ring
+ * holds the same number of points (first point repeated at the end).
+ */
+function ringLoft(part: Part, rings: { p: THREE.Vector3; c: RGB }[][], bones: number[], w: number[], uTile: number, capStart: boolean, capEnd: boolean): void {
+  const base = part.pos.length / 3;
+  const n = rings[0].length;
+  rings.forEach((ring, i) => ring.forEach((v, k) => part.v(v.p, (k / (n - 1)) * uTile, i / Math.max(1, rings.length - 1), v.c, bones, w)));
+  for (let i = 0; i < rings.length - 1; i++)
+    for (let k = 0; k < n - 1; k++) {
+      const a = base + i * n + k;
+      const b = a + n;
+      part.idx.push(a, a + 1, b, a + 1, b + 1, b);
+    }
+  const cap = (ri: number, flip: boolean) => {
+    const ring = rings[ri];
+    const c = ring.reduce((acc, v) => acc.add(v.p), V()).multiplyScalar(1 / ring.length);
+    const ci = part.v(c, 0.5, 0.5, ring[0].c, bones, w);
+    const r0 = base + ri * n;
+    for (let k = 0; k < n - 1; k++) {
+      if (flip) part.idx.push(r0 + k + 1, r0 + k, ci);
+      else part.idx.push(r0 + k, r0 + k + 1, ci);
+    }
+  };
+  if (capStart) cap(0, true);
+  if (capEnd) cap(rings.length - 1, false);
+}
+
+const MOUTH: RGB = [0.36, 0.13, 0.12];
+const TOOTH: RGB = [0.86, 0.82, 0.7];
+const KERATIN: RGB = [0.24, 0.21, 0.17];
+
+/**
+ * Sculpted head: a closed skull (roof, cheeks, palate), a separate solid
+ * lower jaw on its own bone (mouth floor and tongue inside, so an open mouth
+ * is not hollow), teeth set along the jaw margins (carnivores), keratin
+ * beaks/bills (herbivores), eyeballs with iris and pupil set in sockets with
+ * upper and lower lids and a brow ridge, nostrils and a closed back of the
+ * skull that blends into the neck.
+ */
+function buildHead(sp: SpeciesDef, bp: Blueprint, parts: Part[], boneIndex: Map<string, number>, paint: ReturnType<typeof painter>, detail: number): void {
+  const plan = sp.locomotion.plan;
+  const fam = skullFamily(sp);
   const hb = boneIndex.get('head')!;
   const jb = boneIndex.get('jaw')!;
   const { at, len, height, width, pitch } = bp.head;
   const fwd = V(0, -Math.sin(pitch), Math.cos(pitch));
   const up = V(0, Math.cos(pitch), Math.sin(pitch));
   const sideV = V(1, 0, 0);
-  const segs = detail ? 18 : 8;
-  const rings = detail ? 12 : 5;
+  const hi = detail === 0;
+  const segs = hi ? 22 : detail === 1 ? 14 : 8;
+  const rings = hi ? 22 : detail === 1 ? 12 : 6;
   const mat = bp.feathered && plan !== 'bird' && sp.lengthM < 3 ? DMAT.feathers : DMAT.scales;
-  const duck = plan === 'hadrosaur';
-  const beak = f.has('beak');
-  const croc = plan === 'crocodyliform' || f.has('longSnout');
-  const cera = f.has('frill');
-  const ptero = plan === 'pterosaur';
-  // Skull: occiput → snout tip; section shapes per family.
-  const prof = (t: number): [number, number, number] => {
-    // half width, half height, vertical offset of the centre (fraction of height)
-    if (ptero) return [width * lerp(1, 0.08, Math.pow(t, 0.8)), height * lerp(1, 0.1, Math.pow(t, 0.7)), 0];
-    if (croc) return [width * lerp(1, 0.32, smooth(0, 0.45, t)) * (1 + (plan === 'crocodyliform' ? 0.25 * smooth(0.85, 1, t) : 0)), height * lerp(1, 0.32, smooth(0, 0.5, t)), -0.1 * t];
-    if (duck) return [width * lerp(1, t > 0.7 ? 0.9 : 0.55, smooth(0, 0.7, t)), height * lerp(1, 0.35, smooth(0.2, 1, t)), -0.2 * t];
-    if (beak || cera) return [width * lerp(1, 0.22, Math.pow(t, 1.5)), height * lerp(1, 0.45, t), -0.15 * t];
-    if (sp.locomotion.plan === 'sauropod') return [width * lerp(1, 0.75, t), height * lerp(1, 0.55, t), -0.1 * t];
-    // Theropod: deep skull, tapering snout, slight rise over the eyes.
-    return [width * lerp(1, 0.42, Math.pow(t, 0.9)), height * lerp(1.05, 0.48, Math.pow(t, 1.1)), -0.05 * t];
-  };
-  const skull = parts[mat];
-  const base = skull.pos.length / 3;
+  const beaked = fam === 'beak' || fam === 'duck' || fam === 'ptero';
+  const H = height;
+  const Wd = width;
+  // Point on the head: t along the skull, x across (m), y up (m, from the head axis).
+  const P = (t: number, x: number, y: number) => at.clone().addScaledVector(fwd, -len * 0.12 + t * len * 1.04).addScaledVector(sideV, x).addScaledVector(up, y);
+  // Rounding of the back of the skull (occiput) and of the snout tip.
+  const round = (t: number) => Math.sqrt(Math.max(0.0, smooth(-0.02, 0.16, t))) * 0.55 + 0.45 * smooth(-0.02, 0.1, t);
+  const tipRound = (t: number) => (fam === 'ptero' ? 1 : 0.35 + 0.65 * Math.sqrt(Math.max(0, 1 - smooth(0.9, 1.0, t))));
+  const keratin = (t: number) => beaked && t > (fam === 'ptero' ? 0.35 : fam === 'duck' ? 0.78 : 0.82);
+
+  // ---- Upper skull: roof arch over the mouth line, closed by the palate.
+  const skull: { p: THREE.Vector3; c: RGB }[][] = [];
   for (let i = 0; i <= rings; i++) {
     const t = i / rings;
-    const c = at.clone().addScaledVector(fwd, -len * 0.1 + t * len);
-    const [hw, hh, off] = prof(t);
-    c.addScaledVector(up, off * height);
-    for (let k = 0; k <= segs; k++) {
-      const a = (k / segs) * Math.PI * 2;
+    const pr = skullProfile(fam, t);
+    const k = round(t) * tipRound(t);
+    const hw = pr.hw * Wd * k;
+    const top = pr.top * H * k;
+    const lip = pr.lip * H;
+    const ring: { p: THREE.Vector3; c: RGB }[] = [];
+    for (let j = 0; j <= segs; j++) {
+      const a = (j / segs) * Math.PI * 2;
       const ca = Math.cos(a);
       const sa = Math.sin(a);
-      // Flatter underside where the jaw sits.
-      const yy = sa > 0 ? sa * hh : sa * hh * 0.45;
-      const p = c.clone().addScaledVector(sideV, ca * hw).addScaledVector(up, yy);
-      const nostril = !ptero && t > 0.85 && sa > 0.2 && sa < 0.7 && Math.abs(ca) > 0.4;
-      const col = nostril ? ([0.05, 0.04, 0.035] as RGB) : paint(p, sa < 0 ? 0.6 : -0.5 * sa, 'head');
-      skull.v(p, (k / segs) * 2, t * 2, col, [hb], [1]);
+      let x: number;
+      let y: number;
+      let c: RGB;
+      if (sa >= 0) {
+        // Roof and cheeks: flat-sided superellipse, the cheeks bulge below the eyes.
+        const e = 0.75;
+        x = Math.sign(ca) * Math.pow(Math.abs(ca), e) * hw * (1 + 0.06 * Math.sin(a * 2) * (1 - t));
+        y = lip + Math.pow(sa, 0.85) * top;
+        const nostril = t > (fam === 'longSnout' ? 0.55 : fam === 'croc' ? 0.94 : 0.84) && t < (fam === 'longSnout' ? 0.66 : 0.97) && sa > 0.35 && sa < 0.75 && fam !== 'ptero';
+        c = nostril ? [0.06, 0.05, 0.045] : keratin(t) ? KERATIN : paint(P(t, x, y), -0.6 * sa + 0.1, 'head');
+      } else {
+        // Palate, just above the mouth line, recessed inside the tooth row.
+        x = ca * hw * 0.9;
+        y = lip + sa * H * 0.05;
+        c = keratin(t) ? KERATIN : sa < -0.3 ? MOUTH : paint(P(t, x, y), 0.6, 'head');
+      }
+      ring.push({ p: P(t, x, y), c });
     }
+    skull.push(ring);
   }
-  for (let i = 0; i < rings; i++)
-    for (let k = 0; k < segs; k++) {
-      const a = base + i * (segs + 1) + k;
-      const b = a + segs + 1;
-      skull.idx.push(a, a + 1, b, a + 1, b + 1, b);
-    }
-  // Close the snout tip and back of the skull.
-  const tipC = skull.v(at.clone().addScaledVector(fwd, len * 0.92), 0.5, 0.5, beak || ptero ? [0.55, 0.5, 0.4] : paint(at, 0, 'head'), [hb], [1]);
-  const lastRing = base + rings * (segs + 1);
-  for (let k = 0; k < segs; k++) skull.idx.push(lastRing + k, lastRing + k + 1, tipC);
-  // Lower jaw (separate bone so the mouth can open).
-  const jaw = parts[mat];
-  const jbase = jaw.pos.length / 3;
-  const jr = detail ? 8 : 4;
+  ringLoft(parts[mat], skull, [hb], [1], 2, true, true);
+
+  // ---- Lower jaw: solid, hinged at the back, mouth floor inside.
+  const jaw: { p: THREE.Vector3; c: RGB }[][] = [];
+  const jr = hi ? 16 : detail === 1 ? 9 : 5;
+  const j0 = 0.06;
+  const j1 = fam === 'duck' ? 0.97 : fam === 'beak' ? 0.94 : 0.96;
   for (let i = 0; i <= jr; i++) {
-    const t = i / jr;
-    const [hw, hh] = prof(t * 0.92);
-    const c = at.clone().addScaledVector(fwd, -len * 0.05 + t * len * 0.88).addScaledVector(up, -hh * 0.42);
-    for (let k = 0; k <= segs; k++) {
-      const a = Math.PI + (k / segs) * Math.PI; // lower half only
-      const p = c.clone().addScaledVector(sideV, Math.cos(a) * hw * 0.92).addScaledVector(up, Math.sin(a) * hh * 0.42);
-      jaw.v(p, (k / segs) * 2, t * 2, paint(p, 0.7, 'head'), [jb], [1]);
+    const t = j0 + (i / jr) * (j1 - j0);
+    const pr = skullProfile(fam, t);
+    const k = smooth(j0 - 0.02, j0 + 0.12, t) * 0.6 + 0.4;
+    const kt = 0.4 + 0.6 * Math.sqrt(Math.max(0, 1 - smooth(j1 - 0.08, j1, t)));
+    const hw = pr.hw * Wd * 0.92 * k * kt;
+    const depth = pr.jaw * H * k * kt;
+    const lip = pr.lip * H;
+    const ring: { p: THREE.Vector3; c: RGB }[] = [];
+    for (let j = 0; j <= segs; j++) {
+      const a = (j / segs) * Math.PI * 2;
+      const ca = Math.cos(a);
+      const sa = Math.sin(a);
+      let x: number;
+      let y: number;
+      let c: RGB;
+      if (sa > 0) {
+        // Mouth floor with the tongue in the middle.
+        x = ca * hw * 0.9;
+        y = lip - H * 0.03 + sa * H * 0.03;
+        c = keratin(t) ? KERATIN : Math.abs(ca) < 0.8 ? MOUTH : paint(P(t, x, y), 0.5, 'head');
+      } else {
+        x = Math.sign(ca) * Math.pow(Math.abs(ca), 0.8) * hw;
+        y = lip + sa * depth;
+        c = keratin(t) ? KERATIN : paint(P(t, x, y), 0.4 - sa * 0.6, 'head');
+      }
+      ring.push({ p: P(t, x, y), c });
     }
+    jaw.push(ring);
   }
-  for (let i = 0; i < jr; i++)
-    for (let k = 0; k < segs; k++) {
-      const a = jbase + i * (segs + 1) + k;
-      const b = a + segs + 1;
-      jaw.idx.push(a, a + 1, b, a + 1, b + 1, b);
-    }
-  // Teeth on carnivores (visible when the jaw opens).
-  if (sp.diet === 'carnivore' || sp.diet === 'piscivore') {
-    const n = detail ? 12 : 0;
+  ringLoft(parts[mat], jaw, [jb], [1], 2, true, true);
+
+  // ---- Teeth along the margins (carnivores and piscivores; toothless beaks have none).
+  const toothed = (sp.diet === 'carnivore' || sp.diet === 'piscivore' || sp.diet === 'omnivore') && fam !== 'ptero' && fam !== 'beak' && fam !== 'duck';
+  if (toothed && detail < 2) {
+    const n = hi ? (fam === 'croc' || fam === 'longSnout' ? 18 : 13) : 7;
+    const toothLen = H * (fam === 'apex' ? 0.2 : fam === 'small' ? 0.12 : fam === 'croc' || fam === 'longSnout' ? 0.14 : 0.16);
     for (let i = 0; i < n; i++) {
-      const t = 0.25 + (i / n) * 0.65;
+      const t = 0.24 + (i / (n - 1)) * 0.7;
+      const pr = skullProfile(fam, t);
+      const k = tipRound(t);
+      // Largest teeth in the middle of the row (maxillary fangs), smaller at both ends.
+      const size = 0.55 + 0.45 * Math.sin(Math.PI * Math.min(1, (t - 0.2) / 0.6)) + (fam === 'longSnout' && t > 0.85 ? 0.4 : 0);
       for (const s of [1, -1]) {
-        const [hw, hh] = prof(t);
-        const root = at.clone().addScaledVector(fwd, -len * 0.1 + t * len).addScaledVector(sideV, s * hw * 0.82).addScaledVector(up, -hh * 0.35);
-        const tl = height * 0.18 * (1 - Math.abs(t - 0.55));
-        tube(parts[DMAT.horn], [root, root.clone().addScaledVector(up, -tl)], [hw * 0.07, 0.0005], 4, () => [0.85, 0.8, 0.66], () => [[hb], [1]], 1, true);
+        const x = s * pr.hw * Wd * 0.86 * k;
+        const yl = pr.lip * H;
+        // Upper tooth, slightly recurved backward.
+        const r0 = P(t, x, yl + H * 0.01);
+        const tl = toothLen * size;
+        tube(parts[DMAT.horn], [r0, r0.clone().addScaledVector(up, -tl * 0.6).addScaledVector(fwd, -tl * 0.05), r0.clone().addScaledVector(up, -tl).addScaledVector(fwd, -tl * 0.15)], [tl * 0.2, tl * 0.13, tl * 0.01], hi ? 5 : 3, () => TOOTH, () => [[hb], [1]], 1, true);
+        // Lower tooth (inside the upper row when the mouth is closed).
+        if (i % 2 === 0) {
+          const pj = skullProfile(fam, t - 0.03);
+          const xl = s * pj.hw * Wd * 0.78 * k;
+          const b0 = P(t - 0.03, xl, yl - H * 0.02);
+          const ll = tl * 0.8;
+          tube(parts[DMAT.horn], [b0, b0.clone().addScaledVector(up, ll * 0.6), b0.clone().addScaledVector(up, ll).addScaledVector(fwd, -ll * 0.1)], [ll * 0.2, ll * 0.12, ll * 0.01], hi ? 5 : 3, () => TOOTH, () => [[jb], [1]], 1, true);
+        }
       }
     }
   }
-  // Eyes with a dark glossy surface and a lid ridge.
+
+  // ---- Eyes: eyeball (sclera hidden in the socket, coloured iris, dark pupil), lids, brow.
+  const eyeT = fam === 'ptero' ? 0.14 : fam === 'croc' ? 0.2 : fam === 'longSnout' ? 0.16 : fam === 'sauropod' ? 0.3 : fam === 'duck' || fam === 'beak' ? 0.24 : 0.27;
+  const prE = skullProfile(fam, eyeT);
+  const big = (fam === 'small' ? 1.4 : fam === 'ptero' ? 1.1 : 1) * (bp.juvenile ? 1.3 : 1);
+  const r = Math.max(0.006, H * 0.13 * big);
+  const iris: RGB = sp.diet === 'carnivore' || sp.diet === 'piscivore' ? [0.62, 0.42, 0.08] : [0.3, 0.2, 0.1];
+  const slit = fam === 'croc';
   for (const s of [1, -1]) {
-    const t = ptero ? 0.12 : croc ? 0.22 : 0.25;
-    const [hw, hh, off] = prof(t);
-    const c = at.clone().addScaledVector(fwd, -len * 0.1 + t * len).addScaledVector(sideV, s * hw * 0.82).addScaledVector(up, hh * 0.45 + off * height);
-    const r = Math.max(0.006, height * (ptero ? 0.14 : 0.13));
-    const g = new THREE.SphereGeometry(r, detail ? 10 : 6, detail ? 8 : 4);
+    const k = round(eyeT);
+    const ey = prE.lip * H + prE.top * H * k * (fam === 'croc' ? 0.95 : 0.66);
+    const ex = s * prE.hw * Wd * k * (fam === 'croc' ? 0.6 : 0.8);
+    const c = P(eyeT, ex, ey);
+    // Outward direction: sideways, a little forward (binocular in predators) and up.
+    const out = sideV.clone().multiplyScalar(s).addScaledVector(fwd, fam === 'apex' || fam === 'small' ? 0.45 : 0.15).addScaledVector(up, fam === 'croc' ? 0.6 : 0.12).normalize();
+    const g = new THREE.SphereGeometry(r, hi ? 14 : 7, hi ? 10 : 5);
     const pp = g.attributes.position;
     const eb = parts[DMAT.eye].pos.length / 3;
+    const lu = up.clone().addScaledVector(out, -up.dot(out)).normalize();
     for (let i = 0; i < pp.count; i++) {
       const v = V(pp.getX(i), pp.getY(i), pp.getZ(i));
-      const outward = (v.x * s) / r;
-      const col: RGB = outward > 0.75 ? [0.02, 0.015, 0.01] : [0.42, 0.3, 0.08];
-      parts[DMAT.eye].v(v.add(c), 0, 0, col, [hb], [1]);
+      const d = v.clone().normalize();
+      const o = d.dot(out);
+      const vert = Math.abs(d.dot(lu));
+      const pupil = slit ? o > 0.84 && vert < 0.92 && Math.abs(d.clone().addScaledVector(out, -o).addScaledVector(lu, -d.dot(lu)).length()) < 0.14 : o > 0.93;
+      const col: RGB = pupil ? [0.01, 0.01, 0.01] : o > 0.72 ? [iris[0] * (0.7 + 0.3 * o), iris[1] * (0.7 + 0.3 * o), iris[2]] : [0.12, 0.09, 0.07];
+      // Sunk into the socket: the back half is pushed inward.
+      const p = v.multiplyScalar(o < 0 ? 0.6 : 1).add(c).addScaledVector(out, -r * 0.35);
+      parts[DMAT.eye].v(p, 0, 0, col, [hb], [1]);
     }
     const ix = g.index!.array;
     for (let i = 0; i < ix.length; i++) parts[DMAT.eye].idx.push(eb + ix[i]);
     g.dispose();
-    // Brow ridge over the eye.
-    const brow = c.clone().addScaledVector(up, r * 0.8);
-    tube(parts[mat], [brow.clone().addScaledVector(fwd, -r * 1.4), brow, brow.clone().addScaledVector(fwd, r * 1.4)], [r * 0.4, r * 0.55, r * 0.35], 6, (p) => paint(p, -0.6, 'head'), () => [[hb], [1]], 1, true);
+    // Lids: arcs of skin around the front of the eyeball.
+    const across = out.clone().cross(lu).normalize();
+    const lid = (upper: boolean) => {
+      const pts: THREE.Vector3[] = [];
+      const radii: number[] = [];
+      const m = hi ? 9 : 5;
+      for (let i = 0; i <= m; i++) {
+        const a = Math.PI * (0.08 + 0.84 * (i / m));
+        const v = across.clone().multiplyScalar(Math.cos(a) * r * 1.02).addScaledVector(lu, (upper ? 1 : -1) * Math.sin(a) * r * (upper ? 0.82 : 0.78));
+        pts.push(c.clone().addScaledVector(out, r * 0.3).add(v));
+        radii.push(r * (upper ? 0.24 : 0.17) * (0.5 + 0.5 * Math.sin(Math.PI * (i / m))));
+      }
+      tube(parts[mat], pts, radii, hi ? 6 : 4, (p) => paint(p, upper ? -0.5 : 0.1, 'head'), () => [[hb], [1]], 1, true);
+    };
+    lid(true);
+    lid(false);
+    // Brow ridge over the eye (pronounced in large theropods).
+    const browH = fam === 'apex' ? 0.65 : fam === 'theropod' ? 0.5 : 0.35;
+    const brow = c.clone().addScaledVector(lu, r * 1.05).addScaledVector(out, -r * 0.1);
+    tube(parts[mat], [brow.clone().addScaledVector(fwd, -r * 1.6), brow, brow.clone().addScaledVector(fwd, r * 1.6)], [r * browH * 0.6, r * browH, r * browH * 0.4], hi ? 7 : 4, (p) => paint(p, -0.6, 'head'), () => [[hb], [1]], 1, true);
   }
 }
 
@@ -711,10 +985,14 @@ function buildFeatures(sp: SpeciesDef, bp: Blueprint, parts: Part[], boneIndex: 
   const fwd = V(0, -Math.sin(pitch), Math.cos(pitch));
   const up = V(0, Math.cos(pitch), Math.sin(pitch));
   const side = V(1, 0, 0);
-  const horn = (root: THREE.Vector3, dir: THREE.Vector3, length: number, r: number, bone: number, curve = 0.15) => {
+  // Display structures (horns, frills, plates, crests, sails) are small in juveniles.
+  const fs = bp.juvenile ? 0.4 : 1;
+  const horn = (root: THREE.Vector3, dir: THREE.Vector3, rawLength: number, r: number, bone: number, curve = 0.15) => {
+    const length = rawLength * (bp.juvenile ? 0.35 : 1);
     const d = dir.clone().normalize();
     const pts = [root, root.clone().addScaledVector(d, length * 0.5).addScaledVector(up, length * curve * 0.3), root.clone().addScaledVector(d, length).addScaledVector(up, length * curve)];
-    tube(parts[DMAT.horn], pts, [r, r * 0.55, r * 0.04], detail ? 8 : 4, () => [0.6, 0.54, 0.44], () => [[bone], [1]], 1, true);
+    // Keratin sheath: pale grey-brown at the base, darker toward the tip.
+    tube(parts[DMAT.horn], pts, [r, r * 0.55, r * 0.04], detail ? 8 : 4, (_p, t) => [lerp(0.5, 0.2, t), lerp(0.45, 0.17, t), lerp(0.37, 0.14, t)], () => [[bone], [1]], 1, true);
   };
   // Spine sample helper: position on the back at arc parameter s.
   const atS = (s: number) => {
@@ -733,31 +1011,64 @@ function buildFeatures(sp: SpeciesDef, bp: Blueprint, parts: Part[], boneIndex: 
   }
   if (f.has('nasalBoss')) horn(at.clone().addScaledVector(fwd, len * 0.62).addScaledVector(up, height * 0.45), up, len * 0.12, height * 0.28, hb, 0);
   if (f.has('frill')) {
-    // Bony neck frill: a curved fan rising behind the skull, accent coloured, thick rim.
-    const R = height * (f.has('horns3') ? 2.2 : 1.7);
+    // Bony neck frill: a thick curved shield (front and back surfaces joined by a
+    // rounded rim) rising behind the skull, thicker at its base, with a row of
+    // epoccipital knobs along the edge. Display colour toward the rim.
+    const R = height * (f.has('horns3') ? 2.2 : 1.7) * (bp.juvenile ? 0.55 : 1);
     const centre = at.clone().addScaledVector(fwd, -len * 0.05).addScaledVector(up, height * 0.6);
-    const n = detail ? 18 : 8;
+    const n = detail ? 22 : 9;
+    const m = detail ? 6 : 3;
     const p = parts[DMAT.scales];
-    const b0 = p.pos.length / 3;
     const back = fwd.clone().multiplyScalar(-0.55).addScaledVector(up, 0.85).normalize();
-    for (let i = 0; i <= n; i++) {
+    const normal = side.clone().cross(back).normalize(); // faces forward
+    const b0 = p.pos.length / 3;
+    const pointAt = (i: number, k: number, face: number) => {
       const a = -Math.PI / 2 + (i / n) * Math.PI;
       const dir = side.clone().multiplyScalar(Math.sin(a)).addScaledVector(back, Math.cos(a)).normalize();
-      for (const k of [0, 1]) {
-        const rr = k === 0 ? R * 0.2 : R;
-        const q = centre.clone().addScaledVector(dir, rr).addScaledVector(fwd, k * -height * 0.15);
-        p.v(q, i / n, k, paint(q, -0.2, 'accent'), [hb], [1]);
+      const u = k / m;
+      const rr = lerp(R * 0.2, R, u);
+      // Shallow dish: the shield curves forward toward its edge.
+      const th = lerp(R * 0.07, R * 0.025, u);
+      return centre.clone().addScaledVector(dir, rr).addScaledVector(normal, u * u * R * 0.12 + face * th * 0.5);
+    };
+    for (const face of [1, -1])
+      for (let i = 0; i <= n; i++)
+        for (let k = 0; k <= m; k++) {
+          const q = pointAt(i, k, face);
+          const rim = k / m;
+          const c = paint(q, -0.2, rim > 0.55 ? 'accent' : 'head');
+          p.v(q, i / n, k / m, c, [hb], [1]);
+        }
+    const idx = (face: number, i: number, k: number) => b0 + (face > 0 ? 0 : (n + 1) * (m + 1)) + i * (m + 1) + k;
+    for (let i = 0; i < n; i++)
+      for (let k = 0; k < m; k++) {
+        const a = idx(1, i, k), b = idx(1, i + 1, k), c = idx(1, i, k + 1), d = idx(1, i + 1, k + 1);
+        p.idx.push(a, c, b, b, c, d);
+        const a2 = idx(-1, i, k), b2 = idx(-1, i + 1, k), c2 = idx(-1, i, k + 1), d2 = idx(-1, i + 1, k + 1);
+        p.idx.push(a2, b2, c2, b2, d2, c2);
       }
-    }
-    for (let i = 0; i < n; i++) {
-      const a = b0 + i * 2;
-      p.idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3);
-      p.idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); // both faces
-    }
+    // Rim and the two side edges join the faces.
+    for (let i = 0; i < n; i++) p.idx.push(idx(1, i, m), idx(-1, i, m), idx(1, i + 1, m), idx(1, i + 1, m), idx(-1, i, m), idx(-1, i + 1, m));
+    for (const i of [0, n])
+      for (let k = 0; k < m; k++) {
+        const fl = i === 0;
+        const q = [idx(1, i, k), idx(-1, i, k), idx(1, i, k + 1), idx(-1, i, k + 1)];
+        if (fl) p.idx.push(q[0], q[1], q[2], q[2], q[1], q[3]);
+        else p.idx.push(q[0], q[2], q[1], q[2], q[3], q[1]);
+      }
+    // Epoccipitals: small triangular bony knobs around the edge.
+    if (detail && !f.has('frillSpikes'))
+      for (let i = 1; i < 14; i++) {
+        const ii = (i / 14) * n;
+        const q = pointAt(ii, m, 0);
+        const a = -Math.PI / 2 + (ii / n) * Math.PI;
+        const dir = side.clone().multiplyScalar(Math.sin(a)).addScaledVector(back, Math.cos(a)).normalize();
+        horn(q.clone().addScaledVector(dir, -R * 0.02), dir, R * 0.09, R * 0.035, hb, 0);
+      }
     if (f.has('frillSpikes')) for (let i = 1; i < 6; i++) {
       const a = -Math.PI / 2 + (i / 6) * Math.PI;
       const dir = side.clone().multiplyScalar(Math.sin(a)).addScaledVector(back, Math.cos(a)).normalize();
-      horn(centre.clone().addScaledVector(dir, R * 0.97), dir, R * 0.35, height * 0.08, hb, 0.05);
+      horn(centre.clone().addScaledVector(dir, R * 0.97).addScaledVector(normal, R * 0.12), dir, R * 0.35, height * 0.08, hb, 0.05);
     }
   }
   if (f.has('browHorns')) for (const s of [1, -1]) horn(at.clone().addScaledVector(fwd, len * 0.22).addScaledVector(up, height * 0.75).addScaledVector(side, s * height * 0.45), up.clone().addScaledVector(side, s * 0.7), height * (sp.id === 'carnotaurus' ? 0.9 : 0.4), height * 0.14, hb, 0);
@@ -776,7 +1087,7 @@ function buildFeatures(sp: SpeciesDef, bp: Blueprint, parts: Part[], boneIndex: 
   }
   if (f.has('crestTube')) {
     const root = at.clone().addScaledVector(fwd, len * 0.45).addScaledVector(up, height * 0.7);
-    const pts = [root, root.clone().addScaledVector(fwd, -len * 0.5).addScaledVector(up, height * 1.0), root.clone().addScaledVector(fwd, -len * 1.35).addScaledVector(up, height * 1.6)];
+    const pts = [root, root.clone().addScaledVector(fwd, -len * 0.5 * fs).addScaledVector(up, height * 1.0 * fs), root.clone().addScaledVector(fwd, -len * 1.35 * fs).addScaledVector(up, height * 1.6 * fs)];
     tube(parts[DMAT.scales], pts, [height * 0.22, height * 0.22, height * 0.16], detail ? 10 : 5, (p) => paint(p, -0.3, 'accent'), () => [[hb], [1]], 1, true);
   }
   if (f.has('dualCrest')) for (const s of [1, -1]) {
@@ -786,7 +1097,7 @@ function buildFeatures(sp: SpeciesDef, bp: Blueprint, parts: Part[], boneIndex: 
     for (let i = 0; i <= n; i++) {
       const t = i / n;
       const base = at.clone().addScaledVector(fwd, len * (0.1 + t * 0.7)).addScaledVector(up, height * 0.55).addScaledVector(side, s * height * 0.25);
-      const h = height * 0.85 * Math.sin(Math.PI * (0.15 + t * 0.75));
+      const h = height * 0.85 * Math.sin(Math.PI * (0.15 + t * 0.75)) * fs;
       for (const k of [0, 1]) {
         const q = base.clone().addScaledVector(up, k * h).addScaledVector(side, s * k * h * 0.15);
         p.v(q, t, k, paint(q, -0.3, 'accent'), [hb], [1]);
@@ -809,43 +1120,98 @@ function buildFeatures(sp: SpeciesDef, bp: Blueprint, parts: Part[], boneIndex: 
   // Dorsal structures along the spine.
   const spineBone = (s: number) => spineWeights(s);
   if (f.has('sail')) {
+    // Dorsal sail: skin stretched over tall neural spines. A solid fin, thick at its
+    // base and thin at its edge, with the spines showing as ridges.
     const p = parts[DMAT.scales];
-    const n = detail ? 24 : 8;
+    const n = detail ? 28 : 8;
     const b0 = p.pos.length / 3;
     const s0 = atS(0.35).s;
     const s1 = atS(0.72).s;
-    for (let i = 0; i <= n; i++) {
-      const t = i / n;
-      const s = lerp(s0, s1, t);
-      const base = dorsal(s, -0.01 * L);
-      const h = 0.13 * L * Math.sin(Math.PI * t) * (0.85 + 0.15 * Math.sin(t * 9));
-      const [bi, bw] = spineBone(s);
-      for (const k of [0, 1]) {
-        const q = base.clone().add(V(0, k * h, 0));
-        p.v(q, t * 4, k, paint(q, -0.4 + k * 0.2, 'accent'), bi, bw);
+    const rows = 3;
+    for (const face of [1, -1])
+      for (let i = 0; i <= n; i++) {
+        const t = i / n;
+        const s = lerp(s0, s1, t);
+        const base = dorsal(s, -0.01 * L);
+        const h = 0.13 * L * Math.sin(Math.PI * t) * (0.85 + 0.15 * Math.sin(t * 9)) * fs;
+        const [bi, bw] = spineBone(s);
+        const ridge = detail ? 0.5 + 0.5 * Math.cos(i * Math.PI) : 0;
+        for (let k = 0; k <= rows; k++) {
+          const u = k / rows;
+          const th = 0.012 * L * (1 - u * 0.8) * (0.7 + 0.3 * ridge);
+          const q = base.clone().add(V(face * th * 0.5, u * h, 0));
+          p.v(q, t * 4, u, paint(q, -0.4 + u * 0.2, u > 0.5 ? 'accent' : 'body'), bi, bw);
+        }
       }
-    }
-    for (let i = 0; i < n; i++) {
-      const a = b0 + i * 2;
-      p.idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3, a, a + 1, a + 2, a + 1, a + 3, a + 2);
-    }
+    const id = (face: number, i: number, k: number) => b0 + (face > 0 ? 0 : (n + 1) * (rows + 1)) + i * (rows + 1) + k;
+    for (let i = 0; i < n; i++)
+      for (let k = 0; k < rows; k++) {
+        p.idx.push(id(1, i, k), id(1, i + 1, k), id(1, i, k + 1), id(1, i + 1, k), id(1, i + 1, k + 1), id(1, i, k + 1));
+        p.idx.push(id(-1, i, k), id(-1, i, k + 1), id(-1, i + 1, k), id(-1, i + 1, k), id(-1, i, k + 1), id(-1, i + 1, k + 1));
+      }
+    for (let i = 0; i < n; i++) p.idx.push(id(1, i, rows), id(1, i + 1, rows), id(-1, i, rows), id(-1, i, rows), id(1, i + 1, rows), id(-1, i + 1, rows));
   }
   if (f.has('plates')) {
+    // Seventeen individual plates in two alternating rows, largest over the hips and
+    // the base of the tail. Each plate is a solid slab (front, back and a rounded
+    // edge band), thick at its base and thin at its edge, leaning slightly outward.
     const count = 17;
     for (let i = 0; i < count; i++) {
       const t = i / (count - 1);
       const s = lerp(0.12, 0.82, t);
-      const base = dorsal(s, -0.005 * L);
-      const h = 0.085 * L * Math.sin(Math.PI * (0.12 + t * 0.8));
-      const sideOff = (i % 2 ? 1 : -1) * 0.012 * L;
+      const base = dorsal(s, -0.012 * L);
+      const h = 0.085 * L * Math.sin(Math.PI * (0.12 + t * 0.8)) * (0.92 + 0.16 * hash(i, 3, 7)) * fs;
+      const row = i % 2 ? 1 : -1;
       const [bi, bw] = spineBone(s);
       const p = parts[DMAT.scales];
+      // Outline (z along the body, y up), a rounded pentagon.
+      const outline: [number, number][] = [];
+      const k = detail ? 14 : 6;
+      for (let j = 0; j <= k; j++) {
+        const a = Math.PI * (j / k);
+        const r = 1 - 0.18 * Math.abs(Math.cos(a * 2));
+        outline.push([-Math.cos(a) * h * 0.55 * r, Math.sin(a) * h * r + 0.0]);
+      }
+      const lean = row * 0.12;
+      const center = base.clone().add(V(row * 0.012 * L, 0, 0));
+      const th = h * 0.07;
       const b0 = p.pos.length / 3;
-      // Diamond-shaped plate.
-      const pts = [V(0, 0, -h * 0.55), V(0, h * 0.55, -h * 0.25), V(0, h, 0.05 * h), V(0, h * 0.5, h * 0.45), V(0, 0, h * 0.5)];
-      for (const q of pts) p.v(q.add(base).add(V(sideOff, 0, 0)), 0, 0, paint(base, -0.5, 'accent'), bi, bw);
-      const c = p.v(base.clone().add(V(sideOff, h * 0.4, 0)), 0, 0, paint(base, -0.5, 'accent'), bi, bw);
-      for (let k = 0; k < 4; k++) p.idx.push(b0 + k, b0 + k + 1, c, b0 + k + 1, b0 + k, c);
+      for (const face of [1, -1])
+        for (const [z, y] of outline) {
+          const tt = y / h;
+          const q = center.clone().add(V(face * th * (1 - tt * 0.8) * 0.5 + Math.sin(lean) * y, y * Math.cos(lean), z));
+          p.v(q, 0, 0, paint(q, -0.5, tt > 0.6 ? 'accent' : 'body'), bi, bw);
+        }
+      const nO = outline.length;
+      const cF = p.v(center.clone().add(V(th * 0.5 + Math.sin(lean) * h * 0.4, h * 0.4, 0)), 0, 0, paint(center, -0.5, 'body'), bi, bw);
+      const cB = p.v(center.clone().add(V(-th * 0.5 + Math.sin(lean) * h * 0.4, h * 0.4, 0)), 0, 0, paint(center, -0.5, 'body'), bi, bw);
+      for (let j = 0; j < nO - 1; j++) {
+        p.idx.push(b0 + j, b0 + j + 1, cF);
+        p.idx.push(b0 + nO + j + 1, b0 + nO + j, cB);
+        // Edge band.
+        p.idx.push(b0 + j, b0 + nO + j, b0 + j + 1, b0 + j + 1, b0 + nO + j, b0 + nO + j + 1);
+      }
+    }
+  }
+  if (f.has('fluke')) {
+    // Hypocercal tail fluke: the tail vertebrae bend down into the large lower lobe,
+    // a smaller upper lobe of soft tissue rises above (as preserved in Prognathodon).
+    const p = parts[DMAT.scales];
+    const tb = boneIndex.get('tail4')!;
+    const root = atS(0.035).p;
+    const outline: [number, number][] = [[0.03, 0], [-0.01, 0.02], [-0.055, 0.05], [-0.05, 0.02], [-0.04, 0], [-0.06, -0.035], [-0.085, -0.08], [-0.05, -0.05], [-0.01, -0.02], [0.03, 0]];
+    const b0 = p.pos.length / 3;
+    for (const face of [1, -1])
+      for (const [z, y] of outline) {
+        const q = root.clone().add(V(face * 0.003 * L, y * L, z * L));
+        p.v(q, 0, 0, paint(q, y > 0 ? -0.6 : 0.2, 'body'), [tb], [1]);
+      }
+    const n = outline.length;
+    const cF = p.v(root.clone().add(V(0.003 * L, -0.01 * L, -0.03 * L)), 0, 0, paint(root, -0.3, 'body'), [tb], [1]);
+    const cB = p.v(root.clone().add(V(-0.003 * L, -0.01 * L, -0.03 * L)), 0, 0, paint(root, -0.3, 'body'), [tb], [1]);
+    for (let i = 0; i < n - 1; i++) {
+      p.idx.push(b0 + i, b0 + i + 1, cF, b0 + n + i + 1, b0 + n + i, cB);
+      p.idx.push(b0 + i, b0 + n + i, b0 + i + 1, b0 + i + 1, b0 + n + i, b0 + n + i + 1);
     }
   }
   if (f.has('tailSpikes')) {
@@ -860,7 +1226,10 @@ function buildFeatures(sp: SpeciesDef, bp: Blueprint, parts: Part[], boneIndex: 
   if (f.has('club')) {
     const tb = boneIndex.get('tail4') ?? boneIndex.get('tail3')!;
     const c = atS(0.02).p;
-    tube(parts[DMAT.horn], [c.clone().add(V(0, 0, 0.02 * L)), c, c.clone().add(V(0, 0, -0.04 * L))], [0.03 * L, 0.05 * L, 0.02 * L], detail ? 10 : 6, () => [0.48, 0.42, 0.34], () => [[tb], [1]], 1, true, 0.6);
+    // Tail club: fused osteoderms (two large lateral knobs and a smaller tip), skin-coloured.
+    const clubCol = (q: THREE.Vector3): RGB => { const c = paint(q, -0.3, 'body'); return [c[0] * 0.8, c[1] * 0.8, c[2] * 0.8]; };
+    tube(parts[DMAT.horn], [c.clone().add(V(0, 0, 0.02 * L)), c, c.clone().add(V(0, 0, -0.04 * L))], [0.025 * L, 0.04 * L, 0.018 * L], detail ? 10 : 6, clubCol, () => [[tb], [1]], 1, true, 0.6);
+    for (const sx of [1, -1]) tube(parts[DMAT.horn], [c.clone().add(V(sx * 0.02 * L, 0, 0)), c.clone().add(V(sx * 0.045 * L, 0, -0.005 * L))], [0.028 * L, 0.012 * L], detail ? 8 : 5, clubCol, () => [[tb], [1]], 1, true, 0.7);
   }
   if (f.has('armor') || f.has('scutes')) {
     // Rows of osteoderms over the back and flanks.
@@ -876,71 +1245,178 @@ function buildFeatures(sp: SpeciesDef, bp: Blueprint, parts: Part[], boneIndex: 
         const root = sm.p.clone().add(V(dir.x * sm.rx * 0.95, dir.y * sm.ry * 0.95, 0));
         const h = (f.has('armor') ? 0.022 : 0.012) * L * (r === 0 || r === rows - 1 ? 1.4 : 1);
         const pts = [root, root.clone().addScaledVector(dir, h)];
-        tube(parts[DMAT.horn], pts, [h * 0.7, h * 0.08], 5, () => [0.45, 0.4, 0.33], () => [bi, bw], 1, true);
+        // Osteoderms: bony scutes covered in skin and keratin, darker than the hide.
+        tube(parts[DMAT.horn], pts, [h * 0.7, h * 0.08], 5, (q, t) => { const c = paint(q, -0.6, 'body'); const d = 0.75 - 0.3 * t; return [c[0] * d, c[1] * d, c[2] * d]; }, () => [bi, bw], 1, true);
       }
     }
   }
-  // Feathers: rows of tapered pennaceous feathers along the arms (folded
-  // "wings") and a tail fan, coloured like the body with darker tips.
+  // Feathers. A coat of overlapping contour feathers (shingled backward along
+  // the body, neck, thighs and tail; the snout, feet and lower legs stay
+  // scaly), pennaceous wing feathers folded along the arms, a tail fan, and on
+  // Microraptor long feathers on the hind legs (its "four wings").
   if (bp.feathered) {
     const p = parts[DMAT.feathers];
-    const feather = (root: THREE.Vector3, dir: THREE.Vector3, sideDir: THREE.Vector3, len: number, w: number, bone: number, col: RGB) => {
+    const feather = (root: THREE.Vector3, dir: THREE.Vector3, sideDir: THREE.Vector3, len: number, w: number, bones: [number[], number[]], col: RGB, lift: THREE.Vector3 | null = null) => {
       const b0 = p.pos.length / 3;
       const tip = root.clone().addScaledVector(dir, len);
       const mid = root.clone().addScaledVector(dir, len * 0.45);
-      const dark: RGB = [col[0] * 0.55, col[1] * 0.55, col[2] * 0.55];
-      p.v(root, 0, 0, col, [bone], [1]);
-      p.v(mid.clone().addScaledVector(sideDir, w), 1, 0.45, col, [bone], [1]);
-      p.v(tip, 0.5, 1, dark, [bone], [1]);
-      p.v(mid.clone().addScaledVector(sideDir, -w * 0.4), 0, 0.45, col, [bone], [1]);
+      if (lift) {
+        tip.addScaledVector(lift, len * 0.05);
+        mid.addScaledVector(lift, len * 0.04);
+      }
+      const dark: RGB = [col[0] * 0.62, col[1] * 0.62, col[2] * 0.62];
+      const [bi, bw] = bones;
+      p.v(root, 0, 0, col, bi, bw);
+      p.v(mid.clone().addScaledVector(sideDir, w), 1, 0.45, col, bi, bw);
+      p.v(tip, 0.5, 1, dark, bi, bw);
+      p.v(mid.clone().addScaledVector(sideDir, -w * 0.6), 0, 0.45, col, bi, bw);
       p.idx.push(b0, b0 + 1, b0 + 2, b0, b0 + 2, b0 + 3, b0, b0 + 2, b0 + 1, b0, b0 + 3, b0 + 2);
     };
+    // Body coat (close level of detail only; further away the feather texture reads the same).
+    if (detail) {
+      const step = Math.max(1, Math.round(samples.length / 60));
+      const around = 14;
+      for (let i = 2; i < samples.length - 2; i += step) {
+        const sm = samples[i];
+        if (sm.s < 0.08 || sm.s > 0.97) continue;
+        const next = samples[Math.min(samples.length - 1, i + 1)].p;
+        const prv = samples[Math.max(0, i - 1)].p;
+        const tan = next.clone().sub(prv).normalize();
+        const sideAx = V(1, 0, 0);
+        const upAx = tan.clone().cross(sideAx).normalize().negate();
+        if (upAx.y < 0) upAx.negate();
+        const bones = spineWeights(sm.s);
+        const flen = Math.max(0.025, Math.min(sm.rx, sm.ry) * 0.7);
+        for (let k = 0; k < around; k++) {
+          const a = ((k + (i % 2) * 0.5) / around) * Math.PI * 2;
+          const ca = Math.cos(a);
+          const sa = Math.sin(a);
+          const below = Math.max(0, -sa);
+          const nrm = V().addScaledVector(sideAx, ca * sm.ry).addScaledVector(upAx, sa * sm.rx).normalize();
+          const root = sm.p.clone().addScaledVector(sideAx, ca * sm.rx * 0.97).addScaledVector(upAx, sa * sm.ry * 0.97 - below * sm.drop);
+          // Shingled backward, following the curve of the body.
+          const dir = tan.clone().negate().addScaledVector(nrm, 0.08).normalize();
+          const sd = nrm.clone().cross(dir).normalize();
+          const jitter = 0.85 + 0.3 * hash(i, k, 5);
+          feather(root, dir, sd, flen * 1.8 * jitter, flen * 0.6, bones, paint(root, -sa, 'body'), nrm);
+        }
+      }
+      // Thigh feathers ("trousers").
+      for (const leg of bp.legs.filter((l) => !l.front)) {
+        const b0 = boneIndex.get(`${leg.name}0`)!;
+        const j0 = leg.joints[0];
+        const j1 = leg.joints[1];
+        for (let i = 0; i < 10; i++) {
+          const t = 0.15 + (i / 10) * 0.7;
+          const a = (i * 2.4) % (Math.PI * 2);
+          const c = j0.clone().lerp(j1, t);
+          const out = V(Math.sign(j0.x) * Math.abs(Math.cos(a)), Math.sin(a) * 0.5, Math.sin(a) * 0.4).normalize();
+          const root = c.clone().addScaledVector(out, leg.radii[0] * (1 - t * 0.4));
+          const dir = j1.clone().sub(j0).normalize().multiplyScalar(0.7).add(V(0, 0, -0.5)).normalize();
+          feather(root, dir, out.clone().cross(dir).normalize(), leg.radii[0] * 1.6, leg.radii[0] * 0.4, [[b0], [1]], paint(root, 0, 'body'), out);
+        }
+      }
+    }
     const wingy = sp.locomotion.plan === 'bird' || f.has('wings');
     for (const leg of bp.legs.filter((l) => l.front)) {
       const bonesI = [0, 1, 2, 3].map((k) => boneIndex.get(`${leg.name}${k}`)!);
       const s = Math.sign(leg.joints[0].x);
-      const n = detail ? (wingy ? 10 : 7) : 3;
+      const n = detail ? (wingy ? 16 : 11) : 4;
       for (let i = 0; i < n; i++) {
         const t = (i + 0.5) / n;
         const seg = Math.min(2, Math.floor(t * 3));
         const lt = t * 3 - seg;
         const root = leg.joints[seg].clone().lerp(leg.joints[seg + 1], lt);
-        const len = leg.radii[0] * (wingy ? 7 : 3.5) * (0.6 + t * 0.6);
-        const dir = V(s * 0.35, -0.55, -1).normalize();
+        // Primaries on the hand are the longest, secondaries along the forearm shorter.
+        const len = leg.radii[0] * (wingy ? 7.5 : 4) * (0.55 + t * 0.7);
+        const dir = V(s * 0.3, -0.5, -1).normalize();
         const col = paint(root, 0.2, 'body');
-        feather(root, dir, V(s, 0, 0), len, len * 0.16, bonesI[seg], col);
+        feather(root, dir, V(s, 0.2, 0).normalize(), len, len * 0.2, [[bonesI[seg]], [1]], col, V(s, 0, 0));
+      }
+    }
+    if (sp.id === 'microraptor') {
+      // Long pennaceous feathers on the shins and feet (hind wings).
+      for (const leg of bp.legs.filter((l) => !l.front)) {
+        const s = Math.sign(leg.joints[0].x);
+        for (let i = 0; i < (detail ? 9 : 3); i++) {
+          const t = (i + 0.5) / 9;
+          const seg = t < 0.5 ? 1 : 2;
+          const lt = seg === 1 ? t * 2 : (t - 0.5) * 2;
+          const root = leg.joints[seg].clone().lerp(leg.joints[seg + 1], lt);
+          const len = leg.radii[0] * 4.5 * (0.6 + t * 0.6);
+          feather(root, V(s * 0.4, -0.2, -1).normalize(), V(s, 0, 0), len, len * 0.2, [[boneIndex.get(`${leg.name}${seg}`)!], [1]], paint(root, 0.2, 'body'), V(s, 0, 0));
+        }
       }
     }
     const tb = boneIndex.get('tail4') ?? boneIndex.get('tail3')!;
     const fan = sp.locomotion.plan === 'bird' ? 0.2 * L : 0.09 * L;
-    const n = detail ? 9 : 4;
+    const n = detail ? 13 : 4;
     for (let i = 0; i < n; i++) {
       const a = ((i / (n - 1)) - 0.5) * 1.6;
       const root = atS(0.04).p;
       const dir = V(Math.sin(a), 0, -Math.cos(a)).normalize();
-      feather(root, dir, V(Math.cos(a), 0, Math.sin(a)), fan * (0.8 + 0.2 * Math.cos(a)), fan * 0.12, tb, paint(root, 0, 'body'));
+      feather(root, dir, V(Math.cos(a), 0, Math.sin(a)), fan * (0.8 + 0.2 * Math.cos(a)), fan * 0.14, [[tb], [1]], paint(root, 0, 'body'));
     }
   }
-  // Pterosaur wing membranes: from the wing finger to the ankle.
+  // Pterosaur wings: the wing finger (a long tapering bone), the brachiopatagium
+  // stretched from the arm and finger to the flank down to the hip, and the
+  // propatagium in front of the elbow. Built in the folded resting pose; in
+  // flight the arm and finger bones extend and the membrane stretches with them
+  // (its body edge is skinned to the spine, its leading edge to the wing bones).
   if (sp.locomotion.plan === 'pterosaur') {
     const p = parts[DMAT.membrane];
     for (const s of [1, -1]) {
       const wing = bp.legs.find((l) => l.name === (s > 0 ? 'wingL' : 'wingR'))!;
-      const hind = bp.legs.find((l) => l.name === (s > 0 ? 'hindL' : 'hindR'))!;
       const wb = [0, 1, 2, 3].map((k) => boneIndex.get(`${wing.name}${k}`)!);
-      const hb2 = boneIndex.get(`${hind.name}2`)!;
-      const edge = [wing.joints[0], wing.joints[1], wing.joints[2], wing.joints[3], wing.joints[4]];
-      const trail = [samples[Math.floor(samples.length * 0.45)].p, samples[Math.floor(samples.length * 0.35)].p, hind.joints[2], hind.joints[2], wing.joints[4]];
+      const fb = boneIndex.get(`${wing.name}F`)!;
+      const j = wing.joints;
+      const tip = wing.fingerTip!;
+      // Wing finger bone.
+      const fpts = [0, 0.25, 0.5, 0.75, 1].map((t) => j[3].clone().lerp(tip, t));
+      tube(parts[DMAT.scales], fpts, [wing.radii[3] * 0.9, wing.radii[3] * 0.75, wing.radii[3] * 0.6, wing.radii[3] * 0.45, wing.radii[3] * 0.2], detail ? 7 : 4, (q) => paint(q, 0.2, 'limb'), () => [[fb], [1]], 1, true);
+      // Leading edge: shoulder → elbow → wrist → hand → along the finger to its tip.
+      const lead: { p: THREE.Vector3; b: number }[] = [
+        { p: j[0], b: wb[0] },
+        { p: j[1], b: wb[1] },
+        { p: j[2], b: wb[2] },
+        { p: j[3], b: fb },
+        { p: j[3].clone().lerp(tip, 0.35), b: fb },
+        { p: j[3].clone().lerp(tip, 0.7), b: fb },
+        { p: tip, b: fb },
+      ];
+      // Body edge: along the flank from the shoulder back to the hip (thigh).
+      const flank = (s01: number) => {
+        const sm = atS(lerp(0.72, 0.42, s01));
+        return { p: sm.p.clone().add(V(s * sm.rx * 0.95, -sm.ry * 0.1, 0)), w: spineWeights(sm.s) };
+      };
+      const rowsM = detail ? 5 : 3;
       const b0 = p.pos.length / 3;
-      for (let i = 0; i < edge.length; i++) {
-        const bone = wb[Math.min(3, i)];
-        p.v(edge[i], i / 4, 0, [0.5, 0.36, 0.28], [bone], [1]);
-        p.v(trail[i], i / 4, 1, [0.42, 0.3, 0.24], i >= 2 && i < 4 ? [hb2] : [bone], [1]);
+      for (let i = 0; i < lead.length; i++) {
+        const fl = flank(i / (lead.length - 1));
+        for (let r = 0; r <= rowsM; r++) {
+          const u = r / rowsM;
+          // The trailing edge curves inward between finger tip and body (scalloped).
+          const q = lead[i].p.clone().lerp(fl.p, u);
+          const wl = 1 - u;
+          const bones = [lead[i].b, ...fl.w[0]];
+          const ws = [wl, ...fl.w[1].map((x) => x * u)];
+          const shade = 0.9 + 0.1 * Math.sin(u * 3.1);
+          p.v(q, i / (lead.length - 1), u, [0.5 * shade, 0.36 * shade, 0.28 * shade], bones, ws);
+        }
       }
-      for (let i = 0; i < edge.length - 1; i++) {
-        const a = b0 + i * 2;
-        p.idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3, a, a + 1, a + 2, a + 1, a + 3, a + 2);
-      }
+      for (let i = 0; i < lead.length - 1; i++)
+        for (let r = 0; r < rowsM; r++) {
+          const a = b0 + i * (rowsM + 1) + r;
+          const b = a + rowsM + 1;
+          p.idx.push(a, b, a + 1, a + 1, b, b + 1, a, a + 1, b, a + 1, b + 1, b);
+        }
+      // Propatagium: small membrane in front of the elbow, shoulder to wrist.
+      const pb = p.pos.length / 3;
+      p.v(j[0], 0, 0, [0.48, 0.34, 0.27], [wb[0]], [1]);
+      p.v(j[1].clone().add(V(0, 0.02 * L, 0.06 * L)), 0.5, 1, [0.48, 0.34, 0.27], [wb[1]], [1]);
+      p.v(j[2], 1, 0, [0.48, 0.34, 0.27], [wb[2]], [1]);
+      p.v(j[1], 0.5, 0, [0.48, 0.34, 0.27], [wb[1]], [1]);
+      p.idx.push(pb, pb + 1, pb + 3, pb + 3, pb + 1, pb + 2, pb, pb + 3, pb + 1, pb + 3, pb + 2, pb + 1);
     }
   }
 }

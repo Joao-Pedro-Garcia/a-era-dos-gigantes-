@@ -12,7 +12,7 @@ export type DamageKind = 'blunt' | 'cut' | 'pierce' | 'arrow' | 'trap' | 'shock'
 export const SPECIES_ARMOR: Record<string, number> = {
   ankylosaurus: 0.6, sarcosuchus: 0.45, stegosaurus: 0.3, triceratops: 0.35, pachyrhinosaurus: 0.3, brachiosaurus: 0.25,
   tyrannosaurus: 0.25, spinosaurus: 0.2, allosaurus: 0.15, carnotaurus: 0.15, therizinosaurus: 0.15, iguanodon: 0.15,
-  parasaurolophus: 0.1, baryonyx: 0.15, pachycephalosaurus: 0.2, protoceratops: 0.15,
+  parasaurolophus: 0.1, mosasaurus: 0.2, baryonyx: 0.15, pachycephalosaurus: 0.2, protoceratops: 0.15,
 };
 
 /** How much of the armour a damage kind ignores. */

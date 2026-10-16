@@ -2,10 +2,14 @@
 
 Jogo 3D de sobrevivência pré-histórica em mundo aberto, feito para navegador (computador, Android, iPhone e tablets), com Three.js, TypeScript e Vite.
 
-> **Estado: v0.3, jogável e integrado, com transformação visual.**
+> **Estado: v0.4, jogável e integrado: combate animado e dinossauros reconstruídos.**
 > - Todos os sistemas pedidos têm implementação real, conectada ao inventário, ao mundo e ao salvamento.
-> - A v0.3 substituiu os modelos de primitivas por geometria e texturas PBR geradas pelo código: personagem e dinossauros com esqueleto, árvores ramificadas, terreno com materiais misturados, céu físico com nuvens, água, chuva e iluminação baseada no céu.
-> - Tudo é coberto por 128 testes automatizados e por 39 verificações num navegador real.
+> - A v0.3 substituiu os modelos de primitivas por geometria e texturas PBR geradas pelo código.
+> - A v0.4 trouxe:
+>   - **combate e uso de ferramentas com animação real em 1ª e 3ª pessoa**: braços em primeira pessoa, golpes com fases, acerto no quadro de impacto, arco com tensão da corda, efeitos e sons por material e reação dos alvos;
+>   - **reconstrução da geometria dos animais**: crânio fechado com boca, dentes, olhos com pálpebras, penas, golas e placas sólidas, asas de pterossauro com dedo alar e membrana, filhotes com proporções próprias e 3 níveis de detalhe;
+>   - **um animal novo, o mosassauro**, que vive no mar.
+> - Tudo é coberto por 148 testes automatizados, 39 verificações gerais e 21 verificações de combate num navegador real.
 > - O visual **não é fotorrealista**: sem modelos e texturas artísticos, ele continua procedural.
 > - O que depende de recursos externos e as limitações conhecidas estão no fim deste documento, sem rodeios.
 
@@ -16,15 +20,18 @@ npm install          # dependências (Node 18+; testado com Node 22 / npm 10)
 npm run dev          # servidor de desenvolvimento (também acessível pela rede local, para testar no celular)
 npm run build        # checagem de tipos + build de produção em dist/ (gera também o Service Worker)
 npm run preview      # serve o build de produção em http://localhost:4173
-npm test             # 128 testes automatizados (Vitest)
+npm test             # 148 testes automatizados (Vitest)
 npm run test:e2e     # 39 verificações num navegador real (ver "Testes")
+npm run test:combat  # 21 verificações de combate num navegador real (15 cenários)
 ```
 
 A única dependência de execução é `three` (0.170.0). Não há servidores, chaves de API nem serviços externos.
 
 Páginas de diagnóstico:
 
-- `?showcase` mostra as 25 espécies lado a lado.
+- `?showcase` mostra as 26 espécies lado a lado.
+- `?showcase&sheet&species=tyrannosaurus` mostra uma folha de revisão com 6 vistas: lateral, frente, trás, cabeça em 3/4, longe (nível de detalhe distante) e sombra com postura de ameaça ou em voo. Acrescente `&juvenile` para ver o filhote e `&air` para ver voadores no ar.
+- `?showcase&combat&phase=windup|impact|ready|draw` mostra cada arma congelada numa fase do golpe em 3ª pessoa (`&close=<n>` aproxima). Com `&fp&item=<id>`, mostra a mesma fase em 1ª pessoa; `&anim` mostra os golpes em sequência.
 - `?showcase&side&ground&species=triceratops` mostra uma espécie de perfil; acrescente `&close` para um close da cabeça.
 - `?showcase&human` mostra o personagem parado, andando, trotando, correndo e agachado (`&side`, `&close`, `&tool`).
 - `npm run shots` gera capturas de cenas fixas do jogo (início, floresta, dinossauro, entardecer, chuva, 1ª pessoa, noite, água, celular e espécies), para comparar antes e depois (ver *Testes*).
@@ -37,7 +44,7 @@ Páginas de diagnóstico:
 | Mover / olhar | WASD / mouse (clique para capturar) | joystick / arrastar à direita | analógicos |
 | Correr / pular / agachar | Shift / Espaço / C | Correr (alterna) / Pular / Agachar | L3 / A / B |
 | Interagir (coletar, beber, ler, alimentar, portas, cavernas, montar/desmontar) | E | Usar | X |
-| Atacar / coletar / usar ferramenta (luneta, sinalizador) / colocar peça | clique | Ação | RT |
+| Atacar / coletar / usar ferramenta (luneta, sinalizador) / colocar peça; segurar repete o golpe e tensiona o arco (soltar dispara) | clique (segurar) | Ação (segurar) | RT |
 | Usar item da mão (comer, curar, cantil, sinalizador) | F | Comer | — |
 | Atalhos | 1–6, roda | toque na barra | — |
 | Inventário, Fabricação, Habilidades, Animais, Diário, Mapa | Tab / I, M | Itens, 🗺 | Y |
@@ -60,7 +67,9 @@ As teclas podem ser reconfiguradas em **Controles**. A interface de toque só ap
   - **IA completa** para os animais próximos, com taxa de atualização reduzida a 1/2 além de 100 m e a 1/4 além de 170 m.
   - **Simulação abstrata** a cada 2 s para o resto do continente: fome, sede, pastejo, predação, migração, ninhos, crescimento, doenças e morte.
 
-### Dinossauros e IA (25 espécies)
+### Dinossauros e IA (26 espécies)
+
+O inventário completo das espécies, com o que foi reconstruído na v0.4 e o que ainda falta, está em [`docs/dinosaurs.md`](docs/dinosaurs.md).
 
 - **Comportamento:** percepção por visão, audição e **olfato a favor do vento**. A cobertura da selva reduz a visibilidade do jogador.
 - **Memória e personalidade:** memória episódica limitada e personalidade individual. A habituação e a confiança mudam com a convivência.
@@ -119,6 +128,62 @@ Cada espécie tem método e utilidade próprios (`src/taming/profiles.ts`).
 - **Reprodução:** pares domesticados põem ovos no ninho de incubação dentro da estação, ou em qualquer época com a habilidade Criador. Os filhotes já nascem ligados ao jogador.
 
 ### Combate e interação
+
+**Animações de ataque e uso (v0.4).** Uma única máquina de estados (`src/combat/actions.ts`) controla todas as ações, para teclado, mouse, toque e gamepad.
+
+- **Fases das ações:** cada ação tem preparação, golpe (com o **quadro de impacto** dentro dele), recuperação e retorno.
+- **Acerto no quadro de impacto:** o dano, a coleta e os efeitos acontecem **só no quadro de impacto**, nunca ao apertar o botão.
+- **Alvo de cada golpe:**
+  - cada arma tem alcance e arco próprios;
+  - o alvo mais próximo dentro deles é atingido, desde que não haja parede, rocha, tronco ou relevo no caminho;
+  - cada golpe atinge um único alvo;
+  - um golpe no vazio só corta o ar (ou espirra água, se terminar nela).
+- **Animações por item**, usando as mesmas poses-chave em 1ª pessoa (braços próprios) e em 3ª pessoa (esqueleto do corpo, com IK de dois ossos e giro do tronco). O ataque continua enquanto o personagem anda ou corre:
+
+| Item | Ação |
+|---|---|
+| Mãos nuas | soco com guarda, alternando direita e esquerda em sequência |
+| Machado | golpe diagonal de cima para baixo |
+| Picareta | golpe de cima com as duas mãos |
+| Lança | estocada com as duas mãos |
+| Faca | corte lateral |
+| Porrete (novo) e tocha | golpe de cima |
+| Arco | encaixar a flecha, puxar a corda enquanto o botão estiver pressionado (com tremor do braço após segurar muito tempo) e soltar |
+| Luneta, sinalizador e outras ferramentas | levar à frente ou ao olho |
+
+- **Arco:**
+  - a flecha sai da posição real da corda do arco (o da 1ª pessoa ou o do corpo) e é mirada para o ponto sob a mira;
+  - a velocidade e o dano crescem com a tensão;
+  - um toque rápido ainda dispara depois de uma tensão mínima;
+  - as flechas fincam no chão ou em paredes.
+- **Equipar, guardar e trocar:**
+  - o item sai de vista, é trocado e sobe de novo;
+  - o ataque sempre usa o item que está na mão: trocar no meio do golpe cancela o golpe antigo;
+  - trocas repetidas terminam no último item escolhido, com um único modelo na mão.
+- **Entrada duplicada:** toque e clique sintético no mesmo quadro, ou duas entradas seguidas em menos de 60 ms, viram uma ação só.
+- **Primeira pessoa:**
+  - mesmos braços, mangas e mãos do corpo, com as mãos fechadas segurando o item;
+  - desenhados numa passada própria, sem atravessar paredes nem árvores, com campo de visão fixo;
+  - balançam ao andar e atrasam em giros rápidos;
+  - recuam no impacto, com um pequeno tranco da câmera.
+- **Reação dos alvos:**
+  - o animal recua para longe do golpe, sacode a cabeça, abre a boca, chicoteia a cauda e solta um grito;
+  - a IA interrompe o pastar, beber ou descansar;
+  - a intensidade depende do tamanho: um animal pequeno é empurrado e quase para, um gigante só estremece;
+  - árvores e arbustos atingidos balançam.
+- **Efeitos de impacto leves** (2 chamadas de desenho, quantidade reduzida no perfil Baixo):
+  - lascas de madeira;
+  - fragmentos e poeira de pedra;
+  - folhas;
+  - torrões de terra;
+  - respingos de água;
+  - faíscas de metal;
+  - cristais;
+  - um leve borrifo escuro em animais (sem violência gráfica).
+- **Sons sincronizados:** golpe leve ou pesado no ar, impacto por material (madeira, pedra, planta, carne, terra, metal, cristal, água), rangido da corda, disparo, equipar e guardar.
+- **Armas de fogo:** não existem no jogo, então não há animação para elas.
+
+**Regras de dano e arsenal:**
 
 - **Dano:** cada espécie tem armadura própria (anquilossauro 60%, sarcosuco 45%…) e o tipo de dano importa. A lança perfura, a faca e o machado cortam, as flechas perfuram parcialmente e o choque ignora a armadura.
 - **Arsenal:** arco e flechas balísticas, armadilhas, sinalizador (afugenta a maioria dos animais), cerca elétrica e tocha (intimida predadores).
@@ -317,7 +382,7 @@ Comparação com capturas reais das mesmas cenas, antes e depois, no perfil Méd
 
 ## Testes executados e resultados
 
-### Testes automatizados (`npm test`): **128 de 128 passando**
+### Testes automatizados (`npm test`): **148 de 148 passando**
 
 | Arquivo | Cobre |
 |---|---|
@@ -335,7 +400,9 @@ Comparação com capturas reais das mesmas cenas, antes e depois, no perfil Méd
 | `mysteries.test.ts` | textos nos 2 idiomas, baterias, requisitos do final, coleta única, saneamento, rádio |
 | `save.test.ts` / `save2.test.ts` | migrações v0→v2, soma de verificação, arquivos inválidos, valores impossíveis, fallback para backup, IndexedDB |
 | `i18n.test.ts` / `settings.test.ts` | chaves completas (inclusive dinâmicas), troca de idioma, perfis gráficos e saneamento das configurações |
-| `graphics.test.ts` | texturas sem emenda e determinísticas, plantas (todas as variantes e níveis de detalhe, vento), pools de instâncias, pesos de solo e trilhas, esqueleto humano (pesos normalizados, altura), os 25 dinossauros (dados finitos, pesos e ossos válidos, tamanho), perfis gráficos e manifesto de modelos externos (rejeita URLs inseguras) |
+| `graphics.test.ts` | texturas sem emenda e determinísticas, plantas (todas as variantes e níveis de detalhe, vento), pools de instâncias, pesos de solo e trilhas, esqueleto humano (pesos normalizados, altura), as 26 espécies (dados finitos, pesos e ossos válidos, tamanho), perfis gráficos e manifesto de modelos externos (rejeita URLs inseguras) |
+| `actions.test.ts` (v0.4) | ações por item, fases e quadro de impacto, alternância esquerda/direita, equipar/trocar sem golpear com o item antigo, trocas repetidas, filtro de entrada duplicada, repetição ao segurar, arco (puxar, soltar, toque rápido, sem flechas), tarefa no impacto (coleta), IK do braço alcança cada pose-chave (erro < 2 cm) |
+| `dinos.test.ts` (v0.4) | as 26 espécies geram 3 níveis de detalhe com a mesma silhueta (dados finitos, pesos de osso normalizados), filhotes com proporções próprias, dedo da asa dos pterossauros, reação a golpes proporcional ao tamanho, mosassauro classificado como escamado e sempre em mar profundo ao nadar e caçar |
 
 ### Teste no navegador (`npm run test:e2e`): **39 de 39 passando**
 
@@ -393,6 +460,28 @@ Todas as medições abaixo foram feitas neste ambiente: Intel Xeon 2,8 GHz, 4 n�
 | IA e ecossistema por quadro | 0,40 ms (16 ativos) a 0,91 ms (64), medido em Node 22 |
 | Tamanho do jogo | 1,07 MB de JS (306 KB gzip) + workers de texturas (12 KB) e terreno (10 KB) + carregador glTF (45 KB, só executado se houver modelos no manifesto; entra no cache offline); CSS 12 KB |
 
+**v0.4 (combate e dinossauros), mesmo método e mesma máquina.** Medições em sequência, v0.3 e v0.4 servidas lado a lado:
+
+| Medição | v0.3 | v0.4 |
+|---|---|---|
+| Baixo: FPS (média de 20 s) | 2,2 / 1,95 FPS | 2,4 / 2,25 / 2,35 FPS |
+| Baixo: tempo até jogar | 1,0–2,1 s | 1,2–1,9 s |
+| Baixo: memória JS | 43–45 MB | 51–61 MB |
+| Médio: FPS | 0,4 / 0,5 FPS | 0,45 FPS |
+| Médio: tempo até jogar | 6,0–6,4 s | 4,2 s |
+| Médio: memória JS | 104 MB | 111 MB |
+| Braços em 1ª pessoa: passada extra | — | 10,3 ms por quadro (o mundo leva 407 ms no renderizador por software, ~2,5%); CPU 0,05 ms |
+| Partículas de impacto: atualização | — | 0,27 ms com 135 partículas ativas (limite 128 sólidas + 64 de poeira; 2 chamadas de desenho) |
+| Dinossauro de perto (triângulos) | 6,6–9,7 mil | 9,3–14,9 mil (penas e dentes) |
+| Dinossauro a média distância (nível novo) | — | 3,0–4,1 mil |
+| Dinossauro longe | 1,5–2,5 mil | 1,4–2,8 mil |
+
+- Com a diferença de FPS dentro do ruído do renderizador por software, **não houve perda de desempenho mensurável**.
+- A memória cresceu de 7 a 16 MB, por causa dos modelos de nível médio, dos filhotes e dos braços em 1ª pessoa.
+- Primeiro build da v0.4: o carregamento no Médio subiu para 11–20 s, porque os modelos de filhote de todas as espécies eram pré-gerados na tela de carregamento.
+  - Correção: agora só são pré-gerados os filhotes próximos ao início. Os outros são gerados na primeira vez em que aparecem, o que pode causar uma pequena pausa única por espécie (20–120 ms, medido em Node).
+- Nada disso foi medido em celulares nem em PCs com GPU.
+
 **Interpretação honesta:**
 - A v0.3 é bem mais pesada que a v0.2. São mais geometria e shaders por pixel muito mais elaborados (mistura de 7 materiais, céu com nuvens, neblina atmosférica, água com ondas).
 - No renderizador por software, o perfil Baixo ficou cerca de 2,8× mais lento que antes.
@@ -405,7 +494,30 @@ Todas as medições abaixo foram feitas neste ambiente: Intel Xeon 2,8 GHz, 4 n�
   - sem sombras dinâmicas, mapas normais nem pós-processamento.
 - **A meta de desempenho em aparelhos reais continua pendente de verificação.**
 
-### Problemas encontrados e corrigidos nesta fase
+### Problemas encontrados e corrigidos na v0.4
+
+- **Arco disparava como golpe corpo a corpo.** Um teste unitário mostrou que, depois de encaixar a flecha, o arco entrava na fase de golpe e gerava um impacto. Corrigido: ele passa direto para "puxar a corda".
+- **Ataque apertado durante a troca de item se perdia.** Corrigido: o pedido agora espera o item novo ficar pronto.
+- **Toque duplicado passava em quadros lentos.** O filtro contava só o tempo do jogo. Agora também usa o tempo real.
+- **Braços em 1ª pessoa:**
+  - na lança, a mão esquerda ficava fora do alcance do braço; as poses-chave foram refeitas dentro do alcance;
+  - o punho aparecia aberto como um "copo"; agora a palma é fechada e há uma almofada no punho cerrado;
+  - a mão de puxar a corda tapava a tela; a puxada visual em 1ª pessoa ficou mais curta, e a flecha continua saindo da corda.
+- **Dinossauros:**
+  - colarinho aberto entre o pescoço e a cabeça;
+  - boca oca ao abrir a mandíbula;
+  - mancha clara na coxa;
+  - Triceratops com o focinho caído até o chão;
+  - Carnotaurus com o crânio igual ao do Alossauro.
+- **Pterossauros:**
+  - o dedo da asa seguia o IK da caminhada e apontava para a frente;
+  - a membrana dobrada formava um lençol enorme;
+  - correção: o dedo agora é orientado explicitamente, e a membrana é modelada aberta e se recolhe ao dobrar.
+- **Carregamento no perfil Médio dobrou** com a pré-geração de filhotes de todas as espécies (ver medições). Corrigido.
+- **Teste de coleta no navegador:** a madeira agora chega no quadro de impacto, não no aperto da tecla. O teste passou a esperar o impacto, com o mesmo critério.
+- **Erro meu durante a edição:** um script de edição chegou a esvaziar o README. Ele foi restaurado do git antes de reaplicar as mudanças.
+
+### Problemas encontrados e corrigidos na v0.3
 
 - O monitor de desempenho usava o passo limitado do jogo em vez do tempo real, superestimava o FPS e não reduzia a qualidade em aparelhos lentos.
 - Locais planejados podiam cair em rios ou penhascos; agora o terreno ao redor é aplainado.
@@ -442,7 +554,7 @@ Todas as medições abaixo foram feitas neste ambiente: Intel Xeon 2,8 GHz, 4 n�
 ## Recursos externos ainda necessários
 
 - **Modelos 3D artísticos com animações (GLB/glTF):**
-  - um por espécie (25) e um para o personagem;
+  - um por espécie (26) e um para o personagem, além de braços e armas em 1ª pessoa com animações de ataque feitas por animador ou capturadas;
   - o jogo já sabe usá-los pelo `public/models/manifest.json`, escolhendo o clipe pelo estado e sincronizando o passo;
   - não há arquivos incluídos, e os modelos atuais são procedurais.
   - Para chegar a um visual realmente cinematográfico, seriam necessários:
@@ -457,8 +569,15 @@ Todas as medições abaixo foram feitas neste ambiente: Intel Xeon 2,8 GHz, 4 n�
 
 ## Limitações conhecidas
 
+- **Combate (v0.4):**
+  - as animações de ataque são procedurais (poses-chave + IK), não clipes de animador nem captura de movimento;
+  - as mãos não têm dedos articulados, só punhos fechados modelados, e de perto aparecem facetadas;
+  - não há rastro de movimento (motion trail) nas armas;
+  - não há bloqueio, esquiva, ataque carregado nem combos além da alternância de socos;
+  - o acerto em animais usa uma esfera aproximada, não o corpo real;
+  - não existem armas de fogo.
 - **Visual (sem fotorrealismo):**
-  - o personagem e os dinossauros são procedurais, com esqueleto e pele contínua;
+  - o personagem e os dinossauros são procedurais, com esqueleto e pele contínua (detalhes da v0.4 e o que ainda falta em [`docs/dinosaurs.md`](docs/dinosaurs.md));
   - o rosto humano é simples, sem expressões nem dedos articulados;
   - os dinossauros não têm músculos, dobras de pele nem rugas esculpidas, e a anatomia é aproximada por seções;
   - as animações são procedurais, não capturadas;
@@ -491,17 +610,22 @@ src/
                  vegetationPools (instâncias globais), terrainMesh/terrainWorker e farTerrain (horizonte)
   graphics/      texgen (texturas PBR procedurais), textureLibrary (carregamento progressivo e cache),
                  terrainMaterial, vegetationMaterial, sky, atmosphere (neblina física), water,
-                 precipitation, wind, postfx (GTAO), contactShadow, externalModels (GLB/glTF opcionais)
-  animals/       espécies, estado do animal, ecossistema, dinoModel (dinossauros com esqueleto), animalView (pose e IK)
+                 precipitation, wind, postfx (GTAO), contactShadow, externalModels (GLB/glTF opcionais),
+                 impactFx (lascas, poeira, respingos)
+  animals/       espécies, estado do animal, ecossistema, dinoModel (dinossauros com esqueleto, 3 LODs, filhotes),
+                 animalView (pose, IK, comportamentos, reação a golpes), aquatic (animais marinhos)
   ai/            cérebro (percepção, decisão, domesticados, montaria) e memória
   taming/        perfis por espécie, regras de confiança/treino, controlador (cochos, coletores, reprodução)
-  combat/        armadura, tipos de dano, armadilhas
+  combat/        armadura, tipos de dano, armadilhas; actions (máquina de estados das ações: fases, impacto, equipar, arco)
   progression/   disciplinas, XP, habilidades e seus efeitos
   exploration/   névoa do mapa, trilha, marcadores, fósseis
   mysteries/     documentos, estado da investigação, requisitos do final
-  player/        controle, câmera, humanModel (personagem com esqueleto), playerView (animação e IK)
+  player/        controle, câmera, humanModel (personagem com esqueleto), playerView (animação e IK),
+                 armPose (poses-chave dos golpes + IK dos braços, 1ª e 3ª pessoa), viewmodel (braços em 1ª pessoa),
+                 itemModels (ferramentas e armas na mão)
   survival/  inventory/  crafting/  building/  input/  ui/  audio/  performance/  save/  localization/  dev/
-tests/           testes unitários e de integração (Vitest) + tests/e2e/run.mjs (navegador)
+tests/           testes unitários e de integração (Vitest) + tests/e2e/run.mjs e combat.mjs (navegador)
+docs/            dinosaurs.md (inventário das espécies) e visual/ (capturas antes e depois)
 ```
 
 Para adicionar uma espécie: inclua uma entrada em `src/animals/species.ts`, outra em `src/taming/profiles.ts` (e, se for blindada, em `src/combat/combat.ts`) e coloque-a na tabela de fauna de um bioma em `src/world/biomes.ts`. Os testes verificam se faltou algo, inclusive as traduções.

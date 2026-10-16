@@ -4,6 +4,9 @@ import { buildHumanRig, JOINTS, type BoneName, type HumanRig } from './humanMode
 import type { PlayerController } from './player';
 import { createContactShadow } from '../graphics/contactShadow';
 import { driveExternal, hasExternal, instantiate, type ExternalInstance } from '../graphics/externalModels';
+import { actionKindFor, type CombatController } from '../combat/actions';
+import { actionPose, lowerPose, pitchKey, solveArm, type ArmPose, type HandKey } from './armPose';
+import { attachToHand, buildItemModel, disposeItemModel, type ItemModel } from './itemModels';
 
 /**
  * The survivor: a skinned human (see humanModel.ts) animated procedurally
@@ -30,9 +33,15 @@ const ANKLE_Y = JOINTS['foot.L'][1];
 export class PlayerView {
   readonly root = new THREE.Group();
   private rig: HumanRig;
-  private held = new THREE.Group();
   private heldId = '';
-  private swing = 0;
+  private item: ItemModel | null = null;
+  private combat: CombatController | null = null;
+  private torchLight = new THREE.PointLight(0xffa040, 25, 16, 1.5);
+  private twist = 0;
+  private wR = 0;
+  private wL = 0;
+  private lastR: HandKey | null = null;
+  private lastL: HandKey | null = null;
   private time = 0;
   private pelvis = HIP_Y;
   private lean = 0;
@@ -63,8 +72,8 @@ export class PlayerView {
     this.materials = [skin, cloth, leather, hair, eye];
     this.rig = buildHumanRig(this.materials);
     this.root.add(this.rig.mesh);
-    this.rig.bones['hand.R'].add(this.held);
-    this.held.position.set(0, -0.07, 0.01);
+    this.torchLight.visible = false;
+    this.root.add(this.torchLight);
     this.shadow = createContactShadow(0.42);
     this.root.add(this.shadow);
     this.textures = textures ?? null;
@@ -77,59 +86,40 @@ export class PlayerView {
   }
   private textures: TextureLibrary | null;
 
-  setHeld(itemId: string): void {
+  /** Shows the item that the combat state says is in the hands. */
+  private setHeld(itemId: string): void {
     if (itemId === this.heldId) return;
+    if (this.item) disposeItemModel(this.item);
+    this.item = null;
     this.heldId = itemId;
-    for (const c of this.held.children) c.traverse((o) => o instanceof THREE.Mesh && o.geometry.dispose());
-    this.held.clear();
     if (!itemId) return;
-    const wood = new THREE.MeshStandardMaterial({ color: 0x8a6a4a, roughness: 0.85 });
-    if (this.textures) this.textures.bind(wood, 'bark', { map: true, normal: true, rough: false });
-    const stone = new THREE.MeshStandardMaterial({ color: 0x6a665e, roughness: 0.7 });
-    const spear = itemId.includes('spear');
-    const len = spear ? 1.8 : itemId === 'torch' ? 0.55 : 0.6;
-    // The hand hangs along -Y in the rest pose: tools extend along the hand's -Y axis, slightly forward.
-    const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.019, len, 8), wood);
-    handle.position.y = spear ? -0.2 : -len * 0.32;
-    handle.castShadow = true;
-    const holder = new THREE.Group();
-    holder.rotation.x = 1.35;
-    holder.add(handle);
-    if (itemId === 'torch') {
-      const head = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.03, 0.12, 8), new THREE.MeshStandardMaterial({ color: 0x2a2018, roughness: 1 }));
-      head.position.y = handle.position.y - len / 2;
-      const flame = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.18, 8), new THREE.MeshBasicMaterial({ color: 0xffa040 }));
-      flame.position.y = head.position.y - 0.13;
-      flame.rotation.x = Math.PI;
-      const light = new THREE.PointLight(0xffa040, 25, 16, 1.5);
-      light.position.y = flame.position.y - 0.1;
-      holder.add(head, flame, light);
-    } else if (itemId !== 'bow') {
-      const geo = spear ? new THREE.ConeGeometry(0.03, 0.2, 6) : new THREE.DodecahedronGeometry(0.06, 0);
-      const h = new THREE.Mesh(geo, stone);
-      if (spear) {
-        h.rotation.x = Math.PI;
-        h.position.y = handle.position.y - len / 2 - 0.08;
-      } else {
-        h.scale.set(0.8, 1.5, 0.45);
-        h.position.set(0, handle.position.y - len / 2 + 0.06, 0.03);
-      }
-      h.castShadow = true;
-      holder.add(h);
-    }
-    this.held.add(holder);
+    this.item = buildItemModel(itemId, this.textures);
+    const left = itemId === 'bow';
+    attachToHand(this.item, this.rig.bones[left ? 'hand.L' : 'hand.R'], left ? 1 : -1);
   }
 
-  attackSwing(): void {
-    this.swing = 1;
+  /** World position of the bow's nock (third person arrow start). */
+  nockWorld(out: THREE.Vector3): THREE.Vector3 | null {
+    if (!this.item?.nock) return null;
+    this.root.updateMatrixWorld(true);
+    return this.item.root.localToWorld(out.copy(this.item.nock));
+  }
+
+  /** World position of the working end of the held item (or the leading fist). */
+  tipWorld(out: THREE.Vector3, hand: 'L' | 'R' = 'R'): THREE.Vector3 {
+    this.root.updateMatrixWorld(true);
+    if (this.item && hand === 'R') return this.item.root.localToWorld(out.copy(this.item.tip));
+    return this.rig.bones[`hand.${hand}`].localToWorld(out.set(0, -0.09, 0));
   }
 
   /**
    * @param ground terrain height at a world position (for foot placement);
    *               omitted → flat ground at the player's feet.
    */
-  update(dt: number, p: PlayerController, firstPerson: boolean, ground?: (x: number, z: number) => number): void {
+  update(dt: number, p: PlayerController, firstPerson: boolean, ground?: (x: number, z: number) => number, combat?: CombatController): void {
     const s = p.s;
+    this.combat = combat ?? null;
+    this.setHeld(combat?.shown ?? '');
     this.time += dt;
     this.root.position.set(s.x, s.y, s.z);
     this.root.rotation.y = p.bodyYaw;
@@ -269,26 +259,39 @@ export class PlayerView {
       B[`foreArm${sfx}` as BoneName].rotation.x = -(elbow + Math.max(0, -swingA) * 0.5);
       B[`hand${sfx}` as BoneName].rotation.x = -0.1;
     }
-    this.poseTool();
+    this.poseAction(dt, s.pitch);
     this.finish(dt);
   }
 
-  /** Right arm: carrying a tool forward and the strike motion. */
-  private poseTool(): void {
+  /**
+   * Upper body for actions (layered over the gait, so the survivor can
+   * strike while walking or running): the same hand keys as the
+   * first-person arms, reached with IK, plus the chest twist of the swing.
+   */
+  private poseAction(dt: number, pitch: number): void {
+    const c = this.combat;
     const B = this.rig.bones;
-    if (this.heldId) {
-      B['upperArm.R'].rotation.x = B['upperArm.R'].rotation.x * 0.4 - 0.25;
-      B['foreArm.R'].rotation.x = -0.75;
+    const k = 1 - Math.exp(-12 * dt);
+    let pose: ArmPose = { R: null, L: null, twist: 0, lean: 0 };
+    if (c) {
+      pose = actionPose(c, c.shown ? actionKindFor(c.shown) : null, false);
+      pose = lowerPose(pose, c.lowered, false);
+      // Aim with the camera pitch: fully for the bow, partly for strikes.
+      const aim = c.def.kind === 'bow' && c.busy ? 0.9 : c.busy ? 0.4 : 0;
+      pose = { ...pose, R: pitchKey(pose.R, pitch * aim), L: pitchKey(pose.L, pitch * aim) };
     }
-    if (this.swing > 0) {
-      const u = 1 - this.swing;
-      // Wind-up above the shoulder, then a fast downward strike.
-      const a = u < 0.3 ? -2.5 * (u / 0.3) : -2.5 + 2.3 * Math.min(1, (u - 0.3) / 0.35);
-      B['upperArm.R'].rotation.x = a;
-      B['upperArm.R'].rotation.z = -0.25;
-      B['foreArm.R'].rotation.x = -0.5 - (u < 0.3 ? 0.8 : 0);
-      B.chest.rotation.y += (u < 0.3 ? 0.35 : -0.25) * (1 - Math.abs(u - 0.3));
-    }
+    this.twist += (pose.twist - this.twist) * k;
+    B.chest.rotation.y += this.twist * 0.6;
+    B.spine.rotation.y += this.twist * 0.4;
+    B.spine.rotation.x += pose.lean;
+    this.wR += ((pose.R ? 1 : 0) - this.wR) * k;
+    this.wL += ((pose.L ? 1 : 0) - this.wL) * k;
+    if (pose.R) this.lastR = pose.R;
+    if (pose.L) this.lastL = pose.L;
+    if (this.wR < 0.01 && this.wL < 0.01) return;
+    this.rig.mesh.updateMatrixWorld(true);
+    if (this.lastR) solveArm(this.rig.mesh, B, 'R', this.lastR, this.wR);
+    if (this.lastL) solveArm(this.rig.mesh, B, 'L', this.lastL, this.wL);
   }
 
   private poseSwim(phase: number, mv: number): void {
@@ -327,8 +330,26 @@ export class PlayerView {
     B.spine.rotation.x = 0.12 + Math.sin(t * 3) * 0.02;
   }
 
-  private finish(dt: number): void {
-    this.swing = Math.max(0, this.swing - dt * 2.6);
+  private finish(_dt: number): void {
+    const it = this.item;
+    if (it?.setDraw && this.combat) {
+      it.setDraw(this.combat.draw);
+      if (it.arrow) it.arrow.visible = this.combat.phase === 'draw' || (this.combat.phase === 'windup' && this.combat.def.kind === 'bow');
+    }
+    if (it?.flame) {
+      const f = 1 + Math.sin(this.time * 23) * 0.08 + Math.sin(this.time * 37) * 0.05;
+      it.flame.scale.set(f, f * (1 + Math.sin(this.time * 17) * 0.1), f);
+    }
+    // The torch lights the world in both camera modes (the body is hidden in first person).
+    this.torchLight.visible = this.heldId === 'torch';
+    if (this.torchLight.visible) {
+      if (this.rig.mesh.visible && it) {
+        this.root.updateMatrixWorld(true);
+        it.root.localToWorld(this.torchLight.position.set(0, 0.5, 0));
+        this.root.worldToLocal(this.torchLight.position);
+      } else this.torchLight.position.set(-0.25, 1.5, 0.45);
+      this.torchLight.intensity = 25 * (1 + Math.sin(this.time * 19) * 0.06 + Math.sin(this.time * 7.3) * 0.05);
+    }
     // Contact shadow follows the pelvis over the ground.
     this.shadow.position.set(this.rig.bones.hips.position.x, 0.03, 0);
     const lift = Math.max(0, this.pelvis - HIP_Y + 0.05);
@@ -337,6 +358,7 @@ export class PlayerView {
   }
 
   dispose(): void {
+    if (this.item) disposeItemModel(this.item);
     this.rig.mesh.geometry.dispose();
     for (const m of this.materials) {
       this.textures?.unbind(m);

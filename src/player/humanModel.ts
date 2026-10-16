@@ -322,7 +322,7 @@ function leg(side: 1 | -1, cloth: Part, leather: Part): void {
   loft(leather, fsecs.map(([z, w, h, cy]) => ({ c: V(fx + side * 0.008 * (z + 0.05) * 4, cy, z), rx: w, rz: h, p: 2.6 })), 16, V(1, 0, 0), 0.25, () => [LEATHER[0] * 0.8, LEATHER[1] * 0.8, LEATHER[2] * 0.8], (_t, p) => blend(foot, toe, p.z, 0.09, 0.14), true, true);
 }
 
-function arm(side: 1 | -1, cloth: Part, skin: Part): void {
+function arm(side: 1 | -1, cloth: Part, skin: Part, fist = false): void {
   const sfx = side > 0 ? '.L' : '.R';
   const upper = BI[`upperArm${sfx}` as BoneName];
   const fore = BI[`foreArm${sfx}` as BoneName];
@@ -354,31 +354,53 @@ function arm(side: 1 | -1, cloth: Part, skin: Part): void {
     return tt < 0.02 ? [BI.chest, upper, 0.4, 0.6] : sk(tt);
   });
   loft(skin, secs.slice(split - 1), 16, sideAxis, 0.3, () => SKIN, (t) => sk(prof[split - 1 + Math.round(t * (prof.length - split))][0]));
-  handMesh(side, skin, hand, W);
+  handMesh(side, skin, hand, W, fist);
 }
 
-function handMesh(side: 1 | -1, skin: Part, hand: number, W: THREE.Vector3): void {
+function handMesh(side: 1 | -1, skin: Part, hand: number, W: THREE.Vector3, fist = false): void {
   const s: Skin = [hand, hand, 1, 0];
   // Palm: from the wrist down (relaxed hanging hand), thumb forward.
+  // The palm starts inside the wrist and is capped, so the cut never shows when the wrist bends.
   const palm: Section[] = [
+    { c: W.clone().add(V(0, 0.018, 0)), rx: 0.021, rz: 0.024 },
     { c: W.clone().add(V(0, -0.005, 0)), rx: 0.025, rz: 0.03 },
     { c: W.clone().add(V(side * 0.003, -0.04, 0.002)), rx: 0.017, rz: 0.042 },
     { c: W.clone().add(V(side * 0.005, -0.085, 0.002)), rx: 0.014, rz: 0.043 },
   ];
-  loft(skin, palm, 12, V(0, 0, 1), 0.2, () => SKIN, () => s);
+  loft(skin, palm, 12, V(0, 0, 1), 0.2, () => SKIN, () => s, true, true);
   // Fingers along the front edge of the palm, slightly curled inward.
   const base = W.clone().add(V(side * 0.005, -0.088, 0));
   const lens = [0.075, 0.085, 0.08, 0.065];
+  // Fist: each finger wraps around the grip axis (a circle of radius R toward the palm),
+  // which is where held items are attached (itemModels.attachToHand).
+  const R = 0.024;
   for (let f = 0; f < 4; f++) {
     const z = 0.03 - f * 0.02;
     const root = base.clone().add(V(0, 0, z));
     const len = lens[f];
-    const pts = [0, 0.4, 0.75, 1].map((t) => root.clone().add(V(-side * Math.sin(t * 1.0) * len * 0.35, -Math.sin(t * 1.2) * len * 0.9, 0)));
-    loft(skin, pts.map((c, i) => ({ c, rx: 0.0095 - i * 0.0012, rz: 0.009 - i * 0.0012 })), 8, V(0, 0, 1), 0.2, () => SKIN, () => s, true);
+    const pts = fist
+      ? [0, 0.25, 0.5, 0.75, 1].map((t) => {
+          const a = (t * len) / R;
+          return root.clone().add(V(-side * R * (1 - Math.cos(a)), -R * Math.sin(a) - 0.004, 0));
+        })
+      : [0, 0.4, 0.75, 1].map((t) => root.clone().add(V(-side * Math.sin(t * 1.0) * len * 0.35, -Math.sin(t * 1.2) * len * 0.9, 0)));
+    // Fingers of a fist are thicker at the knuckles and taper less (they press together).
+    const taper = fist ? 0.0006 : 0.0012;
+    const r0 = fist ? 0.0105 : 0.0095;
+    loft(skin, pts.map((c, i) => ({ c, rx: r0 - i * taper, rz: r0 - 0.0005 - i * taper })), 8, V(0, 0, 1), 0.2, () => SKIN, () => s, true);
+  }
+  // A closed fist: the finger pads press together around the grip axis (also fills the ring
+  // the curled fingers would otherwise leave open when the hand holds nothing).
+  if (fist) {
+    const c = W.clone().add(V(side * (0.005 - R), -0.092, 0));
+    loft(skin, [-0.034, -0.007, 0.02].map((z) => ({ c: c.clone().add(V(0, 0, z)), rx: 0.0165, rz: 0.0165 })), 10, V(1, 0, 0), 0.2, () => [SKIN[0] * 0.92, SKIN[1] * 0.9, SKIN[2] * 0.9], () => s, true, true);
   }
   // Thumb.
   const tr = W.clone().add(V(-side * 0.012, -0.03, 0.03));
-  const tpts = [0, 0.5, 1].map((t) => tr.clone().add(V(-side * t * 0.012, -t * 0.045, t * 0.022)));
+  // In a fist the thumb closes over the middle phalanges of the index and middle fingers.
+  const tpts = fist
+    ? [0, 0.5, 1].map((t) => tr.clone().add(V(-side * t * 0.03, -t * 0.05, t * 0.012 - t * t * 0.02)))
+    : [0, 0.5, 1].map((t) => tr.clone().add(V(-side * t * 0.012, -t * 0.045, t * 0.022)));
   loft(skin, tpts.map((c, i) => ({ c, rx: 0.012 - i * 0.002, rz: 0.011 - i * 0.002 })), 8, V(1, 0, 0), 0.2, () => SKIN, () => s, true);
 }
 
@@ -537,7 +559,8 @@ export function buildHumanGeometry(): THREE.BufferGeometry {
   belt(parts.leather);
   for (const side of [1, -1] as const) {
     leg(side, parts.cloth, parts.leather);
-    arm(side, parts.cloth, parts.skin);
+    // Hands loosely closed: they hold tools and punch (a relaxed fist also reads naturally when walking).
+    arm(side, parts.cloth, parts.skin, true);
   }
   head(parts.skin, parts.hair, parts.eye);
   const list = [parts.skin, parts.cloth, parts.leather, parts.hair, parts.eye];
@@ -546,8 +569,22 @@ export function buildHumanGeometry(): THREE.BufferGeometry {
   return geo;
 }
 
-export function buildHumanRig(materials: THREE.Material[]): HumanRig {
-  const geo = buildHumanGeometry();
+/**
+ * First-person arms: the same arm and hand surfaces as the body (sleeve,
+ * forearm, hand), with the hands closed in a grip, skinned to the same
+ * skeleton. Material slots: skin, cloth.
+ */
+export function buildArmsGeometry(): THREE.BufferGeometry {
+  const skin = new Part(MAT.skin);
+  const cloth = new Part(MAT.cloth);
+  for (const side of [1, -1] as const) arm(side, cloth, skin, true);
+  const geo = mergeGeometries([skin.geometry(), cloth.geometry()], true)!;
+  geo.computeBoundingSphere();
+  return geo;
+}
+
+export function buildHumanRig(materials: THREE.Material[], geometry?: THREE.BufferGeometry): HumanRig {
+  const geo = geometry ?? buildHumanGeometry();
   const bones = {} as Record<BoneName, THREE.Bone>;
   const rest = {} as Record<BoneName, THREE.Vector3>;
   for (const name of BONE_NAMES) {
