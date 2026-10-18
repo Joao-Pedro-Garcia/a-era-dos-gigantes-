@@ -84,6 +84,20 @@ O inventário completo das espécies, com o que foi reconstruído na v0.4 e o qu
 - **Ferimentos:** um animal ferido cambaleia. Os valentes retaliam; os muito feridos fogem, a menos que estejam protegendo filhotes.
 - **Grupos:** alarme com atraso individual e defesa de território e de filhotes.
 
+#### Movimento mais fluido
+
+- **Jogador:**
+  - acelera e freia em fração de segundo, em vez de mudar de velocidade de uma vez;
+  - o tamanho do passo muda aos poucos entre andar e correr, sem tranco nas pernas;
+  - degraus pequenos (fundações, pedras) são suavizados para o corpo e a câmera; quedas grandes e teleportes não.
+- **Câmera em 3ª pessoa:** presa à cabeça (já suavizada), sem atraso nem "elástico" ao correr; só a distância volta suavemente depois de um obstáculo. A altura dos olhos muda suavemente ao agachar ou nadar.
+- **Dinossauros:**
+  - as curvas começam e terminam suavemente e nunca passam da velocidade de giro da espécie;
+  - curvas fechadas reduzem a velocidade, em vez de virar no lugar ou abrir demais;
+  - o desvio de obstáculos é uma curva de ~0,6 s, não um giro instantâneo;
+  - a altura do corpo acompanha o terreno sem trepidar.
+- **Modelos de artista:** andar/correr não ficam alternando quando a velocidade está no limite, e a troca andar↔correr começa no mesmo ponto da passada, com transição mais longa.
+
 #### Machos Alfa (raros)
 
 - **Raridade:** cada macho adulto criado num grupo tem 3% de chance de ser Alfa, só em espécies terrestres de 150 kg ou mais. Limites: no máximo 6 Alfas vivos no mundo e 1 por espécie num raio de 600 m. Os números estão em `src/animals/alpha.ts` (`ALPHA`).
@@ -412,7 +426,7 @@ Comparação com capturas reais das mesmas cenas, antes e depois, no perfil Méd
 
 ## Testes executados e resultados
 
-### Testes automatizados (`npm test`): **172 de 172 passando**
+### Testes automatizados (`npm test`): **178 de 178 passando**
 
 | Arquivo | Cobre |
 |---|---|
@@ -433,6 +447,7 @@ Comparação com capturas reais das mesmas cenas, antes e depois, no perfil Méd
 | `graphics.test.ts` | texturas sem emenda e determinísticas, plantas (todas as variantes e níveis de detalhe, vento), pools de instâncias, pesos de solo e trilhas, esqueleto humano (pesos normalizados, altura), as 26 espécies (dados finitos, pesos e ossos válidos, tamanho), perfis gráficos e manifesto de modelos externos (rejeita URLs inseguras; v0.5: velocidades medidas dos clipes, créditos válidos, beber/alerta/morte, taxa de reprodução limitada) |
 | `actions.test.ts` (v0.4) | ações por item, fases e quadro de impacto, alternância esquerda/direita, equipar/trocar sem golpear com o item antigo, trocas repetidas, filtro de entrada duplicada, repetição ao segurar, arco (puxar, soltar, toque rápido, sem flechas), tarefa no impacto (coleta), IK do braço alcança cada pose-chave (erro < 2 cm) |
 | `buildMode.test.ts` | tela de construção: a pré-visualização segue a mira até o primeiro ajuste e depois fica parada, movimento relativo à câmera nas 4 direções e nas 3 precisões, subir/descer com limites, rotação com e sem encaixe, cancelar, repetição ao segurar, peças flutuando/enterradas, peça colocada igual à pré-visualização com materiais cobrados uma vez, catálogo cobre as 28 peças |
+| `movement.test.ts` | jogador acelera/freia em fração de segundo, passo muda aos poucos ao correr, degraus suavizados e teleporte instantâneo, câmera em 3ª pessoa a distância constante ao correr; dinossauro: curva com início suave, sem passar da velocidade de giro e sem saltos de um quadro para o outro; clipes de artista sem alternar no limite de velocidade |
 | `alpha.test.ts` | machos Alfa: só machos adultos de espécies grandes, raridade, limites mundial e por região, grupos gerados nunca passam do limite, vida/dano recebido/personalidade aplicados uma vez, salvamento e saneamento, dois Alfas se exibem e só o mais fraco recua sem ninguém se ferir, rival comum recua, fêmeas e machos do mesmo grupo não são afetados |
 | `dinos.test.ts` (v0.4) | as 26 espécies geram 3 níveis de detalhe com a mesma silhueta (dados finitos, pesos de osso normalizados), filhotes com proporções próprias, dedo da asa dos pterossauros, reação a golpes proporcional ao tamanho, mosassauro classificado como escamado e sempre em mar profundo ao nadar e caçar |
 

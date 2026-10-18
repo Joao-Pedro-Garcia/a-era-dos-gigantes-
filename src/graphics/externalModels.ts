@@ -71,12 +71,17 @@ export function parseManifest(raw: unknown): ModelManifest {
 }
 
 /** Which clip to play for a state/speed, falling back to what the file has. */
-export function chooseClip(available: Set<ClipName>, state: string, speed: number, walkSpeed: number, runSpeed: number, airborne: boolean): ClipName | null {
+export function chooseClip(available: Set<ClipName>, state: string, speed: number, walkSpeed: number, runSpeed: number, airborne: boolean, current: ClipName | null = null): ClipName | null {
   const want: ClipName[] = [];
   if (state === 'dead') want.push('death');
   else if (airborne) want.push('fly');
-  if (speed > (walkSpeed + runSpeed) / 2) want.push('run', 'walk');
-  else if (speed > 0.08) want.push('walk', 'run');
+  // Hysteresis: the thresholds depend on the clip already playing, so a speed
+  // hovering around a limit does not flicker between clips.
+  const mid = (walkSpeed + runSpeed) / 2;
+  const runFrom = current === 'run' ? mid * 0.85 : mid * 1.1;
+  const walkFrom = current === 'walk' || current === 'run' ? 0.05 : 0.15;
+  if (speed > runFrom) want.push('run', 'walk');
+  else if (speed > walkFrom) want.push('walk', 'run');
   else if (state === 'drink') want.push('drink', 'eat', 'idle');
   else if (state === 'graze' || state === 'eat') want.push('eat', 'idle');
   else if (state === 'rest') want.push('rest', 'idle');
@@ -246,11 +251,18 @@ export function locomotionRate(entry: ModelEntry, clip: 'walk' | 'run', duration
 
 /** Drives an instance: cross-fades to the right clip and scales locomotion to the real speed. */
 export function driveExternal(inst: ExternalInstance, dt: number, state: string, speed: number, walkSpeed: number, runSpeed: number, airborne: boolean): void {
-  const clip = chooseClip(new Set(inst.actions.keys()), state, speed, walkSpeed, runSpeed, airborne);
+  const clip = chooseClip(new Set(inst.actions.keys()), state, speed, walkSpeed, runSpeed, airborne, inst.current);
   if (clip && clip !== inst.current) {
     const next = inst.actions.get(clip)!;
+    const prev = inst.current ? inst.actions.get(inst.current)! : null;
     next.reset().play();
-    if (inst.current) inst.actions.get(inst.current)!.crossFadeTo(next, 0.25, false);
+    const gait = (c: ClipName | null) => c === 'walk' || c === 'run';
+    if (prev && gait(inst.current) && gait(clip)) {
+      // Walk ↔ run: start the new cycle at the same point of the stride so the feet don't jump.
+      const u = (prev.time / prev.getClip().duration) % 1;
+      next.time = u * next.getClip().duration;
+    }
+    if (prev) prev.crossFadeTo(next, gait(inst.current) && gait(clip) ? 0.4 : clip === 'death' ? 0.2 : 0.3, false);
     inst.current = clip;
   }
   if (clip === 'walk' || clip === 'run') {

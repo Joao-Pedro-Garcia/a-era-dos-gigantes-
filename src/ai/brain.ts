@@ -95,6 +95,11 @@ interface Runtime {
   /** Giving way to an alpha: keep away from it until this time. */
   yieldFrom: string | null;
   yieldUntil: number;
+  /** Turning speed (rad/s): eased, so turns start and end smoothly. */
+  turnVel: number;
+  /** Obstacle avoidance: steer to this side (±1) until the given time. */
+  avoidSide: number;
+  avoidUntil: number;
 }
 
 const PLAYER_ID = '__player__';
@@ -106,7 +111,7 @@ export class AnimalBrain {
   runtime(a: AnimalData): Runtime {
     let r = this.rt.get(a.id);
     if (!r) {
-      r = { thinkIn: Math.random() * 0.5, threatX: 0, threatZ: 0, threatIsPlayer: false, chaseStart: 0, altitude: 0, stride: 0, peacefulAcc: 0, trough: null, ride: null, lastHurtAt: -1e9, displayWith: null, displayUntil: 0, displayWins: false, lastDisplayAt: -1e9, yieldFrom: null, yieldUntil: 0 };
+      r = { thinkIn: Math.random() * 0.5, threatX: 0, threatZ: 0, threatIsPlayer: false, chaseStart: 0, altitude: 0, stride: 0, peacefulAcc: 0, trough: null, ride: null, lastHurtAt: -1e9, displayWith: null, displayUntil: 0, displayWins: false, lastDisplayAt: -1e9, yieldFrom: null, yieldUntil: 0, turnVel: 0, avoidSide: 0, avoidUntil: 0 };
       this.rt.set(a.id, r);
     }
     return r;
@@ -1078,8 +1083,19 @@ export class AnimalBrain {
     const flies = sp.locomotion.flies;
     const airborne = flies && r.altitude > 2;
     const desired = Math.atan2(tx - a.x, tz - a.z);
-    const turn = sp.locomotion.turnRate * (a.speed < 1 ? 1.5 : 1) * (manual ? 1.6 : 1) * dt;
-    if (Math.hypot(tx - a.x, tz - a.z) > 0.5) a.heading += clamp(angleDiff(a.heading, desired), -turn, turn);
+    const maxTurn = sp.locomotion.turnRate * (a.speed < 1 ? 1.2 : 1) * (manual ? 1.6 : 1);
+    const diff = Math.hypot(tx - a.x, tz - a.z) > 0.5 ? angleDiff(a.heading, desired) : 0;
+    // Steering: the wanted turning speed grows with the angle still to turn and
+    // the actual turning speed eases toward it (no instant start or stop).
+    let wantTurn = clamp(diff * 2.5, -maxTurn, maxTurn);
+    const avoiding = w.now < r.avoidUntil;
+    if (avoiding) wantTurn = r.avoidSide * maxTurn;
+    r.turnVel += (wantTurn - r.turnVel) * damp(manual ? 10 : 6, dt);
+    const step = r.turnVel * dt;
+    // Never overshoot the target direction.
+    a.heading += !avoiding && Math.abs(step) > Math.abs(diff) && Math.sign(step) === Math.sign(diff) ? diff : step;
+    // A big turn slows the animal down instead of making it run wide arcs or spin on the spot.
+    if (!manual && targetSpeed > 0 && Math.abs(diff) > 1.2) targetSpeed *= 0.55;
 
     // Obstacle and terrain avoidance (probe ahead).
     if (!airborne && targetSpeed > 0 && !manual) {
@@ -1091,7 +1107,9 @@ export class AnimalBrain {
         ? h > AQUATIC_MIN_DEPTH
         : (h < -0.5 && !sp.locomotion.swims) || Math.abs(h - w.terrain.height(a.x, a.z)) / probe > 1.1 || w.blocked(px, pz, sp.lengthM * 0.15 + 0.3);
       if (bad) {
-        a.heading += (a.id.charCodeAt(0) % 2 ? 1 : -1) * Math.min(1, turn * 3 + 0.05);
+        // Steer around it over the next moments rather than snapping the heading.
+        if (!avoiding) r.avoidSide = a.id.charCodeAt(0) % 2 ? 1 : -1;
+        r.avoidUntil = w.now + 0.6;
         targetSpeed *= 0.4;
       }
     }
@@ -1115,7 +1133,9 @@ export class AnimalBrain {
     const ground = w.terrain.height(a.x, a.z);
     const sp2 = SPECIES[a.speciesId];
     const swimLevel = -sp2.hipHeightM * growthScale(a, w.now) * 0.8;
-    a.y = sp.locomotion.aquatic ? swimDepth(a, w.now, ground) : Math.max(ground, airborne ? 0 : swimLevel) + r.altitude;
+    const y = sp.locomotion.aquatic ? swimDepth(a, w.now, ground) : Math.max(ground, airborne ? 0 : swimLevel) + r.altitude;
+    // Ease small height changes (terrain bumps, rocks) so the body glides; big ones snap.
+    a.y = Math.abs(y - a.y) > 2 || !Number.isFinite(a.y) ? y : a.y + (y - a.y) * damp(y > a.y ? 25 : 12, dt);
     r.stride += (a.speed * dt) / Math.max(0.1, sp.locomotion.stride * growthScale(a, w.now));
   }
 }

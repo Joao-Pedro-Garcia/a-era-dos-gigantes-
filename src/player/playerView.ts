@@ -121,7 +121,7 @@ export class PlayerView {
     this.combat = combat ?? null;
     this.setHeld(combat?.shown ?? '');
     this.time += dt;
-    this.root.position.set(s.x, s.y, s.z);
+    this.root.position.set(s.x, p.visualY, s.z);
     this.root.rotation.y = p.bodyYaw;
     this.rig.mesh.visible = !firstPerson && !this.ext;
     this.shadow.visible = !firstPerson && !p.swimming;
@@ -146,7 +146,7 @@ export class PlayerView {
     this.swim += ((p.swimming ? 1 : 0) - this.swim) * k(5);
     this.air += ((!p.onGround && !p.swimming && !this.riding ? 1 : 0) - this.air) * k(10);
     const run = Math.max(0, Math.min(1, (speed - 2.2) / 3));
-    const stepLen = p.sprinting ? 1.6 : 1.1;
+    const stepLen = p.stepLength();
     const mv = this.moveBlend;
 
     if (this.riding) {
@@ -195,7 +195,7 @@ export class PlayerView {
         const lx = JOINTS[side > 0 ? 'foot.L' : 'foot.R'][0];
         const wx = s.x + lx * cy + fz * sy;
         const wz = s.z - lx * sy + fz * cy;
-        g = Math.max(-0.35, Math.min(0.45, ground(wx, wz) - s.y));
+        g = Math.max(-0.35, Math.min(0.45, ground(wx, wz) - p.visualY));
       }
       legs.push({ side, fz, fy: g + ANKLE_Y + lift * up, g, u, stance });
     }

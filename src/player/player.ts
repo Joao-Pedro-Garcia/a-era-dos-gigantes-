@@ -59,9 +59,20 @@ export class PlayerController {
   /** Downward speed at the last landing (for fall damage), consumed by the game. */
   landingImpact = 0;
   horizontalSpeed = 0;
+  /**
+   * Height used for drawing the body and placing the camera: follows s.y but
+   * eases over small steps (foundations, rocks), so neither pops.
+   */
+  visualY: number;
 
   constructor(public s: PlayerState) {
     this.bodyYaw = s.yaw;
+    this.visualY = s.y;
+  }
+
+  /** Step length for the current speed: continuous from walking to sprinting, so the gait never jumps. */
+  stepLength(): number {
+    return clamp(1.1 + ((this.horizontalSpeed - 3.3) / (6.4 - 3.3)) * 0.5, 1.1, 1.6);
   }
 
   forward(): [number, number] {
@@ -89,7 +100,10 @@ export class PlayerController {
     }
     const tvx = dx * speed;
     const tvz = dz * speed;
-    const k = damp(this.onGround || this.swimming ? 10 : 1.5, dt);
+    // Speeding up takes a little longer than slowing down; in the air there is little control.
+    const grounded = this.onGround || this.swimming;
+    const speeding = tvx * tvx + tvz * tvz > this.vx * this.vx + this.vz * this.vz;
+    const k = damp(grounded ? (speeding ? 7 : 9) : 1.5, dt);
     this.vx += (tvx - this.vx) * k;
     this.vz += (tvz - this.vz) * k;
 
@@ -158,13 +172,16 @@ export class PlayerController {
     }
 
     this.horizontalSpeed = Math.hypot(this.vx, this.vz);
-    this.stride += (this.horizontalSpeed * dt) / (this.sprinting ? 1.6 : 1.1);
+    this.stride += (this.horizontalSpeed * dt) / this.stepLength();
+    const off = s.y - this.visualY;
+    if (Math.abs(off) > 0.6 || !Number.isFinite(off)) this.visualY = s.y;
+    else this.visualY += off * damp(this.onGround ? 16 : 30, dt);
     if (firstPerson) this.bodyYaw = s.yaw;
     else if (this.horizontalSpeed > 0.3) {
       const target = Math.atan2(this.vx, this.vz);
       let d = target - this.bodyYaw;
       d = Math.atan2(Math.sin(d), Math.cos(d));
-      this.bodyYaw += d * damp(10, dt);
+      this.bodyYaw += d * damp(9, dt);
     }
     s.pitch = clamp(s.pitch, -1.45, 1.45);
   }

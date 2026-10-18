@@ -7,8 +7,10 @@ import type { PlayerController } from './player';
 /** Third/first person camera with terrain and wall avoidance. */
 export class CameraRig {
   distance = 4.4;
-  private smoothed = new THREE.Vector3();
-  private initialized = false;
+  /** Current camera distance (eases out after an obstacle pulled it in). */
+  private dist = -1;
+  /** Eye height above the feet, eased when crouching, standing or swimming. */
+  private eye = 1.65;
 
   constructor(public camera: THREE.PerspectiveCamera) {
     camera.rotation.order = 'YXZ';
@@ -21,8 +23,9 @@ export class CameraRig {
   update(dt: number, p: PlayerController, firstPerson: boolean, terrain: Terrain | ((x: number, z: number) => number), collision: CollisionWorld, maxDistance = Infinity): void {
     const height = typeof terrain === 'function' ? terrain : (x: number, z: number) => terrain.height(x, z);
     const s = p.s;
-    const eye = p.crouching ? 1.05 : p.swimming ? 1.5 : 1.65;
-    const head = new THREE.Vector3(s.x, s.y + eye, s.z);
+    const eyeTarget = p.crouching ? 1.05 : p.swimming ? 1.5 : 1.65;
+    this.eye += (eyeTarget - this.eye) * damp(10, dt);
+    const head = new THREE.Vector3(s.x, p.visualY + this.eye, s.z);
     const cam = this.camera;
     // Natural field of view: wider in first person, tighter over the shoulder.
     // Portrait screens (phones held upright) get a wider vertical view and a bit more distance.
@@ -36,7 +39,7 @@ export class CameraRig {
     if (firstPerson) {
       cam.position.copy(head);
       cam.rotation.set(s.pitch, s.yaw + Math.PI, 0);
-      this.initialized = false;
+      this.dist = -1;
       return;
     }
     // Orbit behind the look direction.
@@ -59,15 +62,12 @@ export class CameraRig {
         break;
       }
     }
-    const desired = target.clone().addScaledVector(dir, -dist);
-    if (!this.initialized) {
-      this.smoothed.copy(desired);
-      this.initialized = true;
-    }
-    // Snap closer immediately (avoid clipping), ease back out smoothly.
-    const cur = this.smoothed.distanceTo(target);
-    this.smoothed.lerp(desired, dist < cur ? 1 : damp(8, dt));
-    cam.position.copy(this.smoothed);
+    // The camera is rigidly attached to the (eased) head, so it never lags or
+    // swings while running; only its distance eases back out after an obstacle
+    // pulled it in (pulling in is immediate, to avoid clipping).
+    if (this.dist < 0 || dist < this.dist) this.dist = dist;
+    else this.dist += (dist - this.dist) * damp(5, dt);
+    cam.position.copy(target).addScaledVector(dir, -this.dist);
     cam.lookAt(target.x + dir.x * 2, target.y + dir.y * 2, target.z + dir.z * 2);
   }
 }

@@ -1209,6 +1209,7 @@ export class Game {
     p.s.x = a.x;
     p.s.z = a.z;
     p.s.y = a.y;
+    p.visualY = a.y;
     p.vx = p.vz = p.vy = 0;
     p.horizontalSpeed = 0;
     p.bodyYaw = a.heading;
