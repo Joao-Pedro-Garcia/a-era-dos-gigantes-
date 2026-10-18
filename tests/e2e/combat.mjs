@@ -189,7 +189,21 @@ const spawn = (page, species, dist) =>
     await ev(page, () => { window.__edg.player.s.pitch = -0.1; });
     const target = await spawn(page, 'protoceratops', 2.4);
     await until(page, (id) => !!window.__edg.animalViews.get(id), target.id);
-    await ev(page, () => window.__edg.input.touchPress('attack'));
+    // Software rendering is slow: the animal may have wandered off while its model loaded.
+    // Put it back in reach (still grazing) right before the strike.
+    await ev(page, (id) => {
+      const g = window.__edg;
+      const p = g.player.s;
+      const a = g.eco.get(id);
+      a.x = p.x + Math.sin(p.yaw) * 2.4;
+      a.z = p.z + Math.cos(p.yaw) * 2.4;
+      a.tx = a.x;
+      a.tz = a.z;
+      a.speed = 0;
+      a.state = 'graze';
+      a.stateTime = 0;
+      g.input.touchPress('attack');
+    }, target.id);
     await until(page, (hp) => window.__edg.eco.active.some((a) => a.health < hp), target.hp, 40000);
     const hit6 = await ev(page, (id) => {
       const g = window.__edg;
