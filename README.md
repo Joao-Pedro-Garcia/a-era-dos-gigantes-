@@ -49,7 +49,7 @@ Páginas de diagnóstico:
 | Usar item da mão (comer, curar, cantil, sinalizador) | F | Comer | — |
 | Atalhos | 1–6, roda | toque na barra | — |
 | Inventário, Fabricação, Habilidades, Animais, Diário, Mapa | Tab / I, M | Itens, 🗺 | Y |
-| Construção (Q/R girar, G encaixe, X demolir o que está olhando) | B | Construir | LT |
+| Tela de construção: escolher peça no catálogo; mover U/J/H/K (frente/trás/esquerda/direita); subir/descer PgUp/PgDn (ou O/L); girar Q/R ou roda; Z orientação original; N precisão; G encaixe; clique confirma; Esc cancela a peça; X demolir | B | Construir (botões na tela, segurar repete) | LT |
 | Câmera 1ª/3ª pessoa / pausa | V / Esc | Câmera / ❚❚ | Select / Start |
 
 As teclas podem ser reconfiguradas em **Controles**. A interface de toque só aparece quando o jogador está usando toque. Também há opção de "correr alterna" para quem não pode segurar a tecla.
@@ -84,6 +84,18 @@ O inventário completo das espécies, com o que foi reconstruído na v0.4 e o qu
 - **Ferimentos:** um animal ferido cambaleia. Os valentes retaliam; os muito feridos fogem, a menos que estejam protegendo filhotes.
 - **Grupos:** alarme com atraso individual e defesa de território e de filhotes.
 
+#### Machos Alfa (raros)
+
+- **Raridade:** cada macho adulto criado num grupo tem 3% de chance de ser Alfa, só em espécies terrestres de 150 kg ou mais. Limites: no máximo 6 Alfas vivos no mundo e 1 por espécie num raio de 600 m. Os números estão em `src/animals/alpha.ts` (`ALPHA`).
+- **Atributos** (aplicados na leitura, nunca somados ao valor salvo, então carregar o jogo não os aplica de novo): vida ×1,8, dano ×1,45, dano recebido ×0,8, velocidade ×1,06, tamanho ×1,12. A coragem e a agressividade sobem uma única vez, quando o animal é criado.
+- **Aparência:** couro mais escuro e avermelhado, mais um enxame de brasas vermelhas animado só na placa de vídeo, sem luzes extras. A aura fica mais forte quando o Alfa está em alerta, defendendo ou caçando.
+- **Comportamento:**
+  - ruge mais grave sempre que encara algo;
+  - machos adultos rivais da mesma espécie (de outros grupos) recuam;
+  - dois Alfas se exibem um para o outro por alguns segundos e o mais fraco se retira. Não há luta até a morte.
+- **Identificação:** ao observar o animal aparece "Tiranossauro Alfa — … · macho dominante".
+- **Persistência:** o estado de Alfa é salvo. Saves antigos carregam todos os animais como comuns.
+
 ### Sobrevivência
 
 Fome, sede, energia, fôlego, temperatura corporal (roupas, fogo, abrigo, caverna, água), sangramento, fratura (tratada com tala), intoxicação (tratada com antídoto) e quedas. A dificuldade é ajustável.
@@ -108,7 +120,15 @@ Ao morrer, o jogador reaparece na cama, e os itens ficam numa sacola recuperáve
 - **Defesa:** cerca, paliçada, armadilha de estacas, armadilha de laço e cerca elétrica.
 - **Instalações:** fogueira, bancada, forja, depósito, cama (ponto de retorno), coletor de água, poço, horta (plantio com sementes e rega), poste com tocha.
 - **Energia:** um gerador eólico alimenta lâmpadas e cercas elétricas num raio de 40 m. A potência depende do vento.
-- **Colocação:** encaixe automático ou posição livre, com pré-visualização verde/vermelha. A validação recusa água, inclinação, obstáculos, falta de apoio, sobreposição, distância, falta de materiais e peças bloqueadas.
+- **Tela de construção (B):**
+  - catálogo em 8 categorias, com miniaturas 3D renderizadas dos próprios modelos do jogo e o custo de cada peça no formato tem/precisa;
+  - a peça escolhida aparece como pré-visualização verde/vermelha, com o motivo quando a posição é inválida;
+  - ajuste fino: frente/trás/esquerda/direita em relação à câmera, subir/descer, girar e voltar à orientação original;
+  - precisão fino (0,1 m / 5°), normal (0,5 m / 15°) ou rápido (2 m / 45°); com o encaixe ligado, fundações andam de célula em célula;
+  - segurar um botão ou tecla repete o ajuste;
+  - no PC o mouse fica livre para apontar o local, o botão direito segurado gira a câmera e o clique confirma; no celular há botões grandes;
+  - confirmar cobra os materiais uma única vez (clique duplo não constrói duas peças), e cancelar não cobra nada.
+- **Validação:** recusa água, inclinação, obstáculos, falta de apoio, sobreposição (considerando a altura), distância, falta de materiais, peças bloqueadas e, ao subir ou descer, peças flutuando ou enterradas. Fundações podem ser erguidas enquanto a saia ainda toca o chão.
 - **Demolição** com reembolso de metade do custo.
 - Tudo, inclusive o conteúdo dos depósitos, ovos incubando, plantações e o estado das armadilhas, é salvo.
 
@@ -390,7 +410,7 @@ Comparação com capturas reais das mesmas cenas, antes e depois, no perfil Méd
 
 ## Testes executados e resultados
 
-### Testes automatizados (`npm test`): **149 de 149 passando**
+### Testes automatizados (`npm test`): **172 de 172 passando**
 
 | Arquivo | Cobre |
 |---|---|
@@ -410,6 +430,8 @@ Comparação com capturas reais das mesmas cenas, antes e depois, no perfil Méd
 | `i18n.test.ts` / `settings.test.ts` | chaves completas (inclusive dinâmicas), troca de idioma, perfis gráficos e saneamento das configurações |
 | `graphics.test.ts` | texturas sem emenda e determinísticas, plantas (todas as variantes e níveis de detalhe, vento), pools de instâncias, pesos de solo e trilhas, esqueleto humano (pesos normalizados, altura), as 26 espécies (dados finitos, pesos e ossos válidos, tamanho), perfis gráficos e manifesto de modelos externos (rejeita URLs inseguras; v0.5: velocidades medidas dos clipes, créditos válidos, beber/alerta/morte, taxa de reprodução limitada) |
 | `actions.test.ts` (v0.4) | ações por item, fases e quadro de impacto, alternância esquerda/direita, equipar/trocar sem golpear com o item antigo, trocas repetidas, filtro de entrada duplicada, repetição ao segurar, arco (puxar, soltar, toque rápido, sem flechas), tarefa no impacto (coleta), IK do braço alcança cada pose-chave (erro < 2 cm) |
+| `buildMode.test.ts` | tela de construção: a pré-visualização segue a mira até o primeiro ajuste e depois fica parada, movimento relativo à câmera nas 4 direções e nas 3 precisões, subir/descer com limites, rotação com e sem encaixe, cancelar, repetição ao segurar, peças flutuando/enterradas, peça colocada igual à pré-visualização com materiais cobrados uma vez, catálogo cobre as 28 peças |
+| `alpha.test.ts` | machos Alfa: só machos adultos de espécies grandes, raridade, limites mundial e por região, grupos gerados nunca passam do limite, vida/dano recebido/personalidade aplicados uma vez, salvamento e saneamento, dois Alfas se exibem e só o mais fraco recua sem ninguém se ferir, rival comum recua, fêmeas e machos do mesmo grupo não são afetados |
 | `dinos.test.ts` (v0.4) | as 26 espécies geram 3 níveis de detalhe com a mesma silhueta (dados finitos, pesos de osso normalizados), filhotes com proporções próprias, dedo da asa dos pterossauros, reação a golpes proporcional ao tamanho, mosassauro classificado como escamado e sempre em mar profundo ao nadar e caçar |
 
 ### Teste no navegador (`npm run test:e2e`): **39 de 39 passando**

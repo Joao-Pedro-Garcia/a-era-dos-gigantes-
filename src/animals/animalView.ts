@@ -5,6 +5,11 @@ import { createContactShadow } from '../graphics/contactShadow';
 import { driveExternal, instantiate, setExternalShadows, type ExternalInstance } from '../graphics/externalModels';
 import type { AnimalData } from './animal';
 import { growthScale } from './animal';
+import { ALPHA } from './alpha';
+import { type AlphaAura, createAlphaAura, disposeAlphaAura } from './alphaAura';
+
+/** Hide colour of alpha males: darker, toward red. */
+const ALPHA_TINT = new THREE.Color(0.82, 0.58, 0.52);
 import { buildDinoTemplate, DMAT, type DinoTemplate } from './dinoModel';
 import { SPECIES, type SpeciesDef } from './species';
 
@@ -47,6 +52,11 @@ export interface AnimalView {
   ext: ExternalInstance | null;
   /** Built with juvenile proportions. */
   juvenile: boolean;
+  /** Built as an alpha male (bigger, darker reddish tint, ember aura). */
+  alpha: boolean;
+  aura: AlphaAura | null;
+  /** Materials cloned to tint an external model (disposed with the view). */
+  extMats: THREE.Material[];
   /** Hit reaction: time since the blow, its direction in the animal's frame and strength. */
   hitT: number;
   /** Seconds since death (animated fall). */
@@ -194,7 +204,7 @@ export function prewarmAnimals(ids: string[], budgetMs: number, juvenileIds: str
  * long legs, small horns/plates/crests); the game swaps the model when the
  * animal grows out of the juvenile stage.
  */
-export function createAnimalView(speciesId: string, individual = '', juvenile = false): AnimalView {
+export function createAnimalView(speciesId: string, individual = '', juvenile = false, alpha = false): AnimalView {
   const sp = SPECIES[speciesId];
   const tpl = template(sp, juvenile);
   const root = new THREE.Group();
@@ -227,6 +237,7 @@ export function createAnimalView(speciesId: string, individual = '', juvenile = 
     if (i !== DMAT.scales && i !== DMAT.feathers) return m;
     const c = m.clone();
     c.color.setRGB(tint * (1 + hue), tint, tint * (1 - hue));
+    if (alpha) c.color.multiply(ALPHA_TINT);
     c.userData.shared = false;
     if (library) library.bind(c, i === DMAT.scales ? 'scales' : 'feathers');
     return c;
@@ -269,8 +280,10 @@ export function createAnimalView(speciesId: string, individual = '', juvenile = 
     const kneeForward = ang(d0) > ang(line);
     return { name: l.name, front: l.front, walking, phase: l.phase, l0: d0.length(), l1: d1.length(), r: [ang(d0), ang(d1), ang(d2)], hip: j[0].clone(), toe: j[3].clone(), metaVec: j[2].clone().sub(j[3]), kneeForward };
   });
-  const size = 0.94 + hashId(individual || speciesId, 3) * 0.12;
-  const view: AnimalView = { root, sp, tpl, meshHi, meshMid, meshLo, bones, rest, materials, shadow, size, posture: 0, flap: 0, jaw: 0, look: 0, pelvisDrop: 0, bodyPitch: 0, legInfo, ext: null, juvenile, deadT: 99, scan: 0, turn: 0, lastHeading: NaN, hitT: 99, hitLX: 0, hitLZ: 0, hitAmp: 0 };
+  const size = (0.94 + hashId(individual || speciesId, 3) * 0.12) * (alpha ? ALPHA.size : 1);
+  const aura = alpha ? createAlphaAura(sp) : null;
+  if (aura) root.add(aura.points);
+  const view: AnimalView = { root, sp, tpl, meshHi, meshMid, meshLo, bones, rest, materials, shadow, size, posture: 0, flap: 0, jaw: 0, look: 0, pelvisDrop: 0, bodyPitch: 0, legInfo, ext: null, juvenile, alpha, aura, extMats: [], deadT: 99, scan: 0, turn: 0, lastHeading: NaN, hitT: 99, hitLX: 0, hitLZ: 0, hitAmp: 0 };
   // Resolves after the optional models finish loading (null when the species has none).
   void instantiate(speciesId).then((inst) => {
     if (!inst) return;
@@ -279,6 +292,18 @@ export function createAnimalView(speciesId: string, individual = '', juvenile = 
       return;
     }
     view.ext = inst;
+    if (alpha) {
+      // Darker, reddish hide: per-instance material clones (the shared ones stay untouched).
+      for (const m of inst.meshes) {
+        const tinted = (Array.isArray(m.material) ? m.material : [m.material]).map((mat) => {
+          const c = mat.clone();
+          if ('color' in c && c.color instanceof THREE.Color) c.color.multiply(ALPHA_TINT);
+          view.extMats.push(c);
+          return c;
+        });
+        m.material = Array.isArray(m.material) ? tinted : tinted[0];
+      }
+    }
     root.add(inst.root);
   });
   return view;
@@ -287,6 +312,8 @@ export function createAnimalView(speciesId: string, individual = '', juvenile = 
 export function disposeAnimalView(v: AnimalView): void {
   v.root.removeFromParent();
   v.ext?.dispose();
+  for (const m of v.extMats) m.dispose();
+  if (v.aura) disposeAlphaAura(v.aura);
   for (const m of v.materials)
     if (!m.userData.shared) {
       library?.unbind(m);

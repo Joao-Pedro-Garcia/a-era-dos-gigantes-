@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { AudioSystem, type Surface } from '../audio/audio';
 import { growthScale, lifeStage, type AIState, type AnimalData, type TameCommand } from '../animals/animal';
+import { updateAlphaAura } from '../animals/alphaAura';
 import { createAnimalView, createNestView, disposeAnimalView, hitAnimalView, poseAnimalView, prewarmAnimals, setAnimalContext, type AnimalView } from '../animals/animalView';
 import { CombatController } from '../combat/actions';
 import { ImpactFx } from '../graphics/impactFx';
@@ -691,7 +692,8 @@ export class Game {
         const scaly = ids.find((id) => !SPECIES[id].look.features.includes('feathers'));
         for (const id of [feathered, scaly]) {
           if (!id) continue;
-          const v = createAnimalView(id, `warmup-${id}`);
+          // One of them as an alpha, so the ember aura's shader is compiled too.
+          const v = createAnimalView(id, `warmup-${id}`, false, id === scaly);
           v.meshHi.visible = v.meshMid.visible = v.meshLo.visible = true;
           w.views.push(v);
         }
@@ -1971,19 +1973,20 @@ export class Game {
       let v = this.animalViews.get(a.id);
       // Juveniles have their own proportions: swap the model when the animal grows up.
       const young = lifeStage(a, now) === 'juvenile';
-      if (v && v.juvenile !== young) {
+      if (v && (v.juvenile !== young || v.alpha !== !!a.alpha)) {
         disposeAnimalView(v);
         this.animalViews.delete(a.id);
         v = undefined;
       }
       if (!v) {
-        v = createAnimalView(a.speciesId, a.id, young);
+        v = createAnimalView(a.speciesId, a.id, young, !!a.alpha);
         this.animalViews.set(a.id, v);
         this.worldRoot.add(v.root);
       }
       const camDist = Math.hypot(a.x - cam.x, a.z - cam.z);
       v.root.visible = !this.inCave;
       poseAnimalView(v, a, eco.brain.stridePhase(a), eco.brain.altitude(a), now, dt, camDist, this.quality().animalLod);
+      if (v.aura) updateAlphaAura(v.aura, now, a.state === 'alert' || a.state === 'defend' || a.state === 'hunt', a.alive && !this.inCave, dt, this.renderer.domElement.height);
       if (this.inCave || !a.alive) continue;
       const sp = SPECIES[a.speciesId];
       const label = a.tame ? a.tame.name : sp.name[language()];
@@ -1991,7 +1994,9 @@ export class Game {
       const prev = this.lastStates.get(a.id);
       const occluded = this.occluded(a.x, a.y + sp.hipHeightM, a.z);
       if (prev !== a.state) {
-        if (a.state === 'flee' || a.state === 'defend' || (a.state === 'alert' && this.rng.chance(0.3))) this.audio.call(sp, a.x, a.y + sp.hipHeightM, a.z, growthScale(a, now), a.state === 'alert' ? 0 : 1, occluded, label);
+        // Alphas always answer with a deep dominance roar when they turn to face something.
+        const voice = growthScale(a, now) * (a.alpha ? 1.6 : 1);
+        if (a.state === 'flee' || a.state === 'defend' || (a.state === 'alert' && (a.alpha || this.rng.chance(0.3)))) this.audio.call(sp, a.x, a.y + sp.hipHeightM, a.z, voice, a.state === 'alert' ? 0 : 1, occluded, label);
         this.lastStates.set(a.id, a.state);
       } else if (this.rng.chance(dt * 0.012)) this.audio.call(sp, a.x, a.y + sp.hipHeightM, a.z, growthScale(a, now), 0, occluded, label);
       if ((a.state === 'graze' || a.state === 'eat') && a.speed < 0.1 && camDist < 40) this.audio.feeding(a.x, a.y + 1, a.z, sp.massKg > 1000);

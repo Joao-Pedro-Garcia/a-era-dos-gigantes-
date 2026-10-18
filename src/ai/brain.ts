@@ -1,5 +1,6 @@
 import { angleDiff, clamp, damp } from '../core/math';
 import type { Terrain } from '../world/terrain';
+import { ALPHA, alphaMul, dominance } from '../animals/alpha';
 import { type AnimalData, type AIState, effectiveMass, growthScale, lifeStage, maxHealth } from '../animals/animal';
 import { HUMAN_MASS, SPECIES, type SpeciesDef, isPredator } from '../animals/species';
 import { AQUATIC_MIN_DEPTH, swimDepth } from '../animals/aquatic';
@@ -86,6 +87,14 @@ interface Runtime {
   trough: TroughAccess | null;
   ride: RideInput | null;
   lastHurtAt: number;
+  /** Alpha dominance: the rival being displayed to, until when, and who wins. */
+  displayWith: string | null;
+  displayUntil: number;
+  displayWins: boolean;
+  lastDisplayAt: number;
+  /** Giving way to an alpha: keep away from it until this time. */
+  yieldFrom: string | null;
+  yieldUntil: number;
 }
 
 const PLAYER_ID = '__player__';
@@ -97,7 +106,7 @@ export class AnimalBrain {
   runtime(a: AnimalData): Runtime {
     let r = this.rt.get(a.id);
     if (!r) {
-      r = { thinkIn: Math.random() * 0.5, threatX: 0, threatZ: 0, threatIsPlayer: false, chaseStart: 0, altitude: 0, stride: 0, peacefulAcc: 0, trough: null, ride: null, lastHurtAt: -1e9 };
+      r = { thinkIn: Math.random() * 0.5, threatX: 0, threatZ: 0, threatIsPlayer: false, chaseStart: 0, altitude: 0, stride: 0, peacefulAcc: 0, trough: null, ride: null, lastHurtAt: -1e9, displayWith: null, displayUntil: 0, displayWins: false, lastDisplayAt: -1e9, yieldFrom: null, yieldUntil: 0 };
       this.rt.set(a.id, r);
     }
     return r;
@@ -370,6 +379,9 @@ export class AnimalBrain {
     }
     if ((a.state === 'defend' || a.state === 'hunt' || a.state === 'eat') && this.continueEngagement(a, sp, r, w)) return;
 
+    // --- Dominance among adult males: alphas display, rivals give way (never a fight to the death).
+    if (stage === 'adult' && a.sex === 'm' && this.dominance(a, sp, r, w, near)) return;
+
     // --- Storm shelter.
     if (w.storm && !sp.locomotion.flies && a.state !== 'shelter' && w.random() < 0.15 && stage !== 'adult') {
       this.setState(a, 'shelter');
@@ -428,6 +440,90 @@ export class AnimalBrain {
       this.pickWanderTarget(a, sp, w, leader && leader !== a ? leader : null);
       this.setState(a, 'wander');
     }
+  }
+
+  /**
+   * Alpha males roar at rival males of their species from other groups, who
+   * give way; two alphas display to each other for a few seconds, then the
+   * weaker one retreats. Returns true when this decided the animal's action.
+   */
+  private dominance(a: AnimalData, sp: SpeciesDef, r: Runtime, w: AIWorld, near: AnimalData[]): boolean {
+    const now = w.now;
+    const range = ALPHA.rivalRange + sp.lengthM;
+    if (r.yieldUntil > now) {
+      const o = r.yieldFrom ? w.get(r.yieldFrom) : undefined;
+      if (!o || !o.alive || Math.hypot(o.x - a.x, o.z - a.z) > range * 2) return false;
+      if (a.state !== 'wander' || Math.hypot(a.tx - a.x, a.tz - a.z) < 3) {
+        const ang = Math.atan2(a.x - o.x, a.z - o.z) + (w.random() - 0.5) * 0.6;
+        a.tx = a.x + Math.sin(ang) * (30 + sp.lengthM * 2);
+        a.tz = a.z + Math.cos(ang) * (30 + sp.lengthM * 2);
+        this.setState(a, 'wander');
+      }
+      return true;
+    }
+    if (r.displayWith) {
+      const o = w.get(r.displayWith);
+      if (!o || !o.alive || (a.state !== 'alert' && a.state !== 'idle')) r.displayWith = null;
+      else {
+        r.threatX = o.x;
+        r.threatZ = o.z;
+        r.threatIsPlayer = false;
+        this.setState(a, 'alert');
+        a.stateTime = Math.min(a.stateTime, 3);
+        if (now >= r.displayUntil) {
+          r.displayWith = null;
+          if (r.displayWins) this.setState(a, 'idle');
+          else this.yieldTo(a, o, now);
+        }
+        return true;
+      }
+    }
+    for (const o of near) {
+      if (o === a || !o.alive || o.speciesId !== a.speciesId || o.sex !== 'm' || o.tame || o.groupId === a.groupId) continue;
+      if ((!a.alpha && !o.alpha) || lifeStage(o, now) !== 'adult') continue;
+      if (Math.hypot(o.x - a.x, o.z - a.z) > range) continue;
+      if (!a.alpha) {
+        this.yieldTo(a, o, now);
+        return true;
+      }
+      const ro = this.runtime(o);
+      if (o.alpha) {
+        if (now - r.lastDisplayAt < 30 || now - ro.lastDisplayAt < 30 || ro.yieldUntil > now || o.state === 'flee' || o.state === 'hunt') continue;
+        // Both display; the outcome is settled now so the two never disagree.
+        const wins = dominance(a, maxHealth(a, now)) >= dominance(o, maxHealth(o, now));
+        for (const [x, y, rx, win] of [[a, o, r, wins], [o, a, ro, !wins]] as const) {
+          rx.displayWith = y.id;
+          rx.displayUntil = now + ALPHA.displayTime;
+          rx.displayWins = win;
+          rx.lastDisplayAt = now;
+          rx.threatX = y.x;
+          rx.threatZ = y.z;
+          rx.threatIsPlayer = false;
+          this.setState(x, 'alert');
+        }
+        return true;
+      }
+      // An ordinary rival: a dominance roar now and then, then carry on.
+      if (now - r.lastDisplayAt > 25) {
+        r.lastDisplayAt = now;
+        r.threatX = o.x;
+        r.threatZ = o.z;
+        r.threatIsPlayer = false;
+        this.setState(a, 'alert');
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private yieldTo(a: AnimalData, o: AnimalData, now: number): void {
+    const r = this.runtime(a);
+    r.yieldFrom = o.id;
+    r.yieldUntil = now + ALPHA.yieldTime;
+    r.displayWith = null;
+    a.tx = a.x;
+    a.tz = a.z;
+    this.setState(a, 'idle');
   }
 
   /**
@@ -827,8 +923,9 @@ export class AnimalBrain {
     const now = w.now;
     const g = growthScale(a, now);
     const injured = a.health / maxHealth(a, now) < 0.35 ? 0.6 : 1;
-    const walk = sp.walkSpeed * (0.55 + 0.45 * g) * injured;
-    const run = sp.runSpeed * (0.55 + 0.45 * g) * injured * (a.stamina > 0.08 ? 1 : 0.45);
+    const fast = alphaMul(a, 'speed');
+    const walk = sp.walkSpeed * (0.55 + 0.45 * g) * injured * fast;
+    const run = sp.runSpeed * (0.55 + 0.45 * g) * injured * (a.stamina > 0.08 ? 1 : 0.45) * fast;
     let tx = a.tx;
     let tz = a.tz;
     let targetSpeed = 0;
@@ -935,7 +1032,7 @@ export class AnimalBrain {
         targetSpeed = d <= reach * 0.8 ? 0 : stalking ? walk : run;
         if (d <= reach && now - a.lastAttackAt > sp.attack.cooldown) {
           a.lastAttackAt = now;
-          const dmg = sp.attack.damage * (0.4 + 0.6 * g) * (0.75 + a.personality.aggression * 0.5);
+          const dmg = sp.attack.damage * (0.4 + 0.6 * g) * (0.75 + a.personality.aggression * 0.5) * alphaMul(a, 'damage');
           if (isPlayer) w.damagePlayer(dmg, a);
           else {
             w.damageAnimal(t!, dmg, a);

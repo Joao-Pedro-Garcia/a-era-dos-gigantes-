@@ -1,7 +1,7 @@
 /** Strings for systems added in v0.2 (taming, skills, exploration, mysteries, audio, graphics, accessibility). */
 export const EXTRA_PT: Record<string, string> = {
   // UI
-  'ai.ridden': 'sendo montado', 'ui.skills': 'Habilidades', 'ui.animals': 'Animais', 'ui.map': 'Mapa', 'ui.close': 'Fechar', 'ui.continue': 'Continuar', 'ui.juvenile': '(filhote)',
+  'ai.ridden': 'sendo montado', 'ui.skills': 'Habilidades', 'ui.animals': 'Animais', 'ui.map': 'Mapa', 'ui.close': 'Fechar', 'ui.continue': 'Continuar', 'ui.juvenile': '(filhote)', 'ui.alpha': 'Alfa', 'obs.alpha': 'macho dominante: maior, mais forte e mais resistente',
   'controls.list': 'WASD mover · Mouse olhar · Shift correr · Espaço pular · C agachar · E interagir · Clique atacar/coletar/usar ferramenta · F usar item (comer, curar, sinalizador) · 1–6 atalhos · Tab inventário · M mapa · B construir · V câmera · Esc pausa',
   'action.jump': 'Pular', 'action.sprint': 'Correr', 'action.crouch': 'Agachar', 'action.interact': 'Interagir', 'action.attack': 'Atacar / usar',
   'action.inventory': 'Inventário', 'action.build': 'Construir', 'action.camera': 'Câmera', 'action.pause': 'Pausa', 'action.rotateLeft': 'Girar à esquerda',
@@ -240,7 +240,7 @@ export const EXTRA_PT: Record<string, string> = {
 };
 
 export const EXTRA_EN: Record<string, string> = {
-  'ai.ridden': 'being ridden', 'ui.skills': 'Skills', 'ui.animals': 'Animals', 'ui.map': 'Map', 'ui.close': 'Close', 'ui.continue': 'Continue', 'ui.juvenile': '(juvenile)',
+  'ai.ridden': 'being ridden', 'ui.skills': 'Skills', 'ui.animals': 'Animals', 'ui.map': 'Map', 'ui.close': 'Close', 'ui.continue': 'Continue', 'ui.juvenile': '(juvenile)', 'ui.alpha': 'Alpha', 'obs.alpha': 'dominant male: bigger, stronger and tougher',
   'controls.list': 'WASD move · Mouse look · Shift run · Space jump · C crouch · E interact · Click attack/gather/use tool · F use held item (eat, heal, flare) · 1–6 hotbar · Tab inventory · M map · B build · V camera · Esc pause',
   'action.jump': 'Jump', 'action.sprint': 'Run', 'action.crouch': 'Crouch', 'action.interact': 'Interact', 'action.attack': 'Attack / use',
   'action.inventory': 'Inventory', 'action.build': 'Build', 'action.camera': 'Camera', 'action.pause': 'Pause', 'action.rotateLeft': 'Rotate left',

@@ -179,6 +179,7 @@ export function sanitize(save: SaveData): string[] {
     for (const k of ['hunger', 'thirst', 'fatigue', 'stamina', 'fear', 'disease', 'habituation'] as const) a[k] = Number.isFinite(a[k]) ? clamp(a[k], 0, 1) : 0.3;
     a.trustPlayer = Number.isFinite(a.trustPlayer) ? clamp(a.trustPlayer, -1, 1) : 0;
     a.tameProgress = Number.isFinite(a.tameProgress) ? clamp(a.tameProgress, 0, 1) : 0;
+    a.alpha = a.alpha === true;
     if (!Array.isArray(a.memory)) a.memory = [];
     a.memory = a.memory.slice(0, 12);
     if (a.tame) {

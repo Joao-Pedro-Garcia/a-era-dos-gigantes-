@@ -375,8 +375,10 @@ export class Interactions {
     const a = best;
     const now = g.env!.state.time;
     const sp = SPECIES[a.speciesId];
-    const name = a.tame ? `${a.tame.name} (${sp.name[language()]})` : `${sp.name[language()]}${lifeStage(a, now) === 'juvenile' ? ` ${t('ui.juvenile')}` : ''}`;
+    const spName = `${sp.name[language()]}${a.alpha ? ` ${t('ui.alpha')}` : ''}`;
+    const name = a.tame ? `${a.tame.name} (${spName})` : `${spName}${lifeStage(a, now) === 'juvenile' ? ` ${t('ui.juvenile')}` : ''}`;
     let text = t('prompt.observe', { what: name, state: a.alive ? t(`ai.${a.state}`) : t('ai.dead') });
+    if (a.alpha && a.alive) text += ` · ${t('obs.alpha')}`;
     if (detailed && a.alive) {
       const pct = (v: number) => `${Math.round(v * 100)}%`;
       text += ` · ${t('obs.detail', { hp: pct(a.health / maxHealth(a, now)), hunger: pct(a.hunger), thirst: pct(a.thirst), trust: pct((a.trustPlayer + 1) / 2) })}`;

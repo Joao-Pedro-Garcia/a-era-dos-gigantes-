@@ -8,6 +8,7 @@ import { pruneMemory, remember } from '../ai/memory';
 import { BIOMES } from '../world/biomes';
 import type { Environment } from '../world/environment';
 import { SPAWN, type Terrain } from '../world/terrain';
+import { rollAlpha } from './alpha';
 import { type AnimalData, createAnimal, effectiveMass, lifeStage, maxHealth } from './animal';
 import { SPECIES, SPECIES_IDS, type SpeciesDef, isPredator } from './species';
 import { AQUATIC_MIN_DEPTH, swimDepth } from './aquatic';
@@ -212,6 +213,7 @@ export class Ecosystem {
       if (sp.locomotion.aquatic && this.terrain.height(ax, az) > AQUATIC_MIN_DEPTH) continue;
       const parent = juvenile ? members.find((m) => m.sex === 'f' && lifeStage(m, now) === 'adult') : undefined;
       const a = createAnimal({ id: this.newId('a'), speciesId, x: ax, z: az, bornAt, groupId, parentId: parent?.id ?? null, rng });
+      if (rollAlpha(a, !juvenile, rng, this.animals.values())) a.health = maxHealth(a, now);
       a.homeX = x;
       a.homeZ = z;
       a.y = sp.locomotion.aquatic ? swimDepth(a, now, this.terrain.height(ax, az)) : this.terrain.height(ax, az);

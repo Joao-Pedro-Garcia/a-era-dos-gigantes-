@@ -1,4 +1,5 @@
 import type { AnimalData } from '../animals/animal';
+import { alphaMul } from '../animals/alpha';
 import { SPECIES } from '../animals/species';
 
 /**
@@ -24,7 +25,7 @@ export function armorOf(speciesId: string): number {
 
 export function resolveDamage(target: AnimalData, raw: number, kind: DamageKind): number {
   const armor = armorOf(target.speciesId) * (1 - PENETRATION[kind]);
-  return Math.max(0, raw * (1 - armor));
+  return Math.max(0, raw * (1 - armor) * alphaMul(target, 'damageTaken'));
 }
 
 /** Weapon damage kind from the held item id. */

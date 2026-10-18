@@ -1,5 +1,6 @@
 import { Rng } from '../core/rng';
 import { clamp } from '../core/math';
+import { ALPHA } from './alpha';
 import { SPECIES, type SpeciesDef } from './species';
 
 export type AIState =
@@ -103,6 +104,8 @@ export interface AnimalData {
   heldUntil?: number;
   /** The pending alarm was caused by the player (not a predator or hazard). */
   alarmPlayer?: boolean;
+  /** Rare dominant male (see alpha.ts); decided once at creation. */
+  alpha?: boolean;
 }
 
 export type LifeStage = 'juvenile' | 'subadult' | 'adult';
@@ -133,7 +136,7 @@ export function effectiveMass(a: AnimalData, now: number): number {
 
 export function maxHealth(a: AnimalData, now: number): number {
   const s = growthScale(a, now);
-  return SPECIES[a.speciesId].health * (0.25 + 0.75 * s);
+  return SPECIES[a.speciesId].health * (0.25 + 0.75 * s) * (a.alpha ? ALPHA.health : 1);
 }
 
 export function rollPersonality(rng: Rng, sp: SpeciesDef): Personality {
