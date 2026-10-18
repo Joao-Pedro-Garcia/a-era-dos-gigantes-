@@ -181,7 +181,9 @@ function speciesMaterials(sp: SpeciesDef): THREE.MeshStandardMaterial[] {
   let m = baseMats.get(sp.id);
   if (m) return m;
   // Fully rough base: the scale texture's roughness map alone decides the sheen (no plastic shine).
-  const scales = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 0 });
+  // A faint sheen at grazing angles (dry reptile skin catching the light along the
+  // silhouette) instead of the flat, painted look of a purely diffuse surface.
+  const scales = new THREE.MeshPhysicalMaterial({ vertexColors: true, roughness: 1, metalness: 0, sheen: 0.35, sheenRoughness: 0.55, sheenColor: new THREE.Color(0.55, 0.5, 0.42) });
   const feathers = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, metalness: 0, side: THREE.DoubleSide });
   const horn = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.45, metalness: 0 });
   const eye = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.08, metalness: 0 });

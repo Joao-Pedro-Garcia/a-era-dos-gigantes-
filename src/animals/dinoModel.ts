@@ -86,6 +86,62 @@ function hash(x: number, y: number, z: number): number {
   return s - Math.floor(s);
 }
 
+/** Smooth 3D value noise in [0, 1] (trilinear over the hash lattice). */
+function vnoise(x: number, y: number, z: number): number {
+  const xi = Math.floor(x), yi = Math.floor(y), zi = Math.floor(z);
+  const fx = x - xi, fy = y - yi, fz = z - zi;
+  const u = fx * fx * (3 - 2 * fx), v = fy * fy * (3 - 2 * fy), w = fz * fz * (3 - 2 * fz);
+  const h = (a: number, b: number, c: number) => hash(xi + a, yi + b, zi + c);
+  const x00 = lerp(h(0, 0, 0), h(1, 0, 0), u), x10 = lerp(h(0, 1, 0), h(1, 1, 0), u);
+  const x01 = lerp(h(0, 0, 1), h(1, 0, 1), u), x11 = lerp(h(0, 1, 1), h(1, 1, 1), u);
+  return lerp(lerp(x00, x10, v), lerp(x01, x11, v), w);
+}
+
+/** Three octaves of value noise (natural mottling), in [0, 1]. */
+function fbm(x: number, y: number, z: number): number {
+  return (vnoise(x, y, z) * 0.55 + vnoise(x * 2.03 + 17, y * 2.03, z * 2.03) * 0.3 + vnoise(x * 4.1, y * 4.1 + 31, z * 4.1) * 0.15);
+}
+
+/** A sphere that shades nearby skin (body, neck, tail, limbs and head) for the baked occlusion. */
+interface Occluder {
+  c: THREE.Vector3;
+  r: number;
+}
+
+/**
+ * Bakes ambient occlusion into the vertex colours: armpits, groin, the
+ * underside, the space between the legs and where the neck meets the body
+ * get the soft contact shadow they have under a real sky (analytic sphere
+ * occlusion, plus the ground below surfaces that face down).
+ */
+function bakeOcclusion(g: THREE.BufferGeometry, occ: Occluder[], hip: number): void {
+  const pos = g.attributes.position;
+  const nrm = g.attributes.normal;
+  const col = g.attributes.color;
+  const p = V();
+  const n = V();
+  const d = V();
+  for (let i = 0; i < pos.count; i++) {
+    p.fromBufferAttribute(pos, i);
+    n.fromBufferAttribute(nrm, i);
+    let o = 0;
+    for (const s of occ) {
+      d.subVectors(s.c, p);
+      const dist = d.length();
+      // Skin of this very sphere (or inside it): no self-shadowing.
+      if (dist < s.r * 1.08) continue;
+      const cos = d.dot(n) / dist;
+      if (cos <= 0) continue;
+      o += (cos * s.r * s.r) / (dist * dist);
+    }
+    // The ground under the belly, chin and the underside of the tail.
+    o += Math.max(0, -n.y) * 0.45 * smooth(hip * 1.6, 0, p.y);
+    const k = lerp(0.22, 1, Math.exp(-2 * o));
+    col.setXYZ(i, col.getX(i) * k, col.getY(i) * k, col.getZ(i) * k);
+  }
+  col.needsUpdate = true;
+}
+
 // Material slots.
 export const DMAT = { scales: 0, feathers: 1, horn: 2, eye: 3, membrane: 4 } as const;
 
@@ -460,31 +516,49 @@ function painter(sp: SpeciesDef) {
   const base = new THREE.Color(sp.look.base);
   const belly = new THREE.Color(sp.look.belly);
   const accent = new THREE.Color(sp.look.accent);
+  const mud = new THREE.Color(0.2, 0.16, 0.12);
   const L = sp.lengthM;
+  const hip = sp.hipHeightM;
   const pattern = sp.look.pattern;
+  // Noise scales relative to the animal (patches a few per flank, fine mottling).
+  const big = 1 / (L * 0.11);
+  const fine = 1 / (L * 0.028);
   return (p: THREE.Vector3, under: number, part: 'body' | 'limb' | 'head' | 'accent' | 'horn' | 'claw'): RGB => {
     if (part === 'horn') return [0.62, 0.56, 0.46];
     if (part === 'claw') return [0.18, 0.15, 0.12];
     const c = base.clone();
+    const nb = fbm(p.x * big, p.y * big, p.z * big);
+    const nf = fbm(p.x * fine + 5, p.y * fine, p.z * fine);
     if (part === 'accent') c.copy(accent);
     else {
-      // Countershading: pale belly and throat, darker back.
-      c.lerp(belly, smooth(-0.1, 0.9, under) * (pattern === 'countershade' ? 1 : 0.75));
-      if (under < -0.55) c.multiplyScalar(0.82); // dorsal line
-      if (part !== 'limb' && under < 0.3) {
+      // Countershading: pale belly and throat, a darker saddle along the back.
+      c.lerp(belly, smooth(-0.15, 0.85, under + (nb - 0.5) * 0.35) * (pattern === 'countershade' ? 1 : 0.75));
+      c.multiplyScalar(1 - 0.2 * smooth(-0.25, -0.9, under));
+      if (part !== 'limb' && under < 0.35) {
+        const fade = smooth(0.35, -0.3, under);
         if (pattern === 'stripes') {
-          const s = Math.sin((p.z / L) * 46 + Math.sin(p.y * 7 / L * 10) * 0.6 + hash(Math.floor(p.z * 3 / L * 10), 1, 2) * 0.8);
-          if (s > 0.25) c.lerp(accent, 0.55 * smooth(0.25, 0.6, s) * smooth(0.3, -0.4, under));
+          // Irregular bands broken by noise (no ruler-straight stripes).
+          const s = Math.sin((p.z / L) * 46 + (nb - 0.5) * 5 + (nf - 0.5) * 1.5);
+          c.lerp(accent, 0.6 * smooth(0.15, 0.7, s) * fade);
         } else if (pattern === 'spots') {
-          const q = L * 0.035;
-          const h = hash(Math.floor(p.x / q), Math.floor(p.y / q), Math.floor(p.z / q));
-          if (h > 0.72) c.lerp(accent, 0.6 * smooth(0.3, -0.3, under));
+          const sp2 = fbm(p.x * fine * 0.8 + 11, p.y * fine * 0.8, p.z * fine * 0.8);
+          c.lerp(accent, 0.65 * smooth(0.6, 0.72, sp2) * fade);
+        } else {
+          // Plain: large soft blotches of the accent colour.
+          c.lerp(accent, 0.3 * smooth(0.55, 0.8, nb) * fade);
         }
       }
       if (part === 'limb') c.multiplyScalar(0.9);
     }
-    const n = 1 + (hash(p.x * 9, p.y * 9, p.z * 9) - 0.5) * 0.06;
-    return [c.r * n, c.g * n, c.b * n];
+    // Mottling at two scales, and a slight hue drift between patches.
+    const m = 0.8 + 0.28 * nb + 0.16 * (nf - 0.5);
+    c.multiplyScalar(m);
+    c.r *= 1 + (nb - 0.5) * 0.08;
+    c.b *= 1 - (nb - 0.5) * 0.08;
+    // Dried mud and dust on the feet and lower legs.
+    const dirt = smooth(hip * 0.22, 0, p.y) * (0.55 + 0.3 * nf);
+    if (dirt > 0) c.lerp(mud, Math.min(0.8, dirt));
+    return [c.r, c.g, c.b];
   };
 }
 
@@ -557,14 +631,25 @@ export function buildDinoTemplate(sp: SpeciesDef, juvenile = false): DinoTemplat
     if (leg.fingerTip) addBone(`${leg.name}F`, names[3], leg.joints[3]);
   }
 
+  // Occluders for the baked contact shadows: the body, neck and tail, each limb and the head.
+  const occluders: Occluder[] = [];
+  for (const sm of spineSamples(bp.cps, 3)) occluders.push({ c: sm.p.clone().add(V(0, -sm.drop * 0.5, 0)), r: Math.min(sm.rx, sm.ry + sm.drop * 0.5) * 0.95 });
+  for (const leg of bp.legs)
+    for (let k = 0; k < 3; k++)
+      for (const t of [0.15, 0.5, 0.85]) occluders.push({ c: leg.joints[k].clone().lerp(leg.joints[k + 1], t), r: lerp(leg.radii[k], leg.radii[k + 1], t) * 0.9 });
+  {
+    const hf2 = V(0, -Math.sin(bp.head.pitch), Math.cos(bp.head.pitch));
+    occluders.push({ c: bp.head.at.clone().addScaledVector(hf2, bp.head.len * 0.35), r: Math.min(bp.head.height, bp.head.width) * 0.8 });
+  }
+
   // Three levels of detail from the same blueprint (the silhouette is identical):
   // 0 = close, 1 = mid distance, 2 = far (one material, one draw call).
   const build = (lod: number): THREE.BufferGeometry => {
     const detail = lod === 0;
     const parts = [new Part(), new Part(), new Part(), new Part(), new Part()];
     const paint = painter(sp);
-    const segs = [26, 14, 9][lod];
-    const perSeg = [10, 5, 3][lod];
+    const segs = [44, 14, 9][lod];
+    const perSeg = [18, 5, 3][lod];
     const tile = bp.tile;
     const feathered = bp.feathered;
     const bodyMat = feathered ? DMAT.feathers : DMAT.scales;
@@ -589,6 +674,43 @@ export function buildDinoTemplate(sp: SpeciesDef, juvenile = false): DinoTemplat
     };
     const body = parts[bodyMat];
     const base = body.pos.length / 3;
+    // Anatomy carved into the body surface (close-up level only): the ridge of the
+    // spine, the hip bones (ilia) and shoulder blades under the skin, transverse
+    // skin folds on the neck and throat, and gentle irregularity instead of a
+    // perfectly smooth loft.
+    const sAt = (bone: string) => {
+      const i = bp.cps.findIndex((c) => c.bone === bone);
+      return i < 0 ? -1 : samples[i * perSeg].s;
+    };
+    const sPelvis = sAt('pelvis');
+    const sChest = sAt('chest');
+    const sNeck = sAt('neck1') > 0 ? sAt('neck1') : 2;
+    const L = sp.lengthM;
+    const gs = (x: number, c: number, w: number) => Math.exp(-((x - c) * (x - c)) / (w * w));
+    const fold = L * (feathered ? 0 : 0.011);
+    const sculpt = (sm: { s: number }, a: number, along: number, p: THREE.Vector3) => {
+      if (!detail) return 1;
+      const dt = Math.atan2(Math.cos(a), Math.sin(a)); // 0 on top, ±π/2 at the sides
+      const under = -Math.sin(a);
+      let f = 1;
+      // Spine ridge along the back and tail (neural spines).
+      f += 0.03 * gs(dt, 0, 0.16) * (sm.s < sNeck ? 1 : 0.5);
+      // Hip bones: two low bumps either side of the spine; a hollow between them and the ribs.
+      if (sPelvis >= 0) f += 0.06 * gs(sm.s, sPelvis, 0.035) * gs(Math.abs(dt), 0.65, 0.3) - 0.025 * gs(sm.s, sPelvis + 0.06, 0.03) * gs(Math.abs(dt), 1.1, 0.4);
+      // Shoulder blades sliding over the ribs.
+      if (sChest >= 0) f += 0.05 * gs(sm.s, sChest + 0.01, 0.04) * gs(Math.abs(dt), 0.85, 0.35);
+      // Ribs faintly showing on the flanks between shoulder and hip.
+      if (sPelvis >= 0 && sChest >= 0 && sm.s > sPelvis && sm.s < sChest) f += 0.008 * Math.sin((along / (L * 0.022)) * Math.PI * 2) * gs(Math.abs(dt), 1.35, 0.35) * smooth(sPelvis, sPelvis + 0.04, sm.s) * smooth(sChest, sChest - 0.03, sm.s);
+      // Transverse folds on the neck, deepest on the throat.
+      if (fold > 0 && sm.s > sNeck) {
+        const wob = vnoise(p.x * 4 / L * 10, p.y * 0.5, along * 0.7);
+        f += 0.016 * Math.pow(Math.max(0, Math.sin((along / fold) * Math.PI * 2 + 4 * wob)), 3) * smooth(-0.1, 0.9, under) * (0.4 + 0.6 * wob) * smooth(sNeck, sNeck + 0.03, sm.s);
+      }
+      // Natural unevenness.
+      const q = 1 / (L * 0.035);
+      f += 0.035 * (vnoise(p.x * q, p.y * q, p.z * q) - 0.5);
+      return f;
+    };
     let along = 0;
     for (let i = 0; i < samples.length; i++) {
       const sm = samples[i];
@@ -609,6 +731,7 @@ export function buildDinoTemplate(sp: SpeciesDef, juvenile = false): DinoTemplat
         const sa = Math.sin(a);
         const below = Math.max(0, -sa);
         const r = V().addScaledVector(side, ca * sm.rx).addScaledVector(up, sa * sm.ry - below * sm.drop);
+        r.multiplyScalar(sculpt(sm, a, along, sm.p.clone().add(r)));
         const p = sm.p.clone().add(r);
         const under = -sa; // +1 belly, -1 back
         // Large feature scales on the back and flanks, small ones on the belly.
@@ -634,7 +757,7 @@ export function buildDinoTemplate(sp: SpeciesDef, juvenile = false): DinoTemplat
     // --- Head (skull + jaw).
     buildHead(sp, bp, parts, boneIndex, paint, lod);
     // --- Legs.
-    for (const leg of bp.legs) buildLeg(sp, leg, parts, boneIndex, paint, detail, tile, feathered && leg.front ? DMAT.feathers : DMAT.scales);
+    for (const leg of bp.legs) buildLeg(sp, leg, parts, boneIndex, paint, detail, tile, feathered && leg.front ? DMAT.feathers : DMAT.scales, bp.cps.find((c) => c.bone === leg.parent));
     // --- Features.
     buildFeatures(sp, bp, parts, boneIndex, samples, spineWeights, paint, detail);
 
@@ -642,6 +765,7 @@ export function buildDinoTemplate(sp: SpeciesDef, juvenile = false): DinoTemplat
     const geos = parts.map((p) => p.geometry()).filter((g) => g.attributes.position.count > 0 || grouped);
     // The distant version is a single group (one draw call); closer ones keep their materials.
     const g = mergeGeometries(geos, grouped)!;
+    bakeOcclusion(g, occluders, sp.hipHeightM);
     g.computeBoundingSphere();
     return g;
   };
@@ -705,8 +829,8 @@ function legPath(joints: THREE.Vector3[], per: number): { p: THREE.Vector3; seg:
   return out;
 }
 
-function buildLeg(sp: SpeciesDef, leg: LegDef, parts: Part[], boneIndex: Map<string, number>, paint: ReturnType<typeof painter>, detail: boolean, tile: number, mat: number): void {
-  const per = detail ? 5 : 2;
+function buildLeg(sp: SpeciesDef, leg: LegDef, parts: Part[], boneIndex: Map<string, number>, paint: ReturnType<typeof painter>, detail: boolean, tile: number, mat: number, body?: CP): void {
+  const per = detail ? 9 : 2;
   const path = legPath(leg.joints.slice(0, 4), per);
   const bonesI = [0, 1, 2, 3].map((k) => boneIndex.get(`${leg.name}${k}`)!);
   const parentI = boneIndex.get(leg.parent)!;
@@ -717,20 +841,30 @@ function buildLeg(sp: SpeciesDef, leg: LegDef, parts: Part[], boneIndex: Map<str
     // "drumstick"; big quadrupeds: thighs that flow into the flank).
     const heavy = sp.locomotion.plan === 'quadruped';
     const bulge = seg === 0 ? 1 + (heavy ? 0.1 : 0.18) * Math.sin(Math.PI * Math.min(1, t * 1.6)) : seg === 1 ? 1 + 0.12 * Math.sin(Math.PI * t) : 1;
-    return lerp(r0, r1, t) * bulge;
+    // Skin folds bunched around the knee/elbow and ankle/wrist (close-up level).
+    const wrinkle = detail && seg > 0 ? 1 + 0.045 * Math.sin(t * Math.PI * 9) * smooth(0.28, 0, t) : 1;
+    return lerp(r0, r1, t) * bulge * wrinkle;
   });
   // The upper end starts deep inside the body and swells outward, so the
   // thigh/shoulder emerges from the flank instead of a capped cylinder.
   const quad = sp.locomotion.plan === 'quadruped';
   // (Ankylosaurs: the low, flat back leaves less room above the hip.)
   const inside = V(leg.joints[0].x * 0.35, leg.joints[0].y + leg.radii[0] * (quad ? (sp.look.features.includes('armor') ? 0.4 : 1.0) : 1.4), leg.joints[0].z);
+  // Keep the root well inside the body, and round the shoulder of the thigh/upper
+  // arm with an extra ring (no straight cone showing above the flank).
+  if (body) inside.y = Math.min(inside.y, body.p.y + body.ry * 0.35);
+  const rootR = leg.radii[0] * (quad ? 0.95 : 0.7);
+  const mid = inside.clone().lerp(leg.joints[0], 0.55);
+  mid.x += Math.sign(leg.joints[0].x) * leg.radii[0] * 0.12;
+  path.unshift({ p: mid, seg: 0, t: 0 });
+  radii.unshift(leg.radii[0] * (quad ? 1.0 : 0.95));
   path.unshift({ p: inside, seg: 0, t: 0 });
-  radii.unshift(leg.radii[0] * (quad ? 0.95 : 0.55));
+  radii.unshift(rootR);
   // Colour: the top of the thigh/shoulder continues the flank colour; lower limbs are a little paler.
   const topY = leg.joints[0].y;
   // Limbs carry mostly small scales; a few larger ones on the thigh and upper arm.
   parts[mat].region = scuteAmount(sp) * 0.3;
-  tube(parts[mat], path.map((x) => x.p), radii, detail ? 14 : 6, (p) => paint(p, p.y > topY - leg.radii[0] ? lerp(0.2, -0.35, smooth(topY - leg.radii[0], topY + leg.radii[0], p.y)) : 0.2, p.y > topY - leg.radii[0] * 2 ? 'body' : 'limb'), (i) => {
+  tube(parts[mat], path.map((x) => x.p), radii, detail ? 22 : 8, (p) => paint(p, p.y > topY - leg.radii[0] ? lerp(0.2, -0.35, smooth(topY - leg.radii[0], topY + leg.radii[0], p.y)) : 0.2, p.y > topY - leg.radii[0] * 2 ? 'body' : 'limb'), (i) => {
     const { seg, t } = path[i];
     if (seg === 0 && t < 0.25) return [[parentI, bonesI[0]], [1 - t * 4 * 0.6 - 0.4, t * 4 * 0.6 + 0.4]];
     if (t < 0.15 && seg > 0) {
@@ -738,7 +872,7 @@ function buildLeg(sp: SpeciesDef, leg: LegDef, parts: Part[], boneIndex: Map<str
       return [[bonesI[seg - 1], bonesI[seg]], [1 - w, w]];
     }
     return [[bonesI[seg]], [1]];
-  }, tile, true, leg.flat ?? 1);
+  }, tile, true, leg.flat ?? 1.12);
   parts[mat].region = 0;
   // Toes with claws.
   const toeRoot = leg.joints[3];
@@ -898,8 +1032,8 @@ function buildHead(sp: SpeciesDef, bp: Blueprint, parts: Part[], boneIndex: Map<
   const up = V(0, Math.cos(pitch), Math.sin(pitch));
   const sideV = V(1, 0, 0);
   const hi = detail === 0;
-  const segs = hi ? 22 : detail === 1 ? 14 : 8;
-  const rings = hi ? 22 : detail === 1 ? 12 : 6;
+  const segs = hi ? 34 : detail === 1 ? 14 : 8;
+  const rings = hi ? 32 : detail === 1 ? 12 : 6;
   const mat = bp.feathered && plan !== 'bird' && sp.lengthM < 3 ? DMAT.feathers : DMAT.scales;
   const beaked = fam === 'beak' || fam === 'cera' || fam === 'anky' || fam === 'duck' || fam === 'ptero';
   const H = height;
