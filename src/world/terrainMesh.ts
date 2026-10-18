@@ -146,14 +146,14 @@ export class TerrainJobs {
   private next = 1;
   private waiting = new Map<number, (d: never) => void>();
 
-  constructor(seed: number) {
+  constructor(seed: number, version: number) {
     this.worker = new Worker(new URL('./terrainWorker.ts', import.meta.url), { type: 'module' });
     this.worker.onmessage = (e: MessageEvent<{ id: number; data: never }>) => {
       const cb = this.waiting.get(e.data.id);
       this.waiting.delete(e.data.id);
       cb?.(e.data.data);
     };
-    this.worker.postMessage({ type: 'init', seed });
+    this.worker.postMessage({ type: 'init', seed, version });
   }
 
   get inFlight(): number {
@@ -169,7 +169,7 @@ export class TerrainJobs {
   }
 
   /** Whole-continent horizon mesh (see farTerrain.ts), in its own worker so sectors are not delayed. */
-  far(res: number, seed: number): Promise<FarTerrainData> {
+  far(res: number, seed: number, version: number): Promise<FarTerrainData> {
     return new Promise((resolve) => {
       const w = new Worker(new URL('./terrainWorker.ts', import.meta.url), { type: 'module' });
       this.farWorker = w;
@@ -178,7 +178,7 @@ export class TerrainJobs {
         w.terminate();
         if (this.farWorker === w) this.farWorker = null;
       };
-      w.postMessage({ type: 'init', seed });
+      w.postMessage({ type: 'init', seed, version });
       w.postMessage({ type: 'far', id: 0, res });
     });
   }

@@ -4,6 +4,7 @@ export type BiomeId =
   | 'beach'
   | 'plains'
   | 'jungle'
+  | 'forest'
   | 'swamp'
   | 'mountain'
   | 'snow'
@@ -78,6 +79,18 @@ export const BIOMES: Record<BiomeId, BiomeDef> = {
     fauna: {
       brachiosaurus: 2, dilophosaurus: 2, velociraptor: 1.5, compsognathus: 3, microraptor: 2,
       iguanodon: 2, parasaurolophus: 1.5, carnotaurus: 0.6, therizinosaurus: 1,
+    },
+  },
+  forest: {
+    id: 'forest', ground: [0x4a5a2c, 0x5f6b37],
+    vegetation: [
+      { kind: 'conifer', density: 0.9 }, { kind: 'broadleaf', density: 0.8 }, { kind: 'fern', density: 1.4 },
+      { kind: 'bush', density: 0.6 }, { kind: 'grass', density: 1.2 }, { kind: 'rock', density: 0.15 }, { kind: 'deadTree', density: 0.05 },
+    ],
+    movement: 0.9, forage: 0.85, resources: ['wood', 'fiber', 'berries', 'herb', 'stone'], hazards: ['wildfire'],
+    fauna: {
+      stegosaurus: 2, iguanodon: 2.5, therizinosaurus: 1, allosaurus: 0.6, velociraptor: 1, pachycephalosaurus: 1.5,
+      microraptor: 2, troodon: 1, archaeopteryx: 1.5, parasaurolophus: 1.5,
     },
   },
   swamp: {

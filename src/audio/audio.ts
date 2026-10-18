@@ -173,7 +173,7 @@ export class AudioSystem {
     const t = ctx.currentTime;
     const cave = p.indoor === 'cave';
     const shelter = p.indoor === 'sheltered' ? 0.5 : 1;
-    const lush = p.biome === 'jungle' || p.biome === 'swamp' ? 1 : p.biome === 'plains' ? 0.4 : 0.1;
+    const lush = p.biome === 'jungle' || p.biome === 'swamp' ? 1 : p.biome === 'forest' ? 0.75 : p.biome === 'plains' ? 0.4 : 0.1;
     this.wind.gain.setTargetAtTime(cave ? 0.01 : Math.min(0.5, 0.03 + p.wind * 0.025) * shelter, t, 0.6);
     this.rain.gain.setTargetAtTime(cave ? 0 : p.rain * 0.25 * shelter, t, 0.6);
     this.insects.gain.setTargetAtTime(cave ? 0 : lush * (p.night ? 0.05 : 0.025) * (1 - p.rain * 0.7), t, 1);
@@ -235,6 +235,47 @@ export class AudioSystem {
       o.connect(f);
       o.start(t);
       o.stop(t + opts.dur + 0.1);
+    }
+  }
+
+  private falls: { gain: GainNode; pan: PannerNode } | null = null;
+
+  /**
+   * Roar of a waterfall at a world position (a filtered noise loop through a
+   * 3D panner, so it fades with distance and comes from the right side).
+   * `null` silences it.
+   */
+  waterfall(pos: [number, number, number] | null): void {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    if (!this.falls && pos) {
+      const src = ctx.createBufferSource();
+      src.buffer = this.noise;
+      src.loop = true;
+      const low = ctx.createBiquadFilter();
+      low.type = 'lowpass';
+      low.frequency.value = 1500;
+      const body = ctx.createBiquadFilter();
+      body.type = 'peaking';
+      body.frequency.value = 420;
+      body.gain.value = 6;
+      const gain = ctx.createGain();
+      gain.gain.value = 0;
+      const pan = this.panner(pos, 22);
+      src.connect(low).connect(body).connect(gain).connect(pan).connect(this.buses.ambience);
+      src.start();
+      this.falls = { gain, pan };
+    }
+    if (!this.falls) return;
+    const t = ctx.currentTime;
+    this.falls.gain.gain.setTargetAtTime(pos ? 0.9 : 0, t, 0.8);
+    if (pos) {
+      const p = this.falls.pan;
+      if (p.positionX) {
+        p.positionX.value = pos[0];
+        p.positionY.value = pos[1];
+        p.positionZ.value = pos[2];
+      } else p.setPosition(...pos);
     }
   }
 

@@ -32,6 +32,7 @@ const P = (grass: number, dirt: number, sand: number, snow: number, litter: numb
 export const GROUND_PROFILES: Record<BiomeId, Profile> = {
   plains: P(0.85, 0.15, 0, 0, 0, 0, 0, [1.08, 1.0, 0.82]),
   jungle: P(0.3, 0.05, 0, 0, 0.55, 0.1, 0, [0.92, 1.04, 0.9]),
+  forest: P(0.45, 0.1, 0, 0, 0.45, 0, 0, [0.95, 1.0, 0.88]),
   swamp: P(0.3, 0, 0, 0, 0.2, 0.5, 0, [0.85, 0.95, 0.82]),
   beach: P(0, 0, 1, 0, 0, 0, 0, [1, 1, 1]),
   mountain: P(0.35, 0.35, 0, 0, 0, 0, 0.35, [0.95, 0.95, 0.92]),

@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { AudioSystem, type Surface } from '../audio/audio';
 import { growthScale, lifeStage, type AIState, type AnimalData, type TameCommand } from '../animals/animal';
 import { updateAlphaAura } from '../animals/alphaAura';
+import { LandmarkViews } from '../world/landmarks';
 import { createAnimalView, createNestView, disposeAnimalView, hitAnimalView, poseAnimalView, prewarmAnimals, setAnimalContext, type AnimalView } from '../animals/animalView';
 import { CombatController } from '../combat/actions';
 import { ImpactFx } from '../graphics/impactFx';
@@ -47,7 +48,7 @@ import { createTerrainMaterial, createTerrainUniforms } from '../graphics/terrai
 import { WIND } from '../graphics/wind';
 import { loadExternalModels, warmupInstances, type ExternalInstance } from '../graphics/externalModels';
 import { CAVE_RADIUS, CAVE_Y, SectorManager } from '../world/sectors';
-import { PLANNED_SITES, SPAWN, Terrain, VOLCANO } from '../world/terrain';
+import { PLANNED_SITES, SPAWN, TERRAIN_VERSION, Terrain, VOLCANO } from '../world/terrain';
 import { DIFFICULTY, effectiveQuality, loadSettings, saveSettings, type QualityLevel, type QualityProfile, type Settings } from './config';
 import { Interactions, type Interaction } from './interactions';
 import { clamp } from './math';
@@ -92,6 +93,8 @@ export class Game {
   private farTerrain: THREE.Mesh | null = null;
   private vegMats: { detail: THREE.MeshStandardMaterial; flat: THREE.MeshStandardMaterial; depth: THREE.MeshDepthMaterial };
   private groundCover: GroundCover | null = null;
+  /** Stream and waterfall of the mesa (continent v2). */
+  private landmarks: LandmarkViews | null = null;
   private postfx: PostFx;
   eco: Ecosystem | null = null;
   buildingSys: Building | null = null;
@@ -370,7 +373,7 @@ export class Game {
       env: createEnvState(seed),
       eco: createEcosystemState(seed),
       building: { pieces: [], nextId: 1 },
-      world: { harvested: {}, bags: [], nextBagId: 1, discovered: [], seen: [], flags: [], inCave: null },
+      world: { harvested: {}, bags: [], nextBagId: 1, discovered: [], seen: [], flags: [], inCave: null, terrainVersion: TERRAIN_VERSION },
       progression: createProgression(),
       exploration: createExploration(),
       mysteries: createMysteries(),
@@ -443,6 +446,9 @@ export class Game {
     this.farTerrain = null;
     this.groundCover?.clear();
     this.groundCover = null;
+    this.landmarks?.dispose();
+    this.landmarks = null;
+    this.audio.waterfall(null);
     if (this.envView) {
       this.envView.dispose();
       this.scene.environment = null;
@@ -461,14 +467,14 @@ export class Game {
   private startWorld(save: SaveData): void {
     this.teardown();
     this.seed = save.seed;
-    const terrain = (this.terrain = new Terrain(save.seed));
+    const terrain = (this.terrain = new Terrain(save.seed, save.world.terrainVersion ?? 1));
     this.env = new Environment(save.env, terrain);
     this.envView = new EnvironmentView(this.scene, this.env);
     this.sectors = new SectorManager(terrain, this.collision, save.seed, save.world.harvested, new Set(save.world.flags ?? []));
     this.worldRoot.add(this.sectors.root);
     // Terrain sector meshes are built off the main thread (no hitches when walking into new areas).
     try {
-      this.sectors.terrainJobs = typeof Worker !== 'undefined' ? new TerrainJobs(save.seed) : null;
+      this.sectors.terrainJobs = typeof Worker !== 'undefined' ? new TerrainJobs(save.seed, terrain.version) : null;
     } catch {
       this.sectors.terrainJobs = null;
     }
@@ -482,12 +488,16 @@ export class Game {
       this.farTerrain.renderOrder = 5;
       this.worldRoot.add(this.farTerrain);
     };
-    if (this.sectors.terrainJobs) void this.sectors.terrainJobs.far(this.quality().farRes, save.seed).then((d) => addFar(farTerrainGeometry(d)));
+    if (this.sectors.terrainJobs) void this.sectors.terrainJobs.far(this.quality().farRes, save.seed, terrain.version).then((d) => addFar(farTerrainGeometry(d)));
     else addFar(buildFarTerrain(terrain, (x, z) => this.sectors!.biomeCoarse(x, z), Math.min(160, this.quality().farRes)));
     this.envView.water.setHeightFn((x, z) => terrain.height(x, z));
     setAnimalContext(this.textures, (x, z) => terrain.height(x, z));
     this.sectors.applyTextures(this.textures);
     this.groundCover = new GroundCover(terrain, this.sectors.pools, (x, z) => this.sectors!.biomeCoarse(x, z), () => this.env!.waterLevel);
+    if (terrain.v2) {
+      this.landmarks = new LandmarkViews(terrain);
+      this.worldRoot.add(this.landmarks.root);
+    }
     this.eco = new Ecosystem(save.eco, terrain, this.env, save.seed);
     this.eco.onEvent = (e) => this.onEcoEvent(e);
     this.buildingSys = new Building(save.building, this.collision);
@@ -541,6 +551,7 @@ export class Game {
         seen: [...this.seenSpecies],
         flags: [...this.sectors!.flags],
         inCave: this.inCave,
+        terrainVersion: this.terrain!.version,
       },
       progression: this.progression.d,
       exploration: this.exploration.serialize(),
@@ -1529,6 +1540,8 @@ export class Game {
       for (const [dx, dz] of [[25, 0], [-25, 0], [0, 25], [0, -25], [12, 12], [-12, -12]]) if (this.terrain!.height(p.s.x + dx, p.s.z + dz) < env.waterLevel) water += 1 / 6;
     }
     this.audio.ambience({ wind: env.state.windSpeed, rain: precip, biome, night: env.isNight, water, indoor: this.inCave ? 'cave' : sheltered ? 'sheltered' : 'open' });
+    const falls = this.landmarks?.waterfall;
+    this.audio.waterfall(falls && !this.inCave && Math.hypot(falls.bottom.x - p.s.x, falls.bottom.z - p.s.z) < 600 ? [falls.bottom.x, falls.bottom.y + 6, falls.bottom.z] : null);
     if (env.lightning && !this.inCave) this.audio.thunder(Math.hypot(env.lightning.x - p.s.x, env.lightning.z - p.s.z));
     // Footsteps follow the stride (no fixed timer).
     if (!this.mountedId && p.onGround && Math.floor(p.stride) !== Math.floor(this.lastStride) && p.horizontalSpeed > 0.5) {
@@ -1984,6 +1997,7 @@ export class Game {
     const eco = this.eco!;
     const now = this.env!.state.time;
     const cam = this.camera.position;
+    this.landmarks?.update(performance.now() / 1000, cam.x, cam.z);
     const activeIds = new Set<string>();
     for (const a of eco.active) {
       activeIds.add(a.id);

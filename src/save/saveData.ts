@@ -53,6 +53,8 @@ export interface SaveData {
     flags?: string[];
     /** Player is inside this cave interior. */
     inCave?: string | null;
+    /** World generator version (see TERRAIN_VERSION); missing in older saves = 1. */
+    terrainVersion?: number;
   };
   progression: ProgressionData;
   exploration: ExplorationData;
@@ -142,6 +144,7 @@ export function migrate(raw: unknown): SaveData {
  * state (unknown items, NaN positions, duplicated animals). Returns issues found.
  */
 export function sanitize(save: SaveData): string[] {
+  if (save.world.terrainVersion !== undefined && ![1, 2].includes(save.world.terrainVersion)) save.world.terrainVersion = 1;
   const issues: string[] = [];
   const p = save.player;
   const half = 5200;

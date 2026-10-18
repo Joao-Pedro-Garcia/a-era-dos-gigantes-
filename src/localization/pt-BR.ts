@@ -159,7 +159,7 @@ export const ptBR: Record<string, string> = {
   'controls.list': 'WASD mover · Mouse olhar · Shift correr · Espaço pular · C agachar · E interagir · Clique atacar/coletar · F usar item · 1–6 atalhos · Tab inventário · B construir · V câmera · Esc pausa',
   'controls.rebind': 'Clique em uma ação e pressione a nova tecla',
   'controls.reset': 'Restaurar padrão',
-  'biome.ocean': 'Oceano', 'biome.beach': 'Litoral', 'biome.plains': 'Planícies', 'biome.jungle': 'Selva', 'biome.swamp': 'Pântano',
+  'biome.ocean': 'Oceano', 'biome.beach': 'Litoral', 'biome.plains': 'Planícies', 'biome.jungle': 'Selva', 'biome.forest': 'Floresta', 'biome.swamp': 'Pântano',
   'biome.mountain': 'Montanhas', 'biome.snow': 'Terras nevadas', 'biome.volcanic': 'Região vulcânica', 'biome.ruins': 'Ruínas',
   'site.ruin_plains_outpost': 'Posto avançado abandonado', 'site.ruin_jungle_lab': 'Laboratório da selva', 'site.ruin_swamp_station': 'Estação do pântano',
   'site.ruin_north_observatory': 'Observatório do norte', 'site.ruin_coast_dock': 'Cais em ruínas', 'site.ruin_volcano_bunker': 'Bunker do vulcão',

@@ -55,7 +55,7 @@ export const en: Record<string, string> = {
   'touch.inv': 'Items', 'touch.build': 'Build', 'touch.cam': 'Camera', 'touch.eat': 'Eat',
   'controls.list': 'WASD move · Mouse look · Shift run · Space jump · C crouch · E interact · Click attack/gather · F use item · 1–6 hotbar · Tab inventory · B build · V camera · Esc pause',
   'controls.rebind': 'Click an action and press the new key', 'controls.reset': 'Reset to default',
-  'biome.ocean': 'Ocean', 'biome.beach': 'Coast', 'biome.plains': 'Plains', 'biome.jungle': 'Jungle', 'biome.swamp': 'Swamp',
+  'biome.ocean': 'Ocean', 'biome.beach': 'Coast', 'biome.plains': 'Plains', 'biome.jungle': 'Jungle', 'biome.forest': 'Forest', 'biome.swamp': 'Swamp',
   'biome.mountain': 'Mountains', 'biome.snow': 'Snowlands', 'biome.volcanic': 'Volcanic region', 'biome.ruins': 'Ruins',
   'site.ruin_plains_outpost': 'Abandoned outpost', 'site.ruin_jungle_lab': 'Jungle laboratory', 'site.ruin_swamp_station': 'Swamp station',
   'site.ruin_north_observatory': 'Northern observatory', 'site.ruin_coast_dock': 'Ruined dock', 'site.ruin_volcano_bunker': 'Volcano bunker',

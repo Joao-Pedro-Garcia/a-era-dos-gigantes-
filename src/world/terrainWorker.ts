@@ -9,12 +9,12 @@ import { farTerrainData } from './farTerrain';
 let terrain: Terrain | null = null;
 let biomeAt: ((x: number, z: number) => ReturnType<Terrain['biomeAt']>) | null = null;
 
-type Msg = { type: 'init'; seed: number } | { type: 'build'; id: number; sx: number; sz: number; res: number } | { type: 'far'; id: number; res: number };
+type Msg = { type: 'init'; seed: number; version: number } | { type: 'build'; id: number; sx: number; sz: number; res: number } | { type: 'far'; id: number; res: number };
 
 self.onmessage = (e: MessageEvent<Msg>) => {
   const m = e.data;
   if (m.type === 'init') {
-    terrain = new Terrain(m.seed);
+    terrain = new Terrain(m.seed, m.version);
     biomeAt = biomeCache(terrain);
     return;
   }
