@@ -44,7 +44,7 @@ export function parseManifest(raw: unknown): ModelManifest {
   const entry = (e: unknown): ModelEntry | null => {
     if (!e || typeof e !== 'object') return null;
     const x = e as Record<string, unknown>;
-    if (typeof x.url !== 'string' || !/^[\w\-./]+\.(glb|gltf)$/i.test(x.url) || x.url.includes('..') || /^[a-z]+:/i.test(x.url)) return null;
+    if (typeof x.url !== 'string' || !/^[\w\-./]+\.(glb|gltf|gltf\.json)$/i.test(x.url) || x.url.includes('..') || /^[a-z]+:/i.test(x.url)) return null;
     const clips: Partial<Record<ClipName, string>> = {};
     if (x.clips && typeof x.clips === 'object') for (const c of CLIPS) if (typeof (x.clips as Record<string, unknown>)[c] === 'string') clips[c] = (x.clips as Record<string, string>)[c];
     const num = (v: unknown, d: number, lo: number, hi: number) => (typeof v === 'number' && Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : d);

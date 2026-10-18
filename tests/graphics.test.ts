@@ -218,11 +218,13 @@ describe('external model manifest', () => {
         bad1: { url: 'https://evil.example/x.glb' },
         bad2: { url: '../secret.glb' },
         bad3: { url: 'x.exe' },
+        embedded: { url: 'rex.gltf.json' },
+        bad4: { url: 'x.json' },
         'Bad-Id': { url: 'x.glb' },
       },
       player: { url: 'p.glb', scale: 1e9 },
     });
-    expect(Object.keys(m.species)).toEqual(['tyrannosaurus']);
+    expect(Object.keys(m.species)).toEqual(['tyrannosaurus', 'embedded']);
     expect(m.species.tyrannosaurus.clips).toEqual({ walk: 'Walk', idle: 'Idle' });
     expect(m.player!.scale).toBe(1000);
     expect(parseManifest(null).species).toEqual({});
