@@ -277,35 +277,43 @@ function blueprint(sp: SpeciesDef, juvenile = false): Blueprint {
       });
     }
   } else if (plan === 'sauropod') {
+    // Brachiosaurid: shoulders higher than the hips (long forelimbs), a deep barrel
+    // chest, a long neck held straight and raised (exact posture debated), a tail
+    // short for a sauropod, and pillar-like limbs on padded, elephant-like feet.
     const Hh = H;
-    cp(-0.56 * L, Hh * 0.45, 0.003 * L, 0.003 * L, 0, null);
-    cp(-0.44 * L, Hh * 0.62, 0.012 * L, 0.014 * L, 0, 'tail4');
-    cp(-0.32 * L, Hh * 0.82, 0.024 * L, 0.028 * L, 0, 'tail3');
-    cp(-0.2 * L, Hh * 1.02, 0.04 * L, 0.045 * L, 0, 'tail2');
-    cp(-0.11 * L, Hh * 1.15, 0.06 * L, 0.065 * L, 0.01 * L, 'tail1');
-    cp(-0.03 * L, Hh * 1.24, 0.078 * L, 0.082 * L, 0.025 * L, 'pelvis');
-    cp(0.05 * L, Hh * 1.3, 0.085 * L, 0.09 * L, 0.035 * L, 'torso');
-    cp(0.12 * L, Hh * 1.36, 0.075 * L, 0.08 * L, 0.028 * L, 'chest');
-    cp(0.17 * L, Hh * 1.48, 0.04 * L, 0.048 * L, 0.006 * L, 'neck1');
-    cp(0.215 * L, Hh * 1.85, 0.026 * L, 0.03 * L, 0, 'neck2');
-    cp(0.245 * L, Hh * 2.25, 0.019 * L, 0.022 * L, 0, 'neck3');
-    cp(0.262 * L, Hh * 2.55, 0.016 * L, 0.018 * L, 0, null);
+    cp(-0.44 * L, Hh * 0.55, 0.004 * L, 0.005 * L, 0, null);
+    cp(-0.36 * L, Hh * 0.72, 0.011 * L, 0.013 * L, 0, 'tail4');
+    cp(-0.27 * L, Hh * 0.88, 0.021 * L, 0.025 * L, 0, 'tail3');
+    cp(-0.18 * L, Hh * 0.99, 0.036 * L, 0.041 * L, 0, 'tail2');
+    cp(-0.1 * L, Hh * 1.05, 0.055 * L, 0.06 * L, 0.008 * L, 'tail1');
+    cp(-0.03 * L, Hh * 1.08, 0.07 * L, 0.068 * L, 0.02 * L, 'pelvis');
+    cp(0.04 * L, Hh * 1.14, 0.08 * L, 0.08 * L, 0.03 * L, 'torso');
+    cp(0.11 * L, Hh * 1.22, 0.074 * L, 0.08 * L, 0.026 * L, 'chest');
+    // Neck: deep at the base (taller than wide), tapering little toward the head.
+    cp(0.165 * L, Hh * 1.4, 0.042 * L, 0.054 * L, 0.008 * L, 'neck1');
+    cp(0.235 * L, Hh * 1.76, 0.025 * L, 0.031 * L, 0, 'neck2');
+    cp(0.3 * L, Hh * 2.15, 0.019 * L, 0.023 * L, 0, 'neck3');
+    cp(0.345 * L, Hh * 2.47, 0.016 * L, 0.019 * L, 0, null);
     const end = cps[cps.length - 1].p;
-    head = { bone: 'head', at: end.clone(), len: 0.045 * L, height: 0.013 * L, width: 0.012 * L, pitch: 0.9 };
+    head = { bone: 'head', at: end.clone(), len: 0.045 * L, height: 0.014 * L, width: 0.013 * L, pitch: 0.4 };
     for (const [front, side] of [[false, 1], [false, -1], [true, 1], [true, -1]] as [boolean, number][]) {
       const z = front ? 0.12 * L : -0.04 * L;
       const len = front ? Hh * 1.22 : Hh * 1.05;
-      const x = side * 0.06 * L;
+      const x = side * (front ? 0.055 : 0.058) * L;
       const top = V(x, len * 1.0, z);
       legs.push({
         name: `${front ? 'front' : 'hind'}${side > 0 ? 'L' : 'R'}`,
-        joints: [top, V(x, len * 0.52, z + (front ? -0.01 : 0.02) * L), V(x, len * 0.1, z), V(x, 0.03 * len, z + 0.01 * L), V(x, 0, z + 0.035 * L)],
-        radii: [0.045 * L, 0.034 * L, 0.03 * L, 0.032 * L, 0.03 * L],
+        joints: [top, V(x, len * 0.52, z + (front ? -0.01 : 0.02) * L), V(x, len * 0.1, z), V(x, 0.03 * len, z + 0.01 * L), V(x, 0, z + 0.03 * L)],
+        // Columns, not tubes: strong upper arm and thigh (caudofemoralis), straight
+        // shin and forearm, and a broad padded foot.
+        radii: front ? [0.028 * L, 0.021 * L, 0.018 * L, 0.021 * L, 0.02 * L] : [0.035 * L, 0.025 * L, 0.02 * L, 0.023 * L, 0.022 * L],
         parent: front ? 'chest' : 'pelvis',
         front,
         phase: (front ? 0.25 : 0) + (side > 0 ? 0 : 0.5),
-        claws: 3,
-        clawLen: 0.008 * L,
+        // Hands: a horseshoe of fingers bound in a pad (only the thumb claw);
+        // feet: a pad with three big claws.
+        claws: front ? 5 : 3,
+        clawLen: front ? 0.003 * L : 0.011 * L,
       });
     }
   } else if (plan === 'mosasaur') {
@@ -435,7 +443,7 @@ export function scuteAmount(sp: SpeciesDef): number {
   if (plan === 'crocodyliform') return 0.85;
   if (plan === 'hadrosaur') return 0.6;
   if (f.has('plates')) return 0.5;
-  if (plan === 'sauropod') return 0.45;
+  if (plan === 'sauropod') return 0.25;
   if (plan === 'mosasaur' || plan === 'pterosaur') return 0;
   if (sp.id === 'tyrannosaurus') return 0.15;
   return 0.3;
@@ -735,9 +743,11 @@ function buildLeg(sp: SpeciesDef, leg: LegDef, parts: Part[], boneIndex: Map<str
   const sideV = V(dir.z, 0, -dir.x).normalize();
   const nToes = leg.claws;
   // Heavy quadrupeds stand on short, close-set toes ending in blunt hooves.
-  const hoofed = sp.locomotion.plan === 'quadruped';
-  // Ornithopods (hadrosaurs) walked on three toes ending in broad, blunt hooves.
-  const blunt = hoofed || sp.locomotion.plan === 'hadrosaur';
+  const sauro = sp.locomotion.plan === 'sauropod';
+  const hoofed = sp.locomotion.plan === 'quadruped' || sauro;
+  // Ornithopods (hadrosaurs) walked on three toes ending in broad, blunt hooves;
+  // sauropod hands were a column of bound fingers with blunt nails.
+  const blunt = (hoofed && !(sauro && !leg.front)) || sp.locomotion.plan === 'hadrosaur';
   for (let k = 0; k < nToes; k++) {
     const spread = (k - (nToes - 1) / 2) * (hoofed ? 0.22 : 0.35);
     const d = dir.clone().applyAxisAngle(V(0, 1, 0), spread).normalize();
@@ -813,8 +823,9 @@ function skullProfile(fam: SkullFamily, t: number): { top: number; hw: number; l
         jaw: 0.62 - 0.3 * smooth(0.2, 1, t),
       };
     case 'sauropod':
-      // Brachiosaurid: boxy snout, tall nasal arch over the eyes.
-      return { top: 1.0 + 0.45 * bump(0.38, 0.14) - 0.45 * t, hw: 1 - 0.25 * t, lip: -0.3, jaw: 0.42 - 0.2 * t };
+      // Brachiosaurid: the bony nostrils form a tall arch over and in front of the
+      // eyes; long, broad, blunt snout (spatulate teeth), shallow lower jaw.
+      return { top: 1.0 + 0.7 * bump(0.42, 0.13) - 0.5 * smooth(0.45, 1, t), hw: 0.95 - 0.12 * t + 0.08 * bump(0.85, 0.1), lip: -0.3, jaw: 0.38 - 0.16 * t };
     case 'mosa':
       // Monitor-like skull: long, fairly narrow, pointed snout, deep lower jaw.
       return { top: 0.9 - 0.55 * Math.pow(t, 0.9), hw: 0.95 - 0.62 * Math.pow(t, 0.85), lip: -0.3 + 0.05 * t, jaw: 0.5 - 0.32 * t };

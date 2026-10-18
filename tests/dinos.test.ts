@@ -167,4 +167,22 @@ describe('realism pilot: triceratops and skin regions', () => {
     const thigh = t.bp.legs.find((l) => l.name === 'hindL')!;
     expect(thigh.radii[0]).toBeLessThan(0.04 * sp.lengthM);
   });
+
+  it('the brachiosaurus stands higher at the shoulders, with a raised neck and a short tail', () => {
+    const sp = SPECIES.brachiosaurus;
+    const t = buildDinoTemplate(sp);
+    const front = t.bp.legs.find((l) => l.name === 'frontL')!;
+    const hind = t.bp.legs.find((l) => l.name === 'hindL')!;
+    expect(front.joints[0].y).toBeGreaterThan(hind.joints[0].y * 1.1);
+    // Head well above the shoulders (12-14 m), neck raised.
+    expect(t.bp.head.at.y).toBeGreaterThan(11);
+    expect(t.bp.head.at.y).toBeLessThan(15);
+    // Tail behind the hips shorter than 0.45 of the length.
+    const pelvis = t.bp.cps.find((c) => c.bone === 'pelvis')!.p.z;
+    expect(pelvis - t.bp.cps[0].p.z).toBeLessThan(0.45 * sp.lengthM);
+    // Pillar legs, not 2 m wide tubes; belly well off the ground but below the hip joint.
+    expect(hind.radii[0]).toBeLessThan(0.04 * sp.lengthM);
+    const torso = t.bp.cps.find((c) => c.bone === 'torso')!;
+    expect(torso.p.y - torso.ry - torso.drop).toBeLessThan(sp.hipHeightM);
+  });
 });

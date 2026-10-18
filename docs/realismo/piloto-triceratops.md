@@ -22,7 +22,7 @@ Antes e depois, com o mesmo enquadramento (lateral, frente, trás, cabeça 3/4, 
   - anquilossauros: 0,75;
   - hadrossauros: 0,6;
   - estegossauros: 0,5;
-  - saurópodes: 0,45;
+  - saurópodes: 0,25;
   - terópodes: 0,3;
   - tiranossauro: 0,15;
   - animais com penas, mosassauro e pterossauros: 0.
