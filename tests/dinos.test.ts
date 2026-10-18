@@ -101,3 +101,42 @@ describe('Mosasaurus (marine squamate)', () => {
     expect(minDepth).toBeLessThan(-2); // it dives
   });
 });
+
+describe('realism pilot: triceratops and skin regions', () => {
+  it('every model carries a skin region per vertex in [0, 1]', async () => {
+    const { scuteAmount } = await import('../src/animals/dinoModel');
+    for (const id of SPECIES_IDS) {
+      const g = buildDinoTemplate(SPECIES[id]).geometry;
+      const r = g.attributes.skinRegion;
+      expect(r, id).toBeDefined();
+      expect(r.count).toBe(g.attributes.position.count);
+      let max = 0;
+      for (let i = 0; i < r.count; i++) {
+        expect(r.getX(i)).toBeGreaterThanOrEqual(0);
+        expect(r.getX(i)).toBeLessThanOrEqual(1);
+        max = Math.max(max, r.getX(i));
+      }
+      // Feathered animals have no scutes; ceratopsians have the largest ones.
+      expect(max, id).toBeCloseTo(scuteAmount(SPECIES[id]), 1);
+    }
+    expect(scuteAmount(SPECIES.triceratops)).toBe(1);
+    expect(scuteAmount(SPECIES.velociraptor)).toBe(0);
+    expect(scuteAmount(SPECIES.tyrannosaurus)).toBeLessThan(0.3);
+  });
+
+  it('the triceratops has a massive skull, brow horns ~1 m and a short tail', () => {
+    const sp = SPECIES.triceratops;
+    const t = buildDinoTemplate(sp);
+    expect(t.bp.head.height).toBeGreaterThan(0.06 * sp.lengthM);
+    expect(t.bp.head.height).toBeLessThan(0.09 * sp.lengthM);
+    // Tail tip well short of half the body length behind the hips.
+    const tip = t.bp.cps[0].p.z;
+    const pelvis = t.bp.cps.find((c) => c.bone === 'pelvis')!.p.z;
+    expect(pelvis - tip).toBeLessThan(0.45 * sp.lengthM);
+    // The whole animal (beak to tail, frill included) stays within ±15 % of its length.
+    t.geometry.computeBoundingBox();
+    const len = t.geometry.boundingBox!.max.z - t.geometry.boundingBox!.min.z;
+    expect(len / sp.lengthM).toBeGreaterThan(0.85);
+    expect(len / sp.lengthM).toBeLessThan(1.15);
+  });
+});

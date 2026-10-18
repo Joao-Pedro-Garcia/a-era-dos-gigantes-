@@ -91,6 +91,11 @@ As teclas podem ser reconfiguradas em **Controles**. A interface de toque só ap
 
 O inventário completo das espécies, com o que foi reconstruído na v0.4 e o que ainda falta, está em [`docs/dinosaurs.md`](docs/dinosaurs.md).
 
+**Realismo dos animais (em andamento):**
+- [auditoria](docs/realismo/auditoria.md) dos 17 animais pedidos e da busca de modelos com licença;
+- [fichas científicas](docs/realismo/fichas.md) com referências e incertezas;
+- [piloto do tricerátops](docs/realismo/piloto-triceratops.md): crânio, chifres, gola, cauda, membros e pele por região (escamas grandes com tubérculos no dorso e pequenas nos membros), com antes e depois. A pele por região e o brilho menor já valem para todas as espécies com escamas.
+
 **Modelos de artista (v0.5):** três espécies usam arquivos GLB animados listados em [`public/models/manifest.json`](public/models/manifest.json): tiranossauro (LasquetiSpice), estegossauro e paquicefalossauro (Ferocious Industries), todos em CC BY 4.0.
 - O clipe é escolhido pelo estado do animal: parado, andar, correr, comer, beber, dormir, atacar, alerta (rugido) e morte.
 - A velocidade dos clipes de locomoção é ajustada à velocidade real, medida nos pés do próprio modelo, para os pés não deslizarem.
@@ -445,7 +450,7 @@ Comparação com capturas reais das mesmas cenas, antes e depois, no perfil Méd
 
 ## Testes executados e resultados
 
-### Testes automatizados (`npm test`): **189 de 189 passando**
+### Testes automatizados (`npm test`): **191 de 191 passando**
 
 | Arquivo | Cobre |
 |---|---|

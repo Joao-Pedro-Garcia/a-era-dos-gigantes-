@@ -97,7 +97,7 @@ const S: Record<string, Def> = {
     threat: { response: 'charge', flightDistance: 18 }, attack: { damage: 45, range: 4, cooldown: 2 }, health: 1400,
     taming: { possible: true, difficulty: 0.6, preferredFood: ['berries', 'cycad_fronds'] }, habitat: ['plains'], tempRange: [10, 34],
     locomotion: { plan: 'quadruped', stride: 2.2, turnRate: 0.9, swims: true, flies: false },
-    audio: { pitch: 90, call: 'grunt' }, look: { base: 0x6d6143, belly: 0xa59a74, accent: 0x8c4a2d, pattern: 'countershade', features: ['horns3', 'frill'] },
+    audio: { pitch: 90, call: 'grunt' }, look: { base: 0x655a40, belly: 0xa79b7a, accent: 0x463a29, pattern: 'countershade', features: ['horns3', 'frill'] },
     huntsHumans: false,
   },
   brachiosaurus: {

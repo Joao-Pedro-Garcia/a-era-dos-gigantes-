@@ -605,6 +605,35 @@ export function scales(n: number, period = 40): TexImage {
   return c.finish(10);
 }
 
+/**
+ * Large reptile scutes (feature scales): big polygonal, non-overlapping scales,
+ * many with a low conical tubercle in the centre, set among a fine mosaic of
+ * small pebbly scales in the creases (after ceratopsian and hadrosaur skin
+ * impressions). Greyscale, tinted per species; blended with `scales` per region.
+ */
+export function scutes(n: number, period = 10): TexImage {
+  const c = new Canvas(n);
+  const cell: Cell = { f1: 0, f2: 0, id: 0, dx: 0, dy: 0 };
+  const fine: Cell = { f1: 0, f2: 0, id: 0, dx: 0, dy: 0 };
+  c.each((u, v, i) => {
+    worley(u, v, period, 211, 0.75, cell);
+    worley(u, v, period * 7, 223, 0.9, fine);
+    const edge = cell.f2 - cell.f1;
+    // Flat-topped plate with rounded shoulders; a groove of small scales between plates.
+    const plate = smooth(0.02, 0.2, edge);
+    const tuber = cell.id > 0.35 ? smooth(0.42, 0.0, cell.f1) * (0.4 + cell.id * 0.6) : 0;
+    const pebble = smooth(0, 0.3, fine.f2 - fine.f1) * (1 - plate);
+    const tone = 0.6 + cell.id * 0.14 + fbm(u, v, 6, 3, 227) * 0.14;
+    const groove = 1 - plate;
+    const b = tone * (1 - groove * 0.35) * (1 + tuber * 0.08);
+    c.set(i, b, b * 0.97, b * 0.92);
+    c.h[i] = plate * 0.55 + tuber * 0.75 + pebble * 0.18;
+    // Worn tubercle tips and plate tops are a little smoother than the creases.
+    c.rough[i] = 0.8 + groove * 0.12 - tuber * 0.12;
+  });
+  return c.finish(12);
+}
+
 /** Feathered integument: overlapping vane streaks. */
 export function feathers(n: number): TexImage {
   const c = new Canvas(n);
@@ -748,6 +777,7 @@ export const MATERIAL_GENERATORS = {
   barkRinged: (n: number) => bark(n, 'ringed'),
   leaves: leafAtlas,
   scales: (n: number) => scales(n, 40),
+  scutes: (n: number) => scutes(n, 10),
   feathers,
   skin,
   cloth,

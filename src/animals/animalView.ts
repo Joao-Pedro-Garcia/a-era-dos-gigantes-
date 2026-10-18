@@ -118,6 +118,7 @@ const EXTERNAL_LOD = 1.2;
 export function setAnimalContext(lib: TextureLibrary | null, ground: ((x: number, z: number) => number) | null): void {
   library = lib;
   groundFn = ground;
+  if (lib) lib.bindUniforms('scutes', scuteTex);
 }
 
 function template(sp: SpeciesDef, juvenile = false): DinoTemplate {
@@ -133,15 +134,60 @@ function template(sp: SpeciesDef, juvenile = false): DinoTemplate {
   return t;
 }
 
+/** Large feature scales (scutes) blended into the scale material per vertex (see scuteAmount). */
+const scuteTex = { map: { value: null as THREE.Texture | null }, normal: { value: null as THREE.Texture | null } };
+
+/**
+ * Skin shader: the small-scale texture and the scute texture are mixed per
+ * vertex by `skinRegion` (back and flanks vs. limbs, face and belly), for
+ * colour, relief and roughness alike. Only used when textures are bound.
+ */
+function patchSkin(m: THREE.MeshStandardMaterial): void {
+  m.onBeforeCompile = (s) => {
+    s.uniforms.scuteMap = scuteTex.map;
+    s.uniforms.scuteNormal = scuteTex.normal;
+    s.vertexShader = s.vertexShader
+      .replace('#include <common>', '#include <common>\nattribute float skinRegion;\nvarying float vRegion;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvRegion = skinRegion;');
+    const SCUTE_UV = '0.5';
+    s.fragmentShader = s.fragmentShader
+      .replace('#include <common>', '#include <common>\nuniform sampler2D scuteMap;\nuniform sampler2D scuteNormal;\nvarying float vRegion;')
+      .replace(
+        '#include <map_fragment>',
+        `#ifdef USE_MAP
+  vec4 sampledDiffuseColor = mix(texture2D(map, vMapUv), texture2D(scuteMap, vMapUv * ${SCUTE_UV}), vRegion);
+  diffuseColor *= sampledDiffuseColor;
+#endif`,
+      )
+      .replace(
+        '#include <roughnessmap_fragment>',
+        `float roughnessFactor = roughness;
+#ifdef USE_ROUGHNESSMAP
+  roughnessFactor *= mix(texture2D(roughnessMap, vRoughnessMapUv).g, texture2D(scuteNormal, vRoughnessMapUv * ${SCUTE_UV}).a, vRegion);
+#endif`,
+      )
+      .replace(
+        '#include <normal_fragment_maps>',
+        THREE.ShaderChunk.normal_fragment_maps.replace(
+          'vec3 mapN = texture2D( normalMap, vNormalMapUv ).xyz * 2.0 - 1.0;',
+          `vec3 mapN = normalize(mix(texture2D( normalMap, vNormalMapUv ).xyz * 2.0 - 1.0, texture2D( scuteNormal, vNormalMapUv * ${SCUTE_UV} ).xyz * 2.0 - 1.0, vRegion));`,
+        ),
+      );
+  };
+  m.customProgramCacheKey = () => 'dinoSkin';
+}
+
 function speciesMaterials(sp: SpeciesDef): THREE.MeshStandardMaterial[] {
   let m = baseMats.get(sp.id);
   if (m) return m;
-  const scales = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7, metalness: 0 });
+  // Fully rough base: the scale texture's roughness map alone decides the sheen (no plastic shine).
+  const scales = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 0 });
   const feathers = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, metalness: 0, side: THREE.DoubleSide });
   const horn = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.45, metalness: 0 });
   const eye = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.08, metalness: 0 });
   const membrane = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.75, metalness: 0, side: THREE.DoubleSide, transparent: false });
   if (library) {
+    patchSkin(scales);
     library.bind(scales, 'scales');
     library.bind(feathers, 'feathers');
     library.bind(membrane, 'leather');
@@ -239,6 +285,7 @@ export function createAnimalView(speciesId: string, individual = '', juvenile = 
     c.color.setRGB(tint * (1 + hue), tint, tint * (1 - hue));
     if (alpha) c.color.multiply(ALPHA_TINT);
     c.userData.shared = false;
+    if (library && i === DMAT.scales) patchSkin(c);
     if (library) library.bind(c, i === DMAT.scales ? 'scales' : 'feathers');
     return c;
   });

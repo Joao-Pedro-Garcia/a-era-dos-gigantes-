@@ -13,7 +13,7 @@ import type { TexRequest, TexResponse } from './texWorker';
  * change and the old GPU textures are disposed.
  */
 // Bump when a generator changes so cached textures are regenerated.
-const TEX_VERSION = 'v3';
+const TEX_VERSION = 'v4';
 const BOOT_SIZE = 64;
 
 export interface MaterialMaps {
@@ -53,6 +53,8 @@ export class TextureLibrary {
   }
   private mats = new Map<MaterialTex, MaterialMaps>();
   private bindings: Binding[] = [];
+  /** Shader uniforms that follow a texture set (for materials that blend two sets). */
+  private uniformBindings: { name: MaterialTex; u: { map: { value: THREE.Texture | null }; normal: { value: THREE.Texture | null } } }[] = [];
   private images = new Map<string, TexImage>();
   private worker: Worker | null = null;
   private requestId = 0;
@@ -87,6 +89,14 @@ export class TextureLibrary {
     material.needsUpdate = true;
     this.bindings.push({ material, name, maps });
     return material;
+  }
+
+  /** Keeps a pair of shader uniforms pointing at a texture set as its resolution improves. */
+  bindUniforms(name: MaterialTex, u: { map: { value: THREE.Texture | null }; normal: { value: THREE.Texture | null } }): void {
+    const m = this.mats.get(name)!;
+    u.map.value = m.map;
+    u.normal.value = m.normalMap;
+    this.uniformBindings.push({ name, u });
   }
 
   unbind(material: THREE.Material): void {
@@ -211,6 +221,11 @@ export class TextureLibrary {
       if (b.maps.map) b.material.map = next.map;
       if (b.maps.normal) b.material.normalMap = next.normalMap;
       if (b.maps.rough) b.material.roughnessMap = next.roughnessMap;
+    }
+    for (const b of this.uniformBindings) {
+      if (b.name !== name) continue;
+      b.u.map.value = next.map;
+      b.u.normal.value = next.normalMap;
     }
     if (prev) for (const t of [prev.map, prev.normalMap, prev.roughnessMap]) t.dispose();
   }
