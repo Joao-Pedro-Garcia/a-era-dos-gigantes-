@@ -179,4 +179,6 @@ export const ptBR: Record<string, string> = {
   'cat.gathering': 'Coleta', 'cat.mining': 'Mineração', 'cat.weapons': 'Armas', 'cat.ammo': 'Munição', 'cat.traps': 'Armadilhas',
   'cat.survival': 'Sobrevivência', 'cat.clothing': 'Roupas', 'cat.medical': 'Tratamento', 'cat.research': 'Pesquisa',
   'perf.fps': '{fps} FPS · {q}',
+  'perf.autoChanged': 'Qualidade automática ajustada para {q} para manter a fluidez. Para fixar um perfil, escolha a qualidade gráfica em Configurações.',
+  'perf.frame': 'quadro', 'perf.max': 'máx', 'perf.memory': 'memória JS', 'perf.animals': 'animais ativos/total', 'perf.s.input': 'entrada', 'perf.s.world': 'clima/mundo', 'perf.s.player': 'jogador', 'perf.s.survival': 'sobrevivência', 'perf.s.actions': 'ações/combate', 'perf.s.ai': 'IA', 'perf.s.taming': 'domesticação', 'perf.s.base': 'base/fabricação', 'perf.s.streaming': 'setores', 'perf.s.animals': 'animais (poses)', 'perf.s.environment': 'ambiente', 'perf.s.character': 'personagem', 'perf.s.effects': 'efeitos', 'perf.s.audio': 'áudio', 'perf.s.hud': 'interface', 'perf.s.render': 'render (CPU)',
 };

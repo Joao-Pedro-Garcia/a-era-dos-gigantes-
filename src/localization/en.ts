@@ -75,4 +75,6 @@ export const en: Record<string, string> = {
   'cat.gathering': 'Gathering', 'cat.mining': 'Mining', 'cat.weapons': 'Weapons', 'cat.ammo': 'Ammo', 'cat.traps': 'Traps', 'cat.survival': 'Survival',
   'cat.clothing': 'Clothing', 'cat.medical': 'Medical', 'cat.research': 'Research',
   'perf.fps': '{fps} FPS · {q}',
+  'perf.autoChanged': 'Automatic quality set to {q} to keep the game smooth. To keep a fixed profile, pick the graphics quality in Settings.',
+  'perf.frame': 'frame', 'perf.max': 'max', 'perf.memory': 'JS memory', 'perf.animals': 'animals active/total', 'perf.s.input': 'input', 'perf.s.world': 'weather/world', 'perf.s.player': 'player', 'perf.s.survival': 'survival', 'perf.s.actions': 'actions/combat', 'perf.s.ai': 'AI', 'perf.s.taming': 'taming', 'perf.s.base': 'base/crafting', 'perf.s.streaming': 'sectors', 'perf.s.animals': 'animals (poses)', 'perf.s.environment': 'environment', 'perf.s.character': 'character', 'perf.s.effects': 'effects', 'perf.s.audio': 'audio', 'perf.s.hud': 'UI', 'perf.s.render': 'render (CPU)',
 };

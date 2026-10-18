@@ -521,6 +521,15 @@ Todas as medições abaixo foram feitas neste ambiente: Intel Xeon 2,8 GHz, 4 n�
   - retorno ao procedural leve além de 1,2× a distância de detalhe, sem atualizar a animação.
 - **Não foi medido em GPU real.**
 
+**v0.5.1 (desempenho):** diagnóstico completo, otimizações e comparação antes e depois em [`docs/desempenho.md`](docs/desempenho.md).
+- **Causa real de travadas encontrada:** shaders compilados no meio do jogo, na primeira vez que um dinossauro aparecia (2,5–5,2 s de CPU por sessão de teste). Agora são pré-compilados na tela de carregamento: **0 ms durante o jogo** nas mesmas sessões.
+- **Picos removidos:**
+  - cálculo da esfera envolvente vértice a vértice em cada animal novo;
+  - recálculo da profundidade da água com custo fixo de cerca de 2 ms por quadro.
+- **Ferramentas:** painel F3 com CPU por sistema, GPU (onde o navegador permite), pior quadro e memória; `npm run test:perf` para benchmark reproduzível.
+- **Qualidade visual:** igual. A diferença média de pixels é 0,33/255 na vitrine.
+- **FPS médio:** sem ganho mensurável no renderizador por software, onde a rasterização domina. Não foi medido em GPU real.
+
 ### Problemas encontrados e corrigidos na v0.4
 
 - **Arco disparava como golpe corpo a corpo.** Um teste unitário mostrou que, depois de encaixar a flecha, o arco entrava na fase de golpe e gerava um impacto. Corrigido: ele passa direto para "puxar a corda".

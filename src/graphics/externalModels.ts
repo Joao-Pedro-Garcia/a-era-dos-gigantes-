@@ -131,6 +131,16 @@ async function loadAll(base: string): Promise<{ loaded: string[]; failed: string
     jobs.map(async ([id, e]) => {
       try {
         const gltf = await loader.loadAsync(`${base}${e.url}`);
+        // Bind-pose bounds once, so clones never skin every vertex on the CPU to get them.
+        gltf.scene.traverse((o) => {
+          const m = o as THREE.SkinnedMesh;
+          if (!m.isSkinnedMesh) return;
+          if (!m.geometry.boundingSphere) m.geometry.computeBoundingSphere();
+          if (!m.geometry.boundingBox) m.geometry.computeBoundingBox();
+          m.boundingSphere = m.geometry.boundingSphere!.clone();
+          m.boundingSphere.radius *= 1.3;
+          m.boundingBox = m.geometry.boundingBox!.clone();
+        });
         loaded.set(id, { scene: gltf.scene, animations: gltf.animations, entry: e });
         result.loaded.push(id);
       } catch {
@@ -200,6 +210,26 @@ export async function instantiate(id: string): Promise<ExternalInstance | null> 
     shadows: true,
     dispose: () => mixer.stopAllAction(),
   };
+}
+
+/**
+ * One throw-away instance of every loaded model, for compiling their shaders
+ * on the loading screen instead of mid-game (the first appearance of a new
+ * material otherwise blocks a frame for hundreds of ms on weak GPUs).
+ */
+export async function warmupInstances(): Promise<ExternalInstance[]> {
+  if (ready) await ready.catch(() => undefined);
+  const out: ExternalInstance[] = [];
+  for (const id of loaded.keys()) {
+    const inst = await instantiate(id);
+    if (!inst) continue;
+    // Pose it once so skinning matrices are valid.
+    const first = inst.actions.values().next().value;
+    first?.play();
+    inst.mixer.update(0);
+    out.push(inst);
+  }
+  return out;
 }
 
 export function hasExternal(id: string): boolean {

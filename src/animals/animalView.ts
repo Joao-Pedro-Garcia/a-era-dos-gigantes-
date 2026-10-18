@@ -151,6 +151,9 @@ function hashId(id: string, salt: number): number {
 const V3 = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
 const _q1 = new THREE.Quaternion();
 const _q2 = new THREE.Quaternion();
+const _q3 = new THREE.Quaternion();
+const _a1 = new THREE.Vector3();
+const _a2 = new THREE.Vector3();
 
 /**
  * Turns a bone so the segment that points along `restDir` in the rest pose
@@ -161,7 +164,7 @@ function aimBone(v: AnimalView, b: THREE.Bone, restDir: THREE.Vector3, dir: THRE
   b.parent!.updateWorldMatrix(true, false);
   const rootInv = v.root.getWorldQuaternion(_q1).invert();
   const parentQ = b.parent!.getWorldQuaternion(_q2).premultiply(rootInv);
-  const target = new THREE.Quaternion().setFromUnitVectors(restDir.clone().normalize(), dir.clone().normalize());
+  const target = _q3.setFromUnitVectors(_a1.copy(restDir).normalize(), _a2.copy(dir).normalize());
   b.quaternion.copy(parentQ.invert().multiply(target));
 }
 
@@ -235,6 +238,12 @@ export function createAnimalView(speciesId: string, individual = '', juvenile = 
     m.castShadow = true;
     m.receiveShadow = true;
     m.frustumCulled = false;
+    // three.js still needs a bounding sphere to depth-sort; a skinned mesh would
+    // compute it by skinning every vertex on the CPU (a spike per new animal).
+    // The bind-pose sphere of the shared geometry, padded for the animation, is enough.
+    if (!g.boundingSphere) g.computeBoundingSphere();
+    m.boundingSphere = g.boundingSphere!.clone();
+    m.boundingSphere.radius *= 1.3;
     return m;
   };
   const meshHi = mk(tpl.geometry);

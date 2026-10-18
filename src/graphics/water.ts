@@ -19,6 +19,9 @@ const N = 72; // vertices per side
 const INNER = 220; // half-size of the evenly spaced inner area (m)
 const OUTER = 16000;
 
+/** Main-thread time per frame for recomputing water depths after the water recentres. */
+const WATER_SLICE_MS = 1;
+
 export class WaterSurface {
   readonly mesh: THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>;
   private depth: Float32Array;
@@ -208,14 +211,21 @@ diffuseColor.a = mix(0.25, 0.94, shore);`,
       // First placement: compute everything at once.
       if (this.center.x > 1e8) this.computeSlice(this.depth.length);
     }
-    if (this.sliceAt >= 0) this.computeSlice(900);
+    // Time-budgeted (not a fixed count): each point is a full terrain-noise
+    // evaluation, so slow devices spread the work over more frames.
+    if (this.sliceAt >= 0) this.computeSlice(Infinity, WATER_SLICE_MS);
   }
 
-  private computeSlice(count: number): void {
+  private computeSlice(count: number, budgetMs = Infinity): void {
     const fn = this.heightFn!;
     const total = this.depth.length;
-    const end = Math.min(total, this.sliceAt + count);
+    const t0 = performance.now();
+    let end = Math.min(total, this.sliceAt + count);
     for (let k = this.sliceAt; k < end; k++) {
+      // Check the clock every 64 points, after a minimum of 100 per frame.
+      if (budgetMs !== Infinity && (k - this.sliceAt) % 64 === 63 && k - this.sliceAt > 100 && performance.now() - t0 > budgetMs) {
+        end = k + 1;
+      }
       const i = k % (N + 1);
       const j = Math.floor(k / (N + 1));
       const x = this.nextCenter.x + this.offsets[i];

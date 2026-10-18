@@ -44,13 +44,14 @@ import { PostFx } from '../graphics/postfx';
 import { TextureLibrary } from '../graphics/textureLibrary';
 import { createTerrainMaterial, createTerrainUniforms } from '../graphics/terrainMaterial';
 import { WIND } from '../graphics/wind';
-import { loadExternalModels } from '../graphics/externalModels';
+import { loadExternalModels, warmupInstances, type ExternalInstance } from '../graphics/externalModels';
 import { CAVE_RADIUS, CAVE_Y, SectorManager } from '../world/sectors';
 import { PLANNED_SITES, SPAWN, Terrain, VOLCANO } from '../world/terrain';
 import { DIFFICULTY, effectiveQuality, loadSettings, saveSettings, type QualityLevel, type QualityProfile, type Settings } from './config';
 import { Interactions, type Interaction } from './interactions';
 import { clamp } from './math';
 import { Rng } from './rng';
+import { Profiler } from '../performance/profiler';
 
 type GameState = 'menu' | 'loading' | 'playing' | 'paused' | 'dead' | 'ending';
 const SAVE_SLOT = 'main';
@@ -152,6 +153,8 @@ export class Game {
   private interaction: Interaction | null = null;
   private time = 0;
   private showPerf = false;
+  /** Section timings for the F3 diagnostics panel and performance tests. */
+  readonly profiler = new Profiler();
   rng = new Rng(Date.now() & 0xffffffff);
   inCave: string | null = null;
   mountedId: string | null = null;
@@ -173,6 +176,7 @@ export class Game {
     this.perf = new PerfMonitor(this.qualityLevel);
     installAtmosphere();
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: this.qualityLevel !== 'low', powerPreference: 'high-performance' });
+    this.profiler.attachGl(this.renderer.getContext());
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 0.85;
@@ -214,6 +218,8 @@ export class Game {
       this.audio.unlock();
       if (e.code === 'F3') {
         this.showPerf = !this.showPerf;
+        this.profiler.enabled = this.showPerf;
+        this.profiler.reset();
         e.preventDefault();
       }
     });
@@ -622,8 +628,85 @@ export class Game {
 
   // ------------------------------------------------------------------ main loop
 
+  /** Text of the F3 diagnostics panel: measured values only ("n/d" when unavailable). */
+  private perfText(): string {
+    const s = this.profiler.summary();
+    const r = this.renderer.info;
+    const memApi = (performance as unknown as { memory?: { usedJSHeapSize: number } }).memory;
+    const f = (v: number) => v.toFixed(v < 10 ? 2 : 1);
+    const top = (Object.entries(s.sections) as [string, number][])
+      .filter(([, v]) => v >= 0.05)
+      .sort((a, b) => b[1] - a[1])
+      .map(([k, v]) => `${t(`perf.s.${k}`)} ${f(v)} (${t('perf.max')} ${f(s.sectionMax[k as keyof typeof s.sectionMax])})`);
+    return [
+      `${t('perf.fps', { fps: Math.round(this.perf.fps), q: this.qualityLevel })} · ${t('perf.frame')} ${f(s.frameAvg)} ms · 1% ${f(s.frameP99)} · ${t('perf.max')} ${f(s.frameMax)} ms`,
+      `CPU ${f(s.cpuTotal)} ms · GPU ${s.gpu === null ? (this.profiler.gpuAvailable ? '…' : 'n/d') : `${f(s.gpu)} ms`} · ${t('perf.memory')} ${memApi ? `${Math.round(memApi.usedJSHeapSize / 1048576)} MB` : 'n/d'}`,
+      `${r.render.calls} dc · ${Math.round(r.render.triangles / 1000)}k tri · ${r.memory.geometries} geo · ${r.memory.textures} tex · ${this.eco?.active.length ?? 0}/${this.eco?.animals.size ?? 0} ${t('perf.animals')}`,
+      ...top,
+    ].join('\n');
+  }
+
   /** Frames rendered (diagnostics and automated tests). */
   frames = 0;
+  /**
+   * Shader warm-up on the loading screen: one instance of each artist model and
+   * one procedural animal (every detail level, with shadows) are drawn hidden
+   * behind the loading overlay, so their programs are compiled before play
+   * starts instead of freezing a frame when the first animal comes close.
+   */
+  private warmup: { state: 'idle' | 'waiting' | 'drawing' | 'done'; frames: number; started: number; group: THREE.Group | null; inst: ExternalInstance[]; views: AnimalView[] } = { state: 'idle', frames: 0, started: 0, group: null, inst: [], views: [] };
+
+  private warmupStep(): boolean {
+    const w = this.warmup;
+    if (w.state === 'done') return true;
+    if (w.state === 'idle') {
+      w.state = 'waiting';
+      w.started = performance.now();
+      void warmupInstances().then((inst) => {
+        if (w.state !== 'waiting') {
+          for (const i of inst) i.dispose();
+          return;
+        }
+        w.inst = inst;
+        const g = new THREE.Group();
+        // Procedural bodies: the material set is the same for every species
+        // (feathered and scaly), so one of each covers all programs.
+        const ids = [...new Set([...(this.eco?.animals.values() ?? [])].map((a) => a.speciesId))];
+        const feathered = ids.find((id) => SPECIES[id].look.features.includes('feathers'));
+        const scaly = ids.find((id) => !SPECIES[id].look.features.includes('feathers'));
+        for (const id of [feathered, scaly]) {
+          if (!id) continue;
+          const v = createAnimalView(id, `warmup-${id}`);
+          v.meshHi.visible = v.meshMid.visible = v.meshLo.visible = true;
+          w.views.push(v);
+        }
+        // Spread in front of the camera, inside the shadow frustum.
+        const fwd = new THREE.Vector3();
+        this.camera.getWorldDirection(fwd);
+        const roots = [...inst.map((it) => it.root), ...w.views.map((v) => v.root)];
+        roots.forEach((r, k) => {
+          r.position.copy(this.camera.position).addScaledVector(fwd, 10 + k * 3);
+          r.position.x += (k - roots.length / 2) * 2;
+          g.add(r);
+        });
+        this.scene.add(g);
+        w.group = g;
+        w.state = 'drawing';
+      });
+    }
+    // Never hold the loading screen for long because of optional models.
+    if (w.state === 'waiting' && performance.now() - w.started > 8000) w.state = 'done';
+    if (w.state === 'drawing' && ++w.frames > 2) {
+      w.group?.removeFromParent();
+      for (const i of w.inst) i.dispose();
+      for (const v of w.views) disposeAnimalView(v);
+      w.inst = [];
+      w.views = [];
+      w.group = null;
+      w.state = 'done';
+    }
+    return w.state === 'done';
+  }
 
   private loop = (now: number): void => {
     requestAnimationFrame(this.loop);
@@ -632,6 +715,8 @@ export class Game {
     const dt = Math.min(0.1, rawDt);
     this.last = now;
     this.time += dt;
+    this.profiler.frame(rawDt * 1000);
+    this.profiler.begin('input');
     this.input.poll(dt);
 
     // Real elapsed time (not the clamped step) so slow devices are detected correctly.
@@ -639,13 +724,10 @@ export class Game {
     if (adj) {
       this.qualityLevel = adj;
       this.applyQuality();
+      // Never change the look silently: say what happened and how to keep a fixed profile.
+      this.notify('perf.autoChanged', { q: t(`quality.${adj}`) }, 'info');
     }
-    const mem = this.renderer.info.memory;
-    this.hud.setPerf(
-      this.showPerf
-        ? `${t('perf.fps', { fps: Math.round(this.perf.fps), q: this.qualityLevel })} · ${this.renderer.info.render.calls} dc · ${mem.geometries} geo · ${mem.textures} tex · ${this.eco?.active.length ?? 0}/${this.eco?.animals.size ?? 0} 🦖`
-        : null,
-    );
+    this.hud.setPerf(this.showPerf ? this.perfText() : null);
 
     try {
       if (this.state === 'loading') this.updateLoading();
@@ -659,9 +741,12 @@ export class Game {
       this.hud.notify(`${t('error.frame')}: ${e instanceof Error ? e.message : String(e)}`, 'warn');
     }
     this.input.clearPresses();
+    this.profiler.begin('render');
     if (this.player && this.envView) {
+      this.profiler.gpuBegin();
       this.postfx.render();
       if (this.state === 'playing' || this.state === 'paused') this.viewmodel.render(this.renderer);
+      this.profiler.gpuEnd();
     } else {
       this.renderer.setClearColor(0x1c1a16);
       this.renderer.clear();
@@ -725,7 +810,7 @@ export class Game {
     // Juvenile bodies are only prepared for the young animals near the start (others are built when first seen).
     const now = this.env!.state.time;
     const young = [...this.eco!.animals.values()].filter((a) => lifeStage(a, now) === 'juvenile' && Math.hypot(a.x - p.s.x, a.z - p.s.z) < 260).map((a) => a.speciesId);
-    const modelsReady = prewarmPlants(25) && prewarmAnimals([...new Set([...this.eco!.animals.values()].map((a) => a.speciesId))], 25, [...new Set(young)]);
+    const modelsReady = prewarmPlants(25) && prewarmAnimals([...new Set([...this.eco!.animals.values()].map((a) => a.speciesId))], 25, [...new Set(young)]) && this.warmupStep();
     this.sectors!.update(p.s.x, p.s.z, q, this.env!.state.time, 40);
     this.eco!.seedAround(p.s.x, p.s.z);
     const total = (q.loadRadius * 2 + 1) ** 2;
@@ -809,6 +894,7 @@ export class Game {
     const timeScale = this.sleeping ? 40 : 1;
     const dt = realDt * timeScale;
     const events: EnvEvent[] = [];
+    this.profiler.begin('world');
     env.update(dt, p.s.x, p.s.z, events);
     this.handleEnvEvents(events);
     if (env.day !== this.lastDay) {
@@ -818,6 +904,7 @@ export class Game {
     }
 
     // --- Player movement (on foot or mounted).
+    this.profiler.begin('player');
     const sample = terrain.sample(p.s.x, p.s.z);
     const biome = this.inCave ? 'mountain' : this.sectors!.biomeCoarse(p.s.x, p.s.z);
     this.inventory.extraCapacity = this.taming.packCapacity(this.eco!, p.s.x, p.s.z, env.state.time);
@@ -839,6 +926,7 @@ export class Game {
     }
 
     // --- Survival.
+    this.profiler.begin('survival');
     const airTemp = this.inCave ? 12 : env.temperatureAt(sample.temperature, biome);
     const held = this.heldItem();
     const nearCampfire = !!this.buildingSys!.nearest(p.s.x, p.s.z, 4.5, (pc) => pc.type === 'campfire' || pc.type === 'forge' || pc.type === 'torch_post');
@@ -872,6 +960,7 @@ export class Game {
     this.warnNeeds();
 
     // --- Actions.
+    this.profiler.begin('actions');
     this.attackCooldown -= realDt;
     if (this.building) this.updateBuild();
     else if (!panel) this.actions.update(this.interaction);
@@ -881,6 +970,7 @@ export class Game {
     this.actions.updateProjectiles(realDt);
 
     // --- Ecosystem (sub-stepped while sleeping).
+    this.profiler.begin('ai');
     const companion = this.companionTarget && this.companionTarget.until > env.state.time ? this.companionTarget.id : null;
     const wind = { x: Math.cos(env.state.windDir), z: Math.sin(env.state.windDir) };
     const visibility = (p.crouching ? 0.5 : 1) * (env.isNight ? (held?.id === 'torch' ? 1 : 0.5) : 1) * (biome === 'jungle' ? 0.65 : biome === 'swamp' ? 0.8 : 1);
@@ -907,6 +997,7 @@ export class Game {
     const steps = this.sleeping ? 6 : 1;
     for (let i = 0; i < steps; i++) this.eco!.update(Math.min(dt / steps, 0.5), ecoCtx);
     this.eco!.seedAround(p.s.x, p.s.z);
+    this.profiler.begin('taming');
     this.taming.update(dt, {
       eco: this.eco!,
       building: this.buildingSys!,
@@ -921,6 +1012,7 @@ export class Game {
     this.updateTraps(env.state.time);
 
     // --- Crafting & base processes.
+    this.profiler.begin('base');
     const res = this.crafting.update(dt, this.inventory);
     for (const id of res.completed) {
       const r = RECIPES.find((x) => x.id === id)!;
@@ -941,14 +1033,18 @@ export class Game {
     for (const box of tick.hatched) this.taming.hatch(this.tamingHost(), box.id);
 
     // --- Streaming & visuals.
+    this.profiler.begin('streaming');
     this.sectors!.update(p.s.x, p.s.z, q, env.state.time);
     this.sectors!.syncInteractables((id) => this.mysteries.d.taken.includes(id), this.scanning(), !!this.mysteries.d.ending);
+    this.profiler.begin('animals');
     this.syncViews(realDt);
+    this.profiler.begin('environment');
     const focus = new THREE.Vector3(p.s.x, p.s.y, p.s.z);
     this.envView!.indoor = !!this.inCave;
     this.envView!.update(realDt, this.camera, focus, ctx.airTemp < 0 || biome === 'snow', this.renderer);
     this.updateWorldShading(p.s.x, p.s.z, q);
     this.envView!.groundFires((x, z) => terrain.height(x, z));
+    this.profiler.begin('character');
     this.rig.update(realDt, p, this.settings.firstPerson, this.groundFn(), this.collision, this.inCave ? 3.5 : mount ? 9 : Infinity);
     // First-person impact kick: a short jolt of the view on contact.
     if (this.kick > 0.001) {
@@ -958,6 +1054,7 @@ export class Game {
     this.playerView!.riding = !!mount;
     this.playerView!.update(realDt, p, this.settings.firstPerson || false, this.inCave ? undefined : (x, z) => terrain.height(x, z), this.combat);
     this.updateViewmodel(realDt, p, !!mount);
+    this.profiler.begin('effects');
     this.fx.ground = this.inCave ? () => CAVE_Y : (x, z) => terrain.height(x, z);
     this.fx.update(realDt);
     this.sectors!.updateShakes(realDt);
@@ -965,9 +1062,11 @@ export class Game {
     this.updateFlares();
 
     // --- Audio.
+    this.profiler.begin('audio');
     this.updateAudio(p, held?.id, sheltered, biome);
 
     // --- Slow checks (discoveries, biome changes, map).
+    this.profiler.begin('hud');
     this.slowTimer -= realDt;
     if (this.slowTimer <= 0) {
       this.slowTimer = 0.5;
