@@ -5,8 +5,15 @@
       "url": "tyrannosaurus.glb",
       "scale": 1,
       "strideM": 3.6,
-      "clipSpeeds": { "run": 10.7 },
-      "clips": { "idle": "idle", "run": "run", "attack": "attack", "roar": "roar" },
+      "clipSpeeds": {
+        "run": 10.7
+      },
+      "clips": {
+        "idle": "idle",
+        "run": "run",
+        "attack": "attack",
+        "roar": "roar"
+      },
       "credit": {
         "title": "Animated Tyrannosaurus Rex Dinosaur Running Loop",
         "author": "LasquetiSpice",
@@ -18,8 +25,20 @@
       "url": "stegosaurus.glb",
       "scale": 1,
       "strideM": 1.6,
-      "clipSpeeds": { "walk": 1.5, "run": 3.6 },
-      "clips": { "idle": "idle", "walk": "walk", "run": "run", "eat": "eat", "drink": "drink", "attack": "attack", "roar": "roar", "death": "death" },
+      "clipSpeeds": {
+        "walk": 1.5,
+        "run": 3.6
+      },
+      "clips": {
+        "idle": "idle",
+        "walk": "walk",
+        "run": "run",
+        "eat": "eat",
+        "drink": "drink",
+        "attack": "attack",
+        "roar": "roar",
+        "death": "death"
+      },
       "credit": {
         "title": "PBR Stegasaurus (Animated)",
         "author": "Ferocious Industries",
@@ -31,12 +50,66 @@
       "url": "pachycephalosaurus.glb",
       "scale": 1,
       "strideM": 1.4,
-      "clipSpeeds": { "walk": 1.1, "run": 3.6 },
-      "clips": { "idle": "idle", "walk": "walk", "run": "run", "eat": "eat", "drink": "drink", "rest": "rest", "attack": "attack", "roar": "roar" },
+      "clipSpeeds": {
+        "walk": 1.1,
+        "run": 3.6
+      },
+      "clips": {
+        "idle": "idle",
+        "walk": "walk",
+        "run": "run",
+        "eat": "eat",
+        "drink": "drink",
+        "rest": "rest",
+        "attack": "attack",
+        "roar": "roar"
+      },
       "credit": {
         "title": "PBR Pachycephalasaurus (Animated)",
         "author": "Ferocious Industries",
         "url": "https://sketchfab.com/3d-models/pbr-pachycephalasaurus-animated-6eea5cee4afa4730bf75c6329a43e56d",
+        "license": "CC BY 4.0"
+      }
+    },
+    "velociraptor": {
+      "url": "velociraptor.glb",
+      "scale": 1,
+      "strideM": 1.2,
+      "clipSpeeds": {
+        "walk": 0.63,
+        "run": 1.2
+      },
+      "clips": {
+        "idle": "eat",
+        "walk": "walk",
+        "run": "run",
+        "eat": "eat",
+        "drink": "eat",
+        "roar": "roar",
+        "attack": "roar"
+      },
+      "credit": {
+        "title": "Velociraptor",
+        "author": "absol_cg",
+        "url": "https://sketchfab.com/3d-models/velociraptor-59910f5d62f74e558499c166738b0e6d",
+        "license": "CC BY 4.0"
+      }
+    },
+    "archaeopteryx": {
+      "url": "archaeopteryx.glb",
+      "scale": 1,
+      "strideM": 0.2,
+      "clipSpeeds": {},
+      "clips": {
+        "idle": "idle",
+        "fly": "fly",
+        "eat": "idle",
+        "roar": "idle"
+      },
+      "credit": {
+        "title": "Archaeopteryx",
+        "author": "khata",
+        "url": "https://sketchfab.com/3d-models/archaeopteryx-cbec5591c584438392824d13fbef401b",
         "license": "CC BY 4.0"
       }
     }

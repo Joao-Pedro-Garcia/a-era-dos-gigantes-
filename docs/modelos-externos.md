@@ -23,6 +23,17 @@
 
 Capturas antes e depois, com o mesmo enquadramento, estão em [`visual/modelos/`](visual/modelos/), e o resumo está em `compare.jpg`.
 
+## Integrados depois, a pedido (18/10/2026)
+
+| Espécie | Modelo | Observação |
+|---|---|---|
+| Velocirraptor | absol_cg: "Velociraptor" (CC BY 4.0; esculpido no ZBrush, pintado no Substance e animado no Blender pelo próprio autor) | Clipes de andar, correr, comer e rugir. **Não tem penas**: contraria a evidência atual (dromeossaurídeos eram emplumados). Entrou porque você pediu os modelos mais bonitos; para voltar ao raptor com penas, basta tirar a entrada `velociraptor` de `public/models/manifest.json`. Parado, ele usa o clipe de "comer" (farejando o chão), porque o arquivo não tem clipe de repouso. Na corrida máxima (10 m/s), o clipe toca cerca de 8× mais rápido que o original, para os pés não escorregarem; a cadência fica muito rápida. |
+| Arqueoptérix | khata: "Archaeopteryx" (CC BY 4.0; estudo de penas do próprio autor) | Penas de verdade (cartões de pena) e clipe de bater as asas, usado no voo. **Não tem clipe de andar**: no chão, ele usa o de inclinar a cabeça e desliza ao se mover. São 70 mil triângulos, um modelo pesado para um animal de 50 cm. |
+
+Ficaram de fora, mesmo com boa aparência:
+- **Espinossauro e quetzalcoatlo de seirogan:** cada um tem um único clipe (olhar em volta ou voo) e nenhum de andar, então deslizariam no chão.
+- **Pteranodonte de oscar.lopez.riviello:** tem animações completas, mas a conta publica modelos extraídos de jogos e filmes e não informa a origem deste. Risco de direito autoral.
+
 ## Descartados, e por quê
 
 **Extraídos de jogos ou filmes** (licença CC BY declarada pelo uploader, mas o modelo não é dele):
@@ -60,7 +71,7 @@ Também foram descartadas as versões "rebuilt" de kenchoo baseadas nesses model
 
 ## Limitações reais
 
-- **Só 3 das 26 espécies têm modelo de artista.** As outras 23 continuam procedurais. Para elas, não foi encontrado um modelo animado, de origem limpa e anatomicamente aceitável.
+- **Só 5 das 26 espécies têm modelo de artista** (tiranossauro, estegossauro, paquicefalossauro, velocirraptor e arqueoptérix). As outras 21 continuam procedurais. Para elas, não foi encontrado um modelo animado, de origem limpa e anatomicamente aceitável.
 - **O tiranossauro não tem clipe de andar.** Em velocidade de caminhada, ele usa o clipe de corrida em câmera lenta (cerca de 0,2×). Os pés não deslizam, mas o gesto é de corrida.
 - **Cores do tiranossauro:** são as do autor (azulado com listras vermelhas), não as cores da espécie no jogo.
 - **Paquicefalossauro em fuga:** a 8 m/s, o clipe de corrida (animado para cerca de 3,6 m/s) toca a 2,2×. Os pés acompanham o chão, mas a cadência fica bem rápida.

@@ -99,7 +99,7 @@ O inventário completo das espécies, com o que foi reconstruído na v0.4 e o qu
 - [braquiossauro](docs/realismo/braquiossauro.md): ombros mais altos que o quadril, pescoço reto e erguido, arco nasal alto, cauda mais curta, pernas em coluna e pés de saurópode, com antes, depois e no jogo.
 - [anquilossauro](docs/realismo/anquilossauro.md): armadura em faixas de osteodermos irregulares, corpo baixo e largo, cauda em "cabo" com clava larga e cabeça larga com chifres, com antes e depois.
 
-**Modelos de artista (v0.5):** três espécies usam arquivos GLB animados listados em [`public/models/manifest.json`](public/models/manifest.json): tiranossauro (LasquetiSpice), estegossauro e paquicefalossauro (Ferocious Industries), todos em CC BY 4.0.
+**Modelos de artista:** cinco espécies usam arquivos GLB animados listados em [`public/models/manifest.json`](public/models/manifest.json): tiranossauro (LasquetiSpice), estegossauro e paquicefalossauro (Ferocious Industries), velocirraptor (absol_cg; sem penas, ao contrário da evidência) e arqueoptérix (khata), todos em CC BY 4.0. Veja [`docs/modelos-externos.md`](docs/modelos-externos.md).
 - O clipe é escolhido pelo estado do animal: parado, andar, correr, comer, beber, dormir, atacar, alerta (rugido) e morte.
 - A velocidade dos clipes de locomoção é ajustada à velocidade real, medida nos pés do próprio modelo, para os pés não deslizarem.
 - De longe, o jogo volta ao modelo procedural leve.
@@ -707,7 +707,7 @@ Também verifica que nenhum erro aparece na página. Capturas reais em `docs/vis
   - sem IK de olhar e mandíbula nem reação corporal procedural a golpes nesses três;
   - a troca para o modelo procedural ao longe é visível se observada.
 - **Visual (sem fotorrealismo):**
-  - o personagem e 23 das 26 espécies são procedurais, com esqueleto e pele contínua (detalhes da v0.4 e o que ainda falta em [`docs/dinosaurs.md`](docs/dinosaurs.md));
+  - o personagem e 21 das 26 espécies são procedurais, com esqueleto e pele contínua (detalhes da v0.4 e o que ainda falta em [`docs/dinosaurs.md`](docs/dinosaurs.md));
   - o rosto humano é simples, sem expressões nem dedos articulados;
   - os dinossauros não têm músculos, dobras de pele nem rugas esculpidas, e a anatomia é aproximada por seções;
   - as animações são procedurais, não capturadas;
