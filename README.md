@@ -363,6 +363,7 @@ Comparação com capturas reais das mesmas cenas, antes e depois, no perfil Méd
 | Oclusão ambiental (GTAO) + MSAA | não | não | sim | sim |
 | Distância de setores detalhados | 3 | 4 | 5 | 6 |
 
+- **Durante a partida:** o botão **⚙** no canto superior direito (ou **F2** no PC) abre Gráficos − / + e Automática sem pausar o jogo; a mudança vale na hora.
 - **Atalho rápido:** o menu principal e o menu de pausa têm o controle **Gráficos − / +**, que sobe ou desce um perfil (Baixa → Média → Alta → Ultra), e o botão **Automática**. É a mesma opção de Configurações → Qualidade gráfica.
 - **Ajustes individuais** sobrepõem o perfil:
   - resolução (40–100%), sombras e distância de visão;

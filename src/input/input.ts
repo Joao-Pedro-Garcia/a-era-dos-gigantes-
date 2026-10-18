@@ -8,7 +8,7 @@ export type InputMode = 'keyboard' | 'touch' | 'gamepad';
 export type Action =
   | 'jump' | 'sprint' | 'crouch' | 'interact' | 'attack' | 'inventory' | 'build' | 'camera' | 'pause'
   | 'rotateLeft' | 'rotateRight' | 'snapToggle' | 'map' | 'hot1' | 'hot2' | 'hot3' | 'hot4' | 'hot5' | 'hot6' | 'demolish' | 'eat'
-  | 'buildForward' | 'buildBack' | 'buildLeft' | 'buildRight' | 'buildRaise' | 'buildLower' | 'buildRotReset' | 'buildStep';
+  | 'buildForward' | 'buildBack' | 'buildLeft' | 'buildRight' | 'buildRaise' | 'buildLower' | 'buildRotReset' | 'buildStep' | 'graphics';
 
 export const DEFAULT_KEYS: Record<Action, string[]> = {
   jump: ['Space'],
@@ -24,6 +24,7 @@ export const DEFAULT_KEYS: Record<Action, string[]> = {
   rotateRight: ['KeyR'],
   snapToggle: ['KeyG'],
   map: ['KeyM'],
+  graphics: ['F2'],
   hot1: ['Digit1'],
   hot2: ['Digit2'],
   hot3: ['Digit3'],

@@ -865,7 +865,8 @@ export class Game {
 
     // --- UI toggles.
     if (input.consume('pause')) {
-      if (panel) this.resume();
+      if (this.hud.quickGraphicsOpen) this.toggleQuickGraphics(false);
+      else if (panel) this.resume();
       else if (this.building && this.buildCtl.selected) this.cancelBuildPlacement();
       else if (this.building) this.toggleBuild();
       else this.pause();
@@ -875,6 +876,7 @@ export class Game {
       if (panel) this.resume();
       else this.openPanel('inventory');
     }
+    if (input.consume('graphics')) this.toggleQuickGraphics();
     if (input.consume('map')) {
       if (panel && this.hud.tab === 'map') this.resume();
       else this.openPanel('map');
@@ -1773,6 +1775,20 @@ export class Game {
 
   pieceCost(type: PieceType): ItemList {
     return Building.cost(type, this.progression.buildCost());
+  }
+
+  /**
+   * In-game graphics popover: changes apply at once and the game keeps
+   * running. With a mouse the cursor is released while it is open.
+   */
+  toggleQuickGraphics(open = !this.hud.quickGraphicsOpen): void {
+    if (this.state !== 'playing') open = false;
+    this.hud.showQuickGraphics(open);
+    const mouse = this.input.mode !== 'touch';
+    if (open && mouse) {
+      this.input.uiCapture = true;
+      document.exitPointerLock?.();
+    } else if (!open && !this.hud.panelOpen && !this.hud.documentOpen) this.input.uiCapture = false;
   }
 
   toggleBuild(): void {

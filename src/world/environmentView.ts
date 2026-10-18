@@ -266,8 +266,10 @@ export class EnvironmentView {
     // The env sky shares the live uniforms, minus the sun disc's glare (it would dominate the cube map).
     const eu = this.envSky.u;
     for (const k of Object.keys(u) as (keyof typeof u)[]) {
-      const src = u[k].value as unknown;
-      const dst = eu[k] as { value: unknown };
+      const src = u[k]?.value as unknown;
+      const dst = eu[k] as { value: unknown } | undefined;
+      // Shared uniforms patched into the live sky after it compiled (atmosphere) are not on the env copy yet.
+      if (!dst || !u[k]) continue;
       if (src instanceof THREE.Vector3 || src instanceof THREE.Vector2 || src instanceof THREE.Color) (dst.value as THREE.Vector3).copy(src as THREE.Vector3);
       else dst.value = src;
     }

@@ -271,3 +271,11 @@ body.reduce-motion * { animation: none !important; transition: none !important; 
 .gfx-stepper > span { text-align: center; font-size: 14px; }
 .gfx-stepper .gfx-auto { font-size: 12px; padding: 4px 10px; }
 .gfx-stepper .gfx-auto.on { border-color: var(--accent); color: var(--accent); }
+.gfxquick { position: absolute; right: calc(10px + var(--safe-r)); top: calc(8px + var(--safe-t)); display: flex; flex-direction: column; align-items: flex-end; gap: 6px; z-index: 7; pointer-events: auto; }
+.gfxquick .gfxbtn { width: 40px; height: 40px; min-height: 40px; padding: 0; border-radius: 10px; font-size: 20px; line-height: 1; opacity: .8; }
+.gfxquick.open .gfxbtn, .gfxquick .gfxbtn:hover { opacity: 1; border-color: var(--accent); }
+.gfxpop { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 10px; width: min(340px, calc(100vw - 24px)); display: grid; gap: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.4); }
+.gfxpop-title { font-weight: 600; color: var(--accent); }
+.gfxpop p { margin: 0; font-size: 12px; }
+.gfxpop > button { min-height: 40px; }
+body.building .gfxquick { display: none; }

@@ -66,6 +66,9 @@ export class Hud {
   private xpEl: HTMLElement;
   private captionsEl: HTMLElement;
   private buildEl: HTMLElement;
+  /** In-game quick graphics control (⚙ button + popover, no pause). */
+  private gfxEl: HTMLElement;
+  private gfxPop: HTMLElement | null = null;
   private buildScreen: BuildScreen;
   private panelEl: HTMLElement;
   private docEl: HTMLElement;
@@ -139,6 +142,11 @@ export class Hud {
       toggleBuild: () => host.toggleBuild(),
       itemName,
     });
+    this.gfxEl = this.add(h('div', 'gfxquick'));
+    const gear = this.gfxEl.appendChild(h('button', 'gfxbtn', '⚙'));
+    gear.title = `${t('gfx.title')} (F2)`;
+    gear.setAttribute('aria-label', t('gfx.title'));
+    gear.onclick = () => this.game.toggleQuickGraphics();
     this.touchEl = this.add(h('div', 'touch hidden'));
     this.panelEl = this.add(h('div', 'panel hidden'));
     this.docEl = this.add(h('div', 'doc hidden'));
@@ -170,8 +178,9 @@ export class Hud {
   }
 
   setGameplayVisible(on: boolean): void {
-    for (const el of [this.topEl, this.hotbarEl, this.crosshair, this.statusEl.parentElement!]) el.classList.toggle('hidden', !on);
+    for (const el of [this.topEl, this.hotbarEl, this.crosshair, this.statusEl.parentElement!, this.gfxEl]) el.classList.toggle('hidden', !on);
     if (!on) {
+      this.showQuickGraphics(false);
       this.promptEl.classList.add('hidden');
       this.buildEl.classList.add('hidden');
       this.radioEl.classList.add('hidden');
@@ -963,6 +972,30 @@ export class Hud {
     }
     card.appendChild(this.importButton());
     this.showMenu(card);
+  }
+
+  get quickGraphicsOpen(): boolean {
+    return !!this.gfxPop;
+  }
+
+  /** Opens or closes the in-game graphics popover next to the ⚙ button. */
+  showQuickGraphics(open: boolean): void {
+    if (!open) {
+      this.gfxPop?.remove();
+      this.gfxPop = null;
+      this.gfxEl.classList.remove('open');
+      return;
+    }
+    if (this.gfxPop) return;
+    const pop = h('div', 'gfxpop');
+    pop.appendChild(h('div', 'gfxpop-title', t('gfx.title')));
+    pop.appendChild(this.graphicsStepper());
+    pop.appendChild(h('p', 'muted', t('gfx.quickHint')));
+    const close = pop.appendChild(h('button', '', t('ui.close')));
+    close.onclick = () => this.game.toggleQuickGraphics(false);
+    this.gfxEl.appendChild(pop);
+    this.gfxEl.classList.add('open');
+    this.gfxPop = pop;
   }
 
   /** Quick "Graphics − / +" control (same setting as Settings → Graphics quality). */
