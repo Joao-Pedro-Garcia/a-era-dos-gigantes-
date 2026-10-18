@@ -435,7 +435,7 @@ Comparação com capturas reais das mesmas cenas, antes e depois, no perfil Méd
 | `alpha.test.ts` | machos Alfa: só machos adultos de espécies grandes, raridade, limites mundial e por região, grupos gerados nunca passam do limite, vida/dano recebido/personalidade aplicados uma vez, salvamento e saneamento, dois Alfas se exibem e só o mais fraco recua sem ninguém se ferir, rival comum recua, fêmeas e machos do mesmo grupo não são afetados |
 | `dinos.test.ts` (v0.4) | as 26 espécies geram 3 níveis de detalhe com a mesma silhueta (dados finitos, pesos de osso normalizados), filhotes com proporções próprias, dedo da asa dos pterossauros, reação a golpes proporcional ao tamanho, mosassauro classificado como escamado e sempre em mar profundo ao nadar e caçar |
 
-### Teste no navegador (`npm run test:e2e`): **39 de 39 passando**
+### Teste no navegador (`npm run test:e2e`): **42 de 42 passando**
 
 Feito no Chromium headless, sobre o build de produção. As ações usam teclado e cliques reais sempre que possível.
 
@@ -446,7 +446,7 @@ Feito no Chromium headless, sobre o build de produção. As ações usam teclado
   - coleta com E;
   - fabricação pelo botão da interface;
   - todas as abas;
-  - construção e demolição.
+  - tela de construção: cancelar não cobra, confirmar (mesmo com clique duplo) cria uma peça e cobra uma vez, demolição.
 - **Sistemas novos:**
   - domesticação com E e comando pelo painel;
   - caverna: desobstruir, entrar, ler a pintura e sair;
