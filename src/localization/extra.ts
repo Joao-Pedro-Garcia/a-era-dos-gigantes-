@@ -140,7 +140,7 @@ export const EXTRA_PT: Record<string, string> = {
   // Settings, graphics, audio, accessibility
   'settings.tab.general': 'Geral', 'settings.tab.graphics': 'Gráficos', 'settings.tab.audio': 'Áudio', 'settings.tab.access': 'Acessibilidade',
   'settings.gfxNote': 'Perfil em uso: {q}. Ajustes abaixo substituem o perfil.', 'settings.resetAll': 'Restaurar todas as configurações',
-  'settings.resetConfirm': 'Restaurar todas as configurações para o padrão?', 'quality.ultra': 'Ultra',
+  'settings.resetConfirm': 'Restaurar todas as configurações para o padrão?', 'quality.ultra': 'Ultra', 'gfx.title': 'Gráficos', 'gfx.lower': 'Diminuir gráficos', 'gfx.raise': 'Aumentar gráficos',
   'gfx.resolution': 'Resolução', 'gfx.shadows': 'Sombras', 'gfx.viewDistance': 'Distância de visão', 'gfx.vegetation': 'Densidade da vegetação',
   'gfx.textures': 'Qualidade das texturas', 'gfx.particles': 'Partículas (chuva, fogo)', 'gfx.effects': 'Efeitos (luzes dinâmicas, sombras suaves, fumaça)',
   'gfx.reset': 'Usar valores do perfil',
@@ -371,7 +371,7 @@ export const EXTRA_EN: Record<string, string> = {
   'skill.iron_stomach.name': 'Iron stomach', 'skill.iron_stomach.desc': 'Raw food never makes you sick.',
   'settings.tab.general': 'General', 'settings.tab.graphics': 'Graphics', 'settings.tab.audio': 'Audio', 'settings.tab.access': 'Accessibility',
   'settings.gfxNote': 'Profile in use: {q}. The settings below override it.', 'settings.resetAll': 'Reset all settings',
-  'settings.resetConfirm': 'Reset all settings to default?', 'quality.ultra': 'Ultra',
+  'settings.resetConfirm': 'Reset all settings to default?', 'quality.ultra': 'Ultra', 'gfx.title': 'Graphics', 'gfx.lower': 'Lower graphics', 'gfx.raise': 'Raise graphics',
   'gfx.resolution': 'Resolution', 'gfx.shadows': 'Shadows', 'gfx.viewDistance': 'View distance', 'gfx.vegetation': 'Vegetation density',
   'gfx.textures': 'Texture quality', 'gfx.particles': 'Particles (rain, fire)', 'gfx.effects': 'Effects (dynamic lights, soft shadows, smoke)',
   'gfx.reset': 'Use profile values',

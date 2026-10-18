@@ -903,6 +903,7 @@ export class Hud {
     };
     card.appendChild(seedLabel);
     card.appendChild(n);
+    card.appendChild(this.graphicsStepper());
     const s = h('button', '', t('menu.settings'));
     s.onclick = () => this.settingsMenu(() => this.mainMenu());
     card.appendChild(s);
@@ -958,9 +959,45 @@ export class Hud {
       const b = h('button', cls ?? '', label);
       b.onclick = fn;
       card.appendChild(b);
+      if (cls === 'primary') card.appendChild(this.graphicsStepper());
     }
     card.appendChild(this.importButton());
     this.showMenu(card);
+  }
+
+  /** Quick "Graphics − / +" control (same setting as Settings → Graphics quality). */
+  private graphicsStepper(): HTMLElement {
+    const g = this.game;
+    const LEVELS = ['low', 'medium', 'high', 'ultra'] as const;
+    const row = h('div', 'gfx-stepper');
+    const minus = h('button', '', '−');
+    const plus = h('button', '', '+');
+    const label = h('span', '');
+    const auto = h('button', 'gfx-auto', t('quality.auto'));
+    minus.setAttribute('aria-label', t('gfx.lower'));
+    plus.setAttribute('aria-label', t('gfx.raise'));
+    const render = () => {
+      const i = LEVELS.indexOf(g.qualityLevel);
+      const name = t(`quality.${g.qualityLevel}`);
+      label.textContent = g.settings.quality === 'auto' ? `${t('gfx.title')}: ${t('quality.auto')} (${name})` : `${t('gfx.title')}: ${name}`;
+      minus.toggleAttribute('disabled', g.settings.quality !== 'auto' && i <= 0);
+      plus.toggleAttribute('disabled', g.settings.quality !== 'auto' && i >= LEVELS.length - 1);
+      auto.classList.toggle('on', g.settings.quality === 'auto');
+    };
+    const step = (d: number) => {
+      const i = Math.max(0, Math.min(LEVELS.length - 1, LEVELS.indexOf(g.qualityLevel) + d));
+      g.applySettings({ quality: LEVELS[i] });
+      render();
+    };
+    minus.onclick = () => step(-1);
+    plus.onclick = () => step(1);
+    auto.onclick = () => {
+      g.applySettings({ quality: 'auto' });
+      render();
+    };
+    row.append(minus, label, plus, auto);
+    render();
+    return row;
   }
 
   settingsMenu(back: () => void): void {

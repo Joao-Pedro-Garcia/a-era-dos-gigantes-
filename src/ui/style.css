@@ -266,3 +266,8 @@ body.reduce-motion * { animation: none !important; transition: none !important; 
 
 .card ul.credits { text-align: left; font-size: 13px; line-height: 1.5; padding-left: 18px; margin: 6px 0; }
 .card ul.credits a { color: inherit; }
+.gfx-stepper { display: grid; grid-template-columns: 48px 1fr 48px auto; gap: 6px; align-items: center; }
+.gfx-stepper > button { min-height: 44px; font-size: 20px; padding: 4px; }
+.gfx-stepper > span { text-align: center; font-size: 14px; }
+.gfx-stepper .gfx-auto { font-size: 12px; padding: 4px 10px; }
+.gfx-stepper .gfx-auto.on { border-color: var(--accent); color: var(--accent); }
