@@ -12,6 +12,8 @@ import { SPECIES, type SpeciesDef } from './species';
 export const ALPHA = {
   /** Chance for each adult male created by a spawning group. */
   chance: 0.03,
+  /** Chance for the adult males of a predator's den (their territory). */
+  lairChance: 0.35,
   /** At most this many living alphas in the whole world. */
   maxAlive: 6,
   /** At most one alpha of a species within this radius (m). */
@@ -48,10 +50,10 @@ export function alphaMul(a: AnimalData, stat: 'health' | 'damage' | 'damageTaken
  * Decides whether a newly created adult male becomes an alpha, honouring the
  * world-wide and per-region limits. Applies the one-time personality boost.
  */
-export function rollAlpha(a: AnimalData, adult: boolean, rng: Rng, others: Iterable<AnimalData>): boolean {
+export function rollAlpha(a: AnimalData, adult: boolean, rng: Rng, others: Iterable<AnimalData>, chance: number = ALPHA.chance): boolean {
   const sp = SPECIES[a.speciesId];
   if (!adult || a.sex !== 'm' || a.alpha || !alphaEligible(sp)) return false;
-  if (!rng.chance(ALPHA.chance)) return false;
+  if (!rng.chance(chance)) return false;
   let alive = 0;
   for (const o of others) {
     if (!o.alpha || !o.alive || o === a) continue;

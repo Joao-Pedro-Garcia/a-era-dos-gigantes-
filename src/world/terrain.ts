@@ -30,7 +30,7 @@ export const VOLCANO = { x: 2300, z: -1600, radius: 950, height: 390 };
 /** Mesa (plateau with cliff walls) south of the spawn; v2. */
 export const MESA = { x: 520, z: 2350, radius: 620, height: 42 };
 /** Gentle side of the mesa (direction from its centre, radians; atan2(dx, dz)). */
-const MESA_RAMP = 2.3;
+export const MESA_RAMP = 2.3;
 /** Canyon cutting through the mesa from west to east (polyline); v2. */
 export const CANYON: [number, number][] = [[-260, 2580], [180, 2440], [520, 2540], [820, 2390], [1300, 2230]];
 const CANYON_HALF = 13;
@@ -339,7 +339,11 @@ export class Terrain {
     if (mesa > 0) {
       // The plateau: flat-topped with rocky terraces; the canyon floor stays at the base level.
       const canyon = this.canyonMask(x, z);
-      const top = MESA.height + this.n.fbm(x / 140, z / 140, 3) * 3 + Math.round(this.n2.get(x / 55, z / 55) * 2) * 1.5;
+      // Soft terraces: rounded steps that read as rock layers but stay walkable.
+      const tv = this.n2.get(x / 55, z / 55) * 2;
+      const tf = tv - Math.floor(tv);
+      const terrace = (Math.floor(tv) + smoothstep(0.3, 0.7, tf)) * 1.2;
+      const top = MESA.height + this.n.fbm(x / 140, z / 140, 3) * 3 + terrace;
       h += mesa * (1 - canyon) * top;
       const st = stream ? this.streamMask(x, z) : 0;
       if (st > 0) {

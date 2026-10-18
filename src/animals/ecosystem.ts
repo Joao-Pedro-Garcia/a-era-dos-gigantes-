@@ -8,7 +8,8 @@ import { pruneMemory, remember } from '../ai/memory';
 import { BIOMES } from '../world/biomes';
 import type { Environment } from '../world/environment';
 import { SPAWN, type Terrain } from '../world/terrain';
-import { rollAlpha } from './alpha';
+import { ALPHA, rollAlpha } from './alpha';
+import { lairs } from '../world/pois';
 import { type AnimalData, createAnimal, effectiveMass, lifeStage, maxHealth } from './animal';
 import { SPECIES, SPECIES_IDS, type SpeciesDef, isPredator } from './species';
 import { AQUATIC_MIN_DEPTH, swimDepth } from './aquatic';
@@ -65,6 +66,8 @@ export type EcoEvent =
   | { type: 'tamedKilled'; id: string; speciesId: string; name: string; by: string };
 
 const DAY = WORLD.dayLengthSeconds;
+/** Big predators that hold a den (only those that live in the den's biome are chosen). */
+const LAIR_PREDATORS = ['tyrannosaurus', 'allosaurus', 'carnotaurus', 'spinosaurus', 'baryonyx'];
 const ACTIVE_RADIUS = 230;
 const SEED_RADIUS_SECTORS = 4;
 const MAX_ANIMALS = 1400;
@@ -194,9 +197,17 @@ export class Ecosystem {
       }
       this.spawnGroup(speciesId, cx + rng.range(-40, 40), cz + rng.range(-40, 40), rng);
     }
+    // Predator dens: the territory of a big predator, where alphas are most likely.
+    for (const lair of lairs(this.terrain)) {
+      if (Math.floor(lair.x / S) !== sx || Math.floor(lair.z / S) !== sz) continue;
+      const lb = BIOMES[this.terrain.biomeAt(lair.x, lair.z)];
+      const pool = Object.keys(lb.fauna).filter((id) => LAIR_PREDATORS.includes(id));
+      const speciesId = pool.length ? pool[Math.floor(rng.next() * pool.length)] : 'allosaurus';
+      this.spawnGroup(speciesId, lair.x, lair.z, rng, ALPHA.lairChance);
+    }
   }
 
-  spawnGroup(speciesId: string, x: number, z: number, rng: Rng): AnimalData[] {
+  spawnGroup(speciesId: string, x: number, z: number, rng: Rng, alphaChance?: number): AnimalData[] {
     const sp = SPECIES[speciesId];
     const now = this.env.state.time;
     const size = rng.int(sp.social.size[0], sp.social.size[1]);
@@ -213,7 +224,7 @@ export class Ecosystem {
       if (sp.locomotion.aquatic && this.terrain.height(ax, az) > AQUATIC_MIN_DEPTH) continue;
       const parent = juvenile ? members.find((m) => m.sex === 'f' && lifeStage(m, now) === 'adult') : undefined;
       const a = createAnimal({ id: this.newId('a'), speciesId, x: ax, z: az, bornAt, groupId, parentId: parent?.id ?? null, rng });
-      if (rollAlpha(a, !juvenile, rng, this.animals.values())) a.health = maxHealth(a, now);
+      if (rollAlpha(a, !juvenile, rng, this.animals.values(), alphaChance)) a.health = maxHealth(a, now);
       a.homeX = x;
       a.homeZ = z;
       a.y = sp.locomotion.aquatic ? swimDepth(a, now, this.terrain.height(ax, az)) : this.terrain.height(ax, az);

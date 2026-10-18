@@ -11,6 +11,7 @@ import { VEG_COLLIDER, VEG_YIELD } from './vegetationModels';
 import { PLANT_VARIANTS, plantGeometry } from './plants';
 import { VegetationPools, type InstanceHandle } from './vegetationPools';
 import { terrainMeshData, type TerrainJobs, type TerrainMeshData } from './terrainMesh';
+import { worldPois, type Poi } from './pois';
 
 /**
  * Streams the continent around the player. Sectors close to the player get
@@ -278,6 +279,8 @@ export class SectorManager {
       this.buildVegetation(view, q, now);
       this.buildSites(view, now);
     } else if (q.farTrees) this.buildFarTrees(view, q, now);
+    // Rock formations are landmarks: drawn in distant sectors too (without colliders or resources).
+    this.buildPois(view, now, detail);
     this.root.add(group);
     this.sectors.set(key, view);
   }
@@ -418,20 +421,212 @@ export class SectorManager {
       else this.buildRuin(view, site, now);
     }
     const f = fossilSite(this.seed, view.sx, view.sz, this.terrain);
-    if (f && !((this.harvested[f.id] ?? -1) > now)) {
-      const y = this.terrain.height(f.x, f.z);
-      const g = new THREE.Group();
-      g.add(this.ownMesh(new THREE.DodecahedronGeometry(1.1, 0), this.ruinMat, 0, 0.2, 0));
-      for (let i = 0; i < 4; i++) {
-        const bone = this.ownMesh(new THREE.TorusGeometry(0.7 - i * 0.08, 0.06, 5, 10, Math.PI), this.boneMat, i * 0.35 - 0.5, 0.35, 0);
-        bone.rotation.y = Math.PI / 2;
-        g.add(bone);
-      }
-      g.position.set(f.x, y, f.z);
-      g.userData.nodeId = f.id;
-      view.group.add(g);
-      view.nodes.push({ id: f.id, kind: 'fossil', x: f.x, y, z: f.z, scale: 1, biome: this.biomeCoarse(f.x, f.z), inst: null, colliderId: null });
+    if (f) this.addFossil(view, f.id, f.x, f.z, now);
+  }
+
+  private crystalMat: THREE.MeshStandardMaterial | null = null;
+  private rockBox: THREE.Vector3 | null = null;
+
+  /** Real size of the boulder model at scale 1 (to stack pieces without gaps). */
+  private rockSize(): THREE.Vector3 {
+    if (this.rockBox) return this.rockBox;
+    const g = plantGeometry('boulder', 0, 0);
+    g.computeBoundingBox();
+    this.rockBox = g.boundingBox!.getSize(new THREE.Vector3());
+    return this.rockBox;
+  }
+
+  /** Points of interest of the continent v2 (see pois.ts) whose centre lies in this sector. */
+  private buildPois(view: SectorView, now: number, detail: boolean): void {
+    const S = WORLD.sectorSize;
+    for (const poi of worldPois(this.terrain)) {
+      if (Math.floor(poi.x / S) !== view.sx || Math.floor(poi.z / S) !== view.sz) continue;
+      const rng = new Rng(hash2(this.seed, Math.round(poi.x), Math.round(poi.z)));
+      if (poi.kind === 'arch') this.buildArch(view, poi, rng, detail);
+      else if (poi.kind === 'pillars') this.buildPillars(view, poi, rng, detail);
+      else if (!detail) continue;
+      else if (poi.kind === 'grove') this.buildGrove(view, poi, rng, now);
+      else if (poi.kind === 'crystals') this.buildCrystals(view, poi, rng, now);
+      else if (poi.kind === 'bonebed') {
+        for (let i = 0; i < 4; i++) {
+          const a = rng.next() * Math.PI * 2;
+          const r = 4 + rng.next() * 16;
+          this.addFossil(view, `${poi.id}:fossil${i}`, poi.x + Math.cos(a) * r, poi.z + Math.sin(a) * r, now);
+        }
+      } else if (poi.kind === 'lair') this.buildLair(view, poi, rng);
     }
+  }
+
+  /** A scaled boulder instance (shared rock geometry and textures) with an optional collider. */
+  private rockPiece(view: SectorView, id: string, x: number, y: number, z: number, sx: number, sy: number, sz: number, rot: number, collide: boolean, lod: number): void {
+    const variant = Math.floor(hashUnit(id, 0) * PLANT_VARIANTS);
+    const pool = this.pools.pool(`boulder:${variant}:${lod}`, plantGeometry('boulder', variant, lod), true);
+    const m = new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), new THREE.Quaternion().setFromEuler(new THREE.Euler((hashUnit(id, 1) - 0.5) * 0.3, rot, (hashUnit(id, 2) - 0.5) * 0.3)), new THREE.Vector3(sx, sy, sz));
+    const v = 0.85 + hashUnit(id, 4) * 0.2;
+    view.handles.push(pool.add(m, new THREE.Color(v, v * 0.97, v * 0.92)));
+    if (collide) {
+      const cid = `poi:${id}`;
+      const size = this.rockSize();
+      this.collision.add({ kind: 'circle', id: cid, x, z, r: 0.42 * Math.max(sx * size.x, sz * size.z), y0: y - size.y * sy, y1: y + size.y * sy });
+      view.colliders.push(cid);
+    }
+  }
+
+  /** Natural stone arch: two legs and a curved span of boulders. */
+  private buildArch(view: SectorView, poi: Poi, rng: Rng, detail: boolean): void {
+    const R = 9 + rng.next() * 4;
+    const ax = Math.cos(poi.rot);
+    const az = Math.sin(poi.rot);
+    const ground = Math.min(this.terrain.height(poi.x + ax * R, poi.z + az * R), this.terrain.height(poi.x - ax * R, poi.z - az * R));
+    const n = 18;
+    const size = this.rockSize();
+    for (let i = 0; i <= n; i++) {
+      const a = (Math.PI * i) / n;
+      const x = poi.x + ax * Math.cos(a) * R;
+      const z = poi.z + az * Math.cos(a) * R;
+      const y = ground - 0.5 + Math.sin(a) * R * 1.2;
+      // Chunky pieces sized from the real model, overlapping along the span.
+      const W = ((Math.PI * R * 1.1) / n) * (2 + rng.next() * 0.4);
+      this.rockPiece(view, `${poi.id}:a${i}`, x, y, z, W / size.x, (W * 0.9) / size.y, (W * 1.1) / size.z, poi.rot + rng.next() * 0.6, detail && y - this.terrain.height(x, z) < 3, detail ? 0 : 1);
+    }
+    // The legs reach down into the ground.
+    for (const side of [1, -1]) {
+      const x = poi.x + ax * R * side;
+      const z = poi.z + az * R * side;
+      const s = 6 / size.x;
+      this.rockPiece(view, `${poi.id}:leg${side}`, x, this.terrain.height(x, z) + 1, z, s, 7 / size.y, s, rng.next() * 6, detail, detail ? 0 : 1);
+    }
+  }
+
+  /** Field of tall stone needles. */
+  private buildPillars(view: SectorView, poi: Poi, rng: Rng, detail: boolean): void {
+    const count = 5 + Math.floor(rng.next() * 4);
+    for (let c = 0; c < count; c++) {
+      const a = rng.next() * Math.PI * 2;
+      const r = c === 0 ? 0 : 8 + rng.next() * 22;
+      const x = poi.x + Math.cos(a) * r;
+      const z = poi.z + Math.sin(a) * r;
+      const H = 10 + rng.next() * 18;
+      const k = Math.max(2, Math.round(H / 7));
+      const size = this.rockSize();
+      const w = (2.6 + rng.next() * 1.6) / size.x;
+      let y = this.terrain.height(x, z) - 1.5;
+      for (let i = 0; i < k; i++) {
+        // Each piece is stretched upward and overlaps the next: one continuous needle.
+        const seg = (H / k) * 1.45;
+        const sy = seg / size.y;
+        const ws = w * (1 - (i / k) * 0.4);
+        this.rockPiece(view, `${poi.id}:p${c}:${i}`, x + (rng.next() - 0.5) * 0.4, y + seg * 0.42, z + (rng.next() - 0.5) * 0.4, ws, sy, ws, rng.next() * 6, detail && i === 0, detail ? 0 : 1);
+        y += H / k;
+      }
+    }
+  }
+
+  /** A harvestable plant at a chosen spot (same rules as the vegetation of the biome). */
+  private plantNode(view: SectorView, kind: VegetationKind, id: string, x: number, z: number, s: number, now: number): void {
+    const regrow = this.harvested[id];
+    if (regrow !== undefined && regrow > now) return;
+    const y = this.terrain.height(x, z);
+    if (y < 0.4) return;
+    const p = { x, y: y - 0.1, z, s, r: hashUnit(id, 5) * Math.PI * 2, biome: this.biomeCoarse(x, z), id };
+    const variant = Math.floor(hashUnit(id, 0) * PLANT_VARIANTS);
+    const pool = this.pools.pool(`${kind}:${variant}:0`, plantGeometry(kind, variant, 0), true);
+    const inst = pool.add(this.instanceMatrix(p, kind, new THREE.Matrix4()), this.instanceColor(p, kind, new THREE.Color()));
+    view.handles.push(inst);
+    let colliderId: string | null = null;
+    const cr = VEG_COLLIDER[kind] * s;
+    if (cr > 0) {
+      colliderId = `veg:${id}`;
+      this.collision.add({ kind: 'circle', id: colliderId, x, z, r: cr, y0: p.y - 1, y1: p.y + 12 * s });
+      view.colliders.push(colliderId);
+    }
+    if (VEG_YIELD[kind]) view.nodes.push({ id, kind, x, y: p.y, z, scale: s, biome: p.biome, inst, colliderId });
+  }
+
+  /** Clearing full of fruit bushes around a few old trees. */
+  private buildGrove(view: SectorView, poi: Poi, rng: Rng, now: number): void {
+    for (let i = 0; i < 14; i++) {
+      const a = rng.next() * Math.PI * 2;
+      const r = 3 + Math.sqrt(rng.next()) * 18;
+      this.plantNode(view, 'bush', `${poi.id}:b${i}`, poi.x + Math.cos(a) * r, poi.z + Math.sin(a) * r, 0.9 + rng.next() * 0.4, now);
+    }
+    for (let i = 0; i < 3; i++) {
+      const a = (i / 3) * Math.PI * 2 + rng.next();
+      this.plantNode(view, 'broadleaf', `${poi.id}:t${i}`, poi.x + Math.cos(a) * 24, poi.z + Math.sin(a) * 24, 1.2 + rng.next() * 0.3, now);
+    }
+  }
+
+  /** Outcrop of glowing crystals among boulders (rare resource). */
+  private buildCrystals(view: SectorView, poi: Poi, rng: Rng, now: number): void {
+    this.crystalMat ??= new THREE.MeshStandardMaterial({ color: 0x9ad8ff, emissive: 0x2a7aff, emissiveIntensity: 0.9, roughness: 0.2 });
+    for (let i = 0; i < 3; i++) {
+      const a = rng.next() * Math.PI * 2;
+      const x = poi.x + Math.cos(a) * 7;
+      const z = poi.z + Math.sin(a) * 7;
+      this.rockPiece(view, `${poi.id}:r${i}`, x, this.terrain.height(x, z) - 0.5, z, 0.9, 0.8, 0.9, rng.next() * 6, true, 0);
+    }
+    const n = 4 + Math.floor(rng.next() * 3);
+    for (let i = 0; i < n; i++) {
+      const id = `${poi.id}:crystal${i}`;
+      if ((this.harvested[id] ?? -1) > now) continue;
+      const a = (i / n) * Math.PI * 2 + rng.next() * 0.5;
+      const x = poi.x + Math.cos(a) * (3 + rng.next() * 4);
+      const z = poi.z + Math.sin(a) * (3 + rng.next() * 4);
+      const y = this.terrain.height(x, z);
+      const g = new THREE.Group();
+      for (let k = 0; k < 5; k++) {
+        const m = this.ownMesh(new THREE.OctahedronGeometry(0.4, 0), this.crystalMat, (k - 2) * 0.3, 0.5 + (k % 2) * 0.35, (k % 3) * 0.2 - 0.2);
+        m.scale.y = 2.2;
+        m.rotation.z = (k - 2) * 0.28;
+        g.add(m);
+      }
+      g.position.set(x, y, z);
+      g.userData.nodeId = id;
+      view.group.add(g);
+      view.nodes.push({ id, kind: 'crystal', x, y, z, scale: 1, biome: this.biomeCoarse(x, z), inst: null, colliderId: null });
+    }
+  }
+
+  /** A predator's den: trampled clearing littered with large bones. */
+  private buildLair(view: SectorView, poi: Poi, rng: Rng): void {
+    const g = new THREE.Group();
+    for (let k = 0; k < 3; k++) {
+      const a = rng.next() * Math.PI * 2;
+      const r = 4 + rng.next() * 12;
+      const rib = new THREE.Group();
+      for (let i = 0; i < 6; i++) {
+        const bone = this.ownMesh(new THREE.TorusGeometry(1.6 - i * 0.12, 0.1, 5, 12, Math.PI), this.boneMat, i * 0.55 - 1.4, 0.05, 0);
+        bone.rotation.y = Math.PI / 2;
+        bone.rotation.z = (rng.next() - 0.5) * 0.4;
+        rib.add(bone);
+      }
+      const skull = this.ownMesh(new THREE.DodecahedronGeometry(0.7, 0), this.boneMat, 2.6, 0.4, 0);
+      skull.scale.set(1.6, 0.8, 0.9);
+      rib.add(skull);
+      const x = poi.x + Math.cos(a) * r;
+      const z = poi.z + Math.sin(a) * r;
+      rib.position.set(x - poi.x, this.terrain.height(x, z) - this.terrain.height(poi.x, poi.z), z - poi.z);
+      rib.rotation.y = rng.next() * Math.PI * 2;
+      g.add(rib);
+    }
+    g.position.set(poi.x, this.terrain.height(poi.x, poi.z), poi.z);
+    view.group.add(g);
+  }
+
+  private addFossil(view: SectorView, id: string, x: number, z: number, now: number): void {
+    if ((this.harvested[id] ?? -1) > now) return;
+    const y = this.terrain.height(x, z);
+    const g = new THREE.Group();
+    g.add(this.ownMesh(new THREE.DodecahedronGeometry(1.1, 0), this.ruinMat, 0, 0.2, 0));
+    for (let i = 0; i < 4; i++) {
+      const bone = this.ownMesh(new THREE.TorusGeometry(0.7 - i * 0.08, 0.06, 5, 10, Math.PI), this.boneMat, i * 0.35 - 0.5, 0.35, 0);
+      bone.rotation.y = Math.PI / 2;
+      g.add(bone);
+    }
+    g.position.set(x, y, z);
+    g.userData.nodeId = id;
+    view.group.add(g);
+    view.nodes.push({ id, kind: 'fossil', x, y, z, scale: 1, biome: this.biomeCoarse(x, z), inst: null, colliderId: null });
   }
 
   private ownMesh(geo: THREE.BufferGeometry, mat: THREE.Material, x = 0, y = 0, z = 0): THREE.Mesh {

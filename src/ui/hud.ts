@@ -15,6 +15,7 @@ import type { SurvivalData } from '../survival/survival';
 import { TAME_PROFILES } from '../taming/profiles';
 import { obeyChance } from '../taming/taming';
 import { BIOMES, type BiomeId } from '../world/biomes';
+import { placeKey } from '../world/pois';
 import type { WeatherKind } from '../world/environment';
 
 /** The UI talks to the game through its public methods. */
@@ -23,7 +24,7 @@ export type GameApi = Game;
 export interface MapMarker {
   x: number;
   z: number;
-  kind: 'player' | 'site' | 'bag' | 'bed' | 'marker' | 'tame' | 'landmark';
+  kind: 'player' | 'site' | 'bag' | 'bed' | 'marker' | 'tame' | 'landmark' | 'danger';
   label?: string;
   heading?: number;
 }
@@ -669,7 +670,7 @@ export class Hud {
       box.appendChild(h('div', '', rows.join('')));
       body.appendChild(box);
       const sites = h('div', 'box', `<h4>${t('explore.sites')}</h4>`);
-      for (const id of g.discovered) sites.appendChild(h('div', '', `◆ ${t(`site.${id}`)}`));
+      for (const id of g.discovered) sites.appendChild(h('div', '', `◆ ${t(placeKey(id))}`));
       body.appendChild(sites);
     }
   }
@@ -775,7 +776,7 @@ export class Hud {
         if (m.kind === 'landmark' && !g.exploration.isExplored(m.x, m.z) && Math.hypot(m.x - p.s.x, m.z - p.s.z) > 2500) continue;
         const [px, py] = toPx(m.x, m.z);
         if (px < -10 || py < -10 || px > 522 || py > 522) continue;
-        const colors: Record<MapMarker['kind'], string> = { player: '#fff', bag: '#ff5a3c', bed: '#8fbf6a', site: '#d9b26a', marker: '#7ac4ff', tame: '#c49aff', landmark: '#ff8a4a' };
+        const colors: Record<MapMarker['kind'], string> = { player: '#fff', bag: '#ff5a3c', bed: '#8fbf6a', site: '#d9b26a', marker: '#7ac4ff', tame: '#c49aff', landmark: '#ff8a4a', danger: '#e0503a' };
         ctx.fillStyle = colors[m.kind];
         if (m.kind === 'player') {
           ctx.save();
@@ -788,9 +789,9 @@ export class Hud {
           ctx.fill();
           ctx.restore();
         } else {
-          const glyph = { bag: '✖', bed: '⌂', site: '◆', marker: m.label === 'star' ? '★' : '●', tame: '🦕', landmark: '▲' }[m.kind];
+          const glyph = { bag: '✖', bed: '⌂', site: '◆', marker: m.label === 'star' ? '★' : '●', tame: '🦕', landmark: '▲', danger: '☠' }[m.kind];
           ctx.fillText(glyph, px - 4, py + 4);
-          if (m.label && (m.kind === 'site' || m.kind === 'landmark' || (m.kind === 'tame' && this.mapZoom > 1))) ctx.fillText(m.label, px + 7, py + 4);
+          if (m.label && (m.kind === 'site' || m.kind === 'landmark' || m.kind === 'danger' || (m.kind === 'tame' && this.mapZoom > 1))) ctx.fillText(m.label, px + 7, py + 4);
         }
       }
       if (!once && this.mapRow < 256) requestAnimationFrame(() => draw());

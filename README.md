@@ -59,6 +59,24 @@ As teclas podem ser reconfiguradas em **Controles**. A interface de toque só ap
 ### Mundo, setores e ecossistema
 
 - **Continente:** cerca de 10 km, híbrido. Regiões planejadas (vulcão, cordilheira e terras nevadas, pântano, selva, 6 instalações e 3 cavernas) são preenchidas por ruído procedural determinístico. Os locais planejados são aplainados automaticamente para nunca caírem em rios ou penhascos.
+- **Continente v2 (jogos novos)** — mapa antes/depois em [`docs/visual/continente/mapa-v1-v2.png`](docs/visual/continente/mapa-v1-v2.png):
+  - **gerador versionado:** jogos novos usam o continente v2; saves antigos continuam no v1, então nada construído vai parar debaixo d'água ou dentro de um paredão. O v1 foi conferido ponto a ponto contra o código anterior (35 mil amostras em 3 sementes, diferença zero);
+  - **florestas temperadas** (novo bioma, ~20% da terra) com fauna própria; as planícies caíram de ~60% para ~40% da terra;
+  - contornos orgânicos do vulcão (línguas de lava), da selva e do pântano, em vez de círculos;
+  - **8 lagos** por mundo, um a curta caminhada do início;
+  - litoral variado: trechos de **praias largas** e trechos de **falésias**;
+  - **planalto** ao sul do início, com paredões, uma rampa caminhável e um **cânion** que o atravessa de ponta a ponta;
+  - um **riacho** no topo, que nunca corre morro acima, cai numa **cachoeira** de 40–90 m (conforme a semente) num lago, com névoa, espuma e som posicional;
+  - **pontos de interesse** espalhados pelo mapa, longe do início:
+    - arcos de pedra e agulhas de pedra (referências para se orientar, visíveis de longe);
+    - bosques de frutas;
+    - afloramentos de cristais (recurso raro);
+    - leitos de fósseis;
+    - **covis de predadores**, que são território perigoso;
+  - cada ponto de interesse é **descoberto** ao chegar perto: dá experiência de exploração e aparece no mapa e no diário. Os covis aparecem com ☠, e a cachoeira já aparece no mapa como referência antes de ser descoberta;
+  - **limite do mundo:** além do continente, correntes do mar aberto empurram de volta para a costa, com aviso, e ninguém passa de um limite fixo; antes não havia limite nenhum;
+  - **atmosfera por bioma:** névoa no pântano e umidade leve na selva e na floresta, com transição suave;
+  - **custo medido:** a função de altura do terreno ficou ~10% mais lenta (2,18 → 2,41 µs por chamada no Node); a geração de malha de um setor ficou igual (13,7 contra 13,9 ms).
 - **Setores de 128 m** carregados por distância, com níveis de detalhe:
   - vegetação instanciada (uma chamada de desenho por tipo e por setor);
   - colisores só por perto;
@@ -67,6 +85,7 @@ As teclas podem ser reconfiguradas em **Controles**. A interface de toque só ap
 - **Ecossistema:**
   - **IA completa** para os animais próximos, com taxa de atualização reduzida a 1/2 além de 100 m e a 1/4 além de 170 m.
   - **Simulação abstrata** a cada 2 s para o resto do continente: fome, sede, pastejo, predação, migração, ninhos, crescimento, doenças e morte.
+  - **Covis (v2):** cada covil recebe um grupo de um grande predador que vive naquele bioma (tiranossauro nas planícies, alossauro na floresta, carnotauro na selva, espinossauro ou barionix no pântano). Os machos adultos do covil têm 35% de chance de ser Alfa (contra 3% no resto do mapa), sempre respeitando os limites de 6 no mundo e 1 por espécie e região.
 
 ### Dinossauros e IA (26 espécies)
 
@@ -426,7 +445,7 @@ Comparação com capturas reais das mesmas cenas, antes e depois, no perfil Méd
 
 ## Testes executados e resultados
 
-### Testes automatizados (`npm test`): **178 de 178 passando**
+### Testes automatizados (`npm test`): **189 de 189 passando**
 
 | Arquivo | Cobre |
 |---|---|
@@ -448,6 +467,7 @@ Comparação com capturas reais das mesmas cenas, antes e depois, no perfil Méd
 | `actions.test.ts` (v0.4) | ações por item, fases e quadro de impacto, alternância esquerda/direita, equipar/trocar sem golpear com o item antigo, trocas repetidas, filtro de entrada duplicada, repetição ao segurar, arco (puxar, soltar, toque rápido, sem flechas), tarefa no impacto (coleta), IK do braço alcança cada pose-chave (erro < 2 cm) |
 | `buildMode.test.ts` | tela de construção: a pré-visualização segue a mira até o primeiro ajuste e depois fica parada, movimento relativo à câmera nas 4 direções e nas 3 precisões, subir/descer com limites, rotação com e sem encaixe, cancelar, repetição ao segurar, peças flutuando/enterradas, peça colocada igual à pré-visualização com materiais cobrados uma vez, catálogo cobre as 28 peças |
 | `movement.test.ts` | jogador acelera/freia em fração de segundo, passo muda aos poucos ao correr, degraus suavizados e teleporte instantâneo, câmera em 3ª pessoa a distância constante ao correr; dinossauro: curva com início suave, sem passar da velocidade de giro e sem saltos de um quadro para o outro; clipes de artista sem alternar no limite de velocidade |
+| `continent.test.ts` | versões do gerador (v1 sem lagos, planalto ou florestas; versão salva e saneada), diversidade de biomas em 4 sementes, lagos com água de verdade e um perto do início, início e locais planejados em terra seca, paredões, rampa caminhável e cânion atravessável, riacho que nunca sobe e cachoeira caindo no lago, pontos de interesse de todos os tipos em terra seca, determinísticos e espalhados, nomes no diário e no mapa, correntes do limite do mundo, covil povoado por um grande predador, fauna própria da floresta |
 | `alpha.test.ts` | machos Alfa: só machos adultos de espécies grandes, raridade, limites mundial e por região, grupos gerados nunca passam do limite, vida/dano recebido/personalidade aplicados uma vez, salvamento e saneamento, dois Alfas se exibem e só o mais fraco recua sem ninguém se ferir, rival comum recua, fêmeas e machos do mesmo grupo não são afetados |
 | `dinos.test.ts` (v0.4) | as 26 espécies geram 3 níveis de detalhe com a mesma silhueta (dados finitos, pesos de osso normalizados), filhotes com proporções próprias, dedo da asa dos pterossauros, reação a golpes proporcional ao tamanho, mosassauro classificado como escamado e sempre em mar profundo ao nadar e caçar |
 

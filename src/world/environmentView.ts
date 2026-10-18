@@ -131,6 +131,10 @@ export class EnvironmentView {
     };
   }
 
+  /** Local haze of the biome around the player (0 none … 1 swamp mist); eased. */
+  localHaze = 0;
+  private haze = 0;
+
   update(dt: number, camera: THREE.Camera, focus: THREE.Vector3, snowy: boolean, renderer?: THREE.WebGLRenderer): void {
     const env = this.env;
     const s = env.state;
@@ -220,7 +224,9 @@ export class EnvironmentView {
     ATMOS.sunScatter.value.copy(scatter).multiplyScalar(night ? 0 : 1);
     ATMOS.baseHeight.value = env.waterLevel;
     ATMOS.heightFalloff.value = s.weather === 'fog' ? 0.02 : 0.006;
-    this.fog.density = 0.00011 + env.fogDensity * 0.0045 + cloud * 0.0004 + (env.eruptionActive ? 0.0008 : 0);
+    // Biome haze (swamp mist, jungle and forest humidity) eases in and out as the player moves.
+    this.haze += (this.localHaze - this.haze) * Math.min(1, dt * 0.25);
+    this.fog.density = 0.00011 + env.fogDensity * 0.0045 + cloud * 0.0004 + (env.eruptionActive ? 0.0008 : 0) + this.haze * 0.0016 * (night ? 0.7 : 1);
     this.sky.visible = !this.indoor;
     if (this.indoor) {
       this.sun.intensity = 0;

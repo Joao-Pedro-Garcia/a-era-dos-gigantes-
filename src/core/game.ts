@@ -3,6 +3,7 @@ import { AudioSystem, type Surface } from '../audio/audio';
 import { growthScale, lifeStage, type AIState, type AnimalData, type TameCommand } from '../animals/animal';
 import { updateAlphaAura } from '../animals/alphaAura';
 import { LandmarkViews } from '../world/landmarks';
+import { WORLD_LIMIT, applyCurrent, placeKey, worldPois } from '../world/pois';
 import { createAnimalView, createNestView, disposeAnimalView, hitAnimalView, poseAnimalView, prewarmAnimals, setAnimalContext, type AnimalView } from '../animals/animalView';
 import { CombatController } from '../combat/actions';
 import { ImpactFx } from '../graphics/impactFx';
@@ -1072,6 +1073,7 @@ export class Game {
     this.profiler.begin('environment');
     const focus = new THREE.Vector3(p.s.x, p.s.y, p.s.z);
     this.envView!.indoor = !!this.inCave;
+    this.envView!.localHaze = biome === 'swamp' ? 1 : biome === 'jungle' ? 0.55 : biome === 'forest' ? 0.3 : 0;
     this.envView!.update(realDt, this.camera, focus, ctx.airTemp < 0 || biome === 'snow', this.renderer);
     this.updateWorldShading(p.s.x, p.s.z, q);
     this.envView!.groundFires((x, z) => terrain.height(x, z));
@@ -1168,6 +1170,7 @@ export class Game {
       },
       this.settings.firstPerson,
     );
+    if (!this.inCave) this.applyWorldLimit(p, realDt);
     p.s.x = clamp(p.s.x, -5100, 5100);
     p.s.z = clamp(p.s.z, -5100, 5100);
   }
@@ -1451,6 +1454,13 @@ export class Game {
           this.xp('exploration', 50);
           if (s.kind === 'research') this.unlock('found_research_site');
         }
+      }
+      // Points of interest of the continent (formations, groves, dens, lakes, the waterfall…).
+      for (const poi of worldPois(this.terrain!)) {
+        if (this.discovered.has(poi.id) || Math.hypot(poi.x - p.s.x, poi.z - p.s.z) > poi.radius) continue;
+        this.discovered.add(poi.id);
+        this.notify(poi.kind === 'lair' ? 'notify.lair' : 'notify.discovered', { what: t(placeKey(poi.id)) }, poi.kind === 'lair' ? 'warn' : 'good');
+        this.xp('exploration', poi.kind === 'lake' ? 15 : 35);
       }
     }
     // Species sightings and quiet observation.
@@ -1791,6 +1801,23 @@ export class Game {
     return Building.cost(type, this.progression.buildCost());
   }
 
+  private lastCurrentNote = -1e9;
+
+  /**
+   * Edge of the world: past the continent the open sea has currents that
+   * carry swimmers back toward the coast (stronger the further out), with a
+   * hard stop a little further, so nobody gets lost in an endless ocean.
+   */
+  private applyWorldLimit(p: PlayerController, dt: number): void {
+    if (!applyCurrent(p.s, dt)) return;
+    if (Math.hypot(p.s.x, p.s.z) >= WORLD_LIMIT.hard - 0.01) p.vx = p.vz = 0;
+    const now = this.env!.state.time;
+    if (now - this.lastCurrentNote > 30) {
+      this.lastCurrentNote = now;
+      this.notify('notify.current', undefined, 'warn');
+    }
+  }
+
   /**
    * In-game graphics popover: changes apply at once and the game keeps
    * running. With a mouse the cursor is released while it is open.
@@ -2121,12 +2148,16 @@ export class Game {
     const p = this.player;
     if (!p) return out;
     for (const s of PLANNED_SITES) if (this.discovered.has(s.id)) out.push({ x: s.x, z: s.z, kind: 'site', label: t(`site.${s.id}`) });
+    for (const poi of worldPois(this.terrain!)) if (this.discovered.has(poi.id)) out.push({ x: poi.x, z: poi.z, kind: poi.kind === 'lair' ? 'danger' : 'site', label: t(placeKey(poi.id)) });
     for (const b of this.bags) if (b.reason === 'death') out.push({ x: b.x, z: b.z, kind: 'bag' });
     if (this.respawnPoint) out.push({ x: this.respawnPoint.x, z: this.respawnPoint.z, kind: 'bed' });
     for (const m of this.exploration.d.markers) out.push({ x: m.x, z: m.z, kind: 'marker', label: m.icon });
     for (const a of this.tamedAnimals()) out.push({ x: a.x, z: a.z, kind: 'tame', label: a.tame!.name });
     // The volcano is a landmark visible from far away.
     out.push({ x: VOLCANO.x, z: VOLCANO.z, kind: 'landmark', label: t('landmark.volcano') });
+    // So is the mist of the waterfall over the plateau (continent v2).
+    const falls = this.landmarks?.waterfall;
+    if (falls && !this.discovered.has('poi:lake_waterfall')) out.push({ x: falls.top.x, z: falls.top.z, kind: 'landmark', label: t('poi.waterfall') });
     out.push({ x: p.s.x, z: p.s.z, kind: 'player', heading: p.s.yaw });
     return out;
   }
