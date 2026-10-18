@@ -139,4 +139,32 @@ describe('realism pilot: triceratops and skin regions', () => {
     expect(len / sp.lengthM).toBeGreaterThan(0.85);
     expect(len / sp.lengthM).toBeLessThan(1.15);
   });
+
+  it('the parasaurolophus has a long tubular crest past the back of the skull and a deep, flat-sided tail', () => {
+    const sp = SPECIES.parasaurolophus;
+    const t = buildDinoTemplate(sp);
+    const { at, len, height } = t.bp.head;
+    const pos = t.geometry.attributes.position;
+    // Crest: the highest point around the head is the crest, well above the skull
+    // roof and well behind the head (the crest is about as long again as the skull).
+    let top = -Infinity;
+    let topZ = 0;
+    for (let i = 0; i < pos.count; i++) {
+      const z = pos.getZ(i);
+      if (z > at.z - 1.6 * len && pos.getY(i) > top) {
+        top = pos.getY(i);
+        topZ = z;
+      }
+    }
+    expect(top - at.y).toBeGreaterThan(1.6 * height);
+    expect(at.z - topZ).toBeGreaterThan(0.4 * len);
+    expect(at.z - topZ).toBeLessThan(1.3 * len);
+    // Tail taller than wide (neural spines and chevrons), with a blunt end.
+    const tail3 = t.bp.cps.find((c) => c.bone === 'tail3')!;
+    expect(tail3.ry / tail3.rx).toBeGreaterThan(1.5);
+    expect(t.bp.cps[0].ry).toBeGreaterThan(0.01 * sp.lengthM);
+    // Thighs proportionate to a 2.6 t ornithopod (not theropod "drumsticks").
+    const thigh = t.bp.legs.find((l) => l.name === 'hindL')!;
+    expect(thigh.radii[0]).toBeLessThan(0.04 * sp.lengthM);
+  });
 });

@@ -141,18 +141,24 @@ function blueprint(sp: SpeciesDef, juvenile = false): Blueprint {
     const apex = sp.ecology === 'apexPredator' || sp.massKg > 1500;
     const b = hadro ? 1.25 : sp.id === 'tyrannosaurus' ? 1.18 : sp.id === 'gallimimus' ? 0.82 : f.has('feathers') && L < 3 ? 0.95 : sp.id === 'therizinosaurus' ? 1.2 : 1;
     // Body breadth (back view): large theropods are broad at the hips and ribs, not slab-sided.
-    const wb = apexW(sp) ? 1.3 : hadro ? 0.95 : 1.08;
+    // Hadrosaurs were deep- rather than broad-bodied.
+    const wb = apexW(sp) ? 1.3 : hadro ? 0.8 : 1.08;
     const Hh = H;
     const longNeck = f.has('longNeck');
-    cp(-0.56 * L, Hh * 0.72, 0.004 * L, 0.005 * L, 0, null);
-    cp(-0.44 * L, Hh * 0.84, 0.016 * L * b, 0.02 * L * b, 0, 'tail4');
-    cp(-0.31 * L, Hh * 0.95, 0.031 * L * b, 0.04 * L * b, 0, 'tail3');
+    // Hadrosaur tails were tall and flattened side to side (long neural spines and
+    // chevrons) and held straight out, stiffened by ossified tendons; blunt tip.
+    const tw = hadro ? 0.7 : 1;
+    const td = hadro ? 1.22 : 1;
+    cp(-0.56 * L, Hh * (hadro ? 0.86 : 0.72), 0.004 * L * (hadro ? 1.5 : 1), 0.005 * L * (hadro ? 2.4 : 1), 0, null);
+    cp(-0.44 * L, Hh * (hadro ? 0.93 : 0.84), 0.016 * L * b * tw, 0.02 * L * b * td, 0, 'tail4');
+    cp(-0.31 * L, Hh * (hadro ? 0.99 : 0.95), 0.031 * L * b * tw, 0.04 * L * b * td, 0, 'tail3');
     // The tail base is thick (caudofemoralis muscles that pull the thighs).
-    cp(-0.19 * L, Hh * 1.02, 0.05 * L * b * wb, 0.062 * L * b, 0.006 * L, 'tail2');
+    cp(-0.19 * L, Hh * 1.02, 0.05 * L * b * wb * (hadro ? 0.85 : 1), 0.062 * L * b * (hadro ? 1.08 : 1), 0.006 * L, 'tail2');
     cp(-0.08 * L, Hh * 1.06, 0.056 * L * b * wb, 0.068 * L * b, 0.012 * L, 'tail1');
     cp(0.02 * L, Hh * 1.08, 0.062 * L * b * wb, 0.074 * L * b, 0.016 * L * b, 'pelvis');
     cp(0.1 * L, Hh * 1.07, 0.064 * L * b * wb, 0.08 * L * b, 0.028 * L * b, 'torso');
-    cp(0.17 * L, Hh * 1.05, 0.054 * L * b * wb, 0.072 * L * b, 0.022 * L * b, 'chest');
+    // The hadrosaur back slopes down from the hips to the shoulders.
+    cp(0.17 * L, Hh * (hadro ? 1.01 : 1.05), 0.054 * L * b * wb, 0.072 * L * b, 0.022 * L * b, 'chest');
     if (longNeck) {
       cp(0.22 * L, Hh * 1.14, 0.038 * L * b, 0.046 * L * b, 0.006 * L, 'neck1');
       cp(0.255 * L, Hh * 1.34, 0.028 * L * b, 0.032 * L * b, 0, 'neck2');
@@ -178,13 +184,14 @@ function blueprint(sp: SpeciesDef, juvenile = false): Blueprint {
     for (const side of [1, -1]) {
       // Hip socket on the flank; the knee sits forward under the belly (thigh slants forward),
       // the shin slopes back to a long metatarsus (digitigrade, the ankle well off the ground).
-      const x = side * 0.055 * L * b * wb;
+      const x = side * (hadro ? 0.05 : 0.055) * L * b * wb;
       const legScale = H;
       legs.push({
         name: side > 0 ? 'hindL' : 'hindR',
         joints: [V(x, Hh * 1.0, 0.02 * L), V(x * 1.12, Hh * 0.56, 0.02 * L + 0.2 * legScale), V(x * 1.04, Hh * 0.22, 0.02 * L - 0.08 * legScale), V(x, Hh * 0.035, 0.02 * L + 0.02 * legScale), V(x, 0, 0.02 * L + 0.2 * legScale)],
         // Massive muscular thigh ("drumstick"), strong shin, slender metatarsus.
-        radii: [0.046 * L * b * (apex ? 1.15 : 1), 0.024 * L * b * (apex ? 1.1 : 1), 0.0125 * L * b, 0.009 * L * b, 0.006 * L],
+        // Hadrosaurs: strong but not theropod-sized thighs, stout shin and metatarsus.
+        radii: hadro ? [0.037 * L, 0.022 * L, 0.0135 * L, 0.0105 * L, 0.007 * L] : [0.046 * L * b * (apex ? 1.15 : 1), 0.024 * L * b * (apex ? 1.1 : 1), 0.0125 * L * b, 0.009 * L * b, 0.006 * L],
         parent: 'pelvis',
         front: false,
         phase: side > 0 ? 0 : 0.5,
@@ -195,15 +202,17 @@ function blueprint(sp: SpeciesDef, juvenile = false): Blueprint {
     // Arms: tiny on tyrannosaurs, long clawed on raptors/therizinosaurs, sturdy on hadrosaurs.
     const armLen = f.has('longClaws') ? 0.15 * L : hadro ? H * 0.72 : sp.id === 'tyrannosaurus' ? 0.06 * L : sp.id === 'carnotaurus' ? 0.035 * L : 0.09 * L;
     for (const side of [1, -1]) {
-      const x = side * 0.055 * L * b;
-      const s0 = V(x, Hh * 0.98, 0.17 * L);
+      const x = side * (hadro ? 0.045 * L * b * wb : 0.055 * L * b);
+      const s0 = V(x, Hh * (hadro ? 0.93 : 0.98), 0.17 * L);
       const e = s0.clone().add(V(side * 0.01 * L, -armLen * 0.48, armLen * (hadro ? 0.05 : 0.2)));
       const w = e.clone().add(V(0, -armLen * 0.45, armLen * (hadro ? 0.08 : 0.22)));
       const t0 = w.clone().add(V(0, -armLen * 0.08, armLen * 0.08));
       legs.push({
         name: side > 0 ? 'armL' : 'armR',
         joints: [s0, e, w, t0, t0.clone().add(V(0, -armLen * 0.06, armLen * (f.has('longClaws') ? 0.25 : 0.1)))],
-        radii: [0.02 * L * b * (hadro ? 1.6 : 1), 0.013 * L * b * (hadro ? 1.6 : 1), 0.01 * L * (hadro ? 1.6 : 1), 0.007 * L, 0.004 * L],
+        // Hadrosaur forelimbs: muscular upper arm (big deltopectoral crest), slender
+        // forearm and a hoof-like "mitten" of bound fingers.
+        radii: hadro ? [0.017 * L * b, 0.0105 * L * b, 0.0085 * L, 0.0075 * L, 0.006 * L] : [0.02 * L * b, 0.013 * L * b, 0.01 * L, 0.007 * L, 0.004 * L],
         parent: 'chest',
         front: true,
         phase: hadro ? (side > 0 ? 0.5 : 0) : -1,
@@ -727,6 +736,8 @@ function buildLeg(sp: SpeciesDef, leg: LegDef, parts: Part[], boneIndex: Map<str
   const nToes = leg.claws;
   // Heavy quadrupeds stand on short, close-set toes ending in blunt hooves.
   const hoofed = sp.locomotion.plan === 'quadruped';
+  // Ornithopods (hadrosaurs) walked on three toes ending in broad, blunt hooves.
+  const blunt = hoofed || sp.locomotion.plan === 'hadrosaur';
   for (let k = 0; k < nToes; k++) {
     const spread = (k - (nToes - 1) / 2) * (hoofed ? 0.22 : 0.35);
     const d = dir.clone().applyAxisAngle(V(0, 1, 0), spread).normalize();
@@ -737,8 +748,8 @@ function buildLeg(sp: SpeciesDef, leg: LegDef, parts: Part[], boneIndex: Map<str
     // Claw: curved cone.
     const cb = pts[2];
     const cl = leg.clawLen;
-    const curve = [cb, cb.clone().addScaledVector(d, cl * 0.5).add(V(0, -cl * 0.1, 0)), cb.clone().addScaledVector(d, cl).add(V(0, -cl * 0.45, 0))];
-    tube(parts[DMAT.horn], curve, [r * 0.6, r * 0.35, r * 0.05], detail ? 5 : 3, (p) => paint(p, 0, 'claw'), () => [[bonesI[3]], [1]], tile, true);
+    const curve = [cb, cb.clone().addScaledVector(d, cl * 0.5).add(V(0, -cl * (blunt ? 0.06 : 0.1), 0)), cb.clone().addScaledVector(d, cl * (blunt ? 0.8 : 1)).add(V(0, -cl * (blunt ? 0.2 : 0.45), 0))];
+    tube(parts[DMAT.horn], curve, blunt ? [r * 0.85, r * 0.7, r * 0.25] : [r * 0.6, r * 0.35, r * 0.05], detail ? 5 : 3, (p) => paint(p, 0, 'claw'), () => [[bonesI[3]], [1]], tile, true);
   }
 }
 
@@ -844,6 +855,8 @@ function ringLoft(part: Part, rings: { p: THREE.Vector3; c: RGB }[][], bones: nu
 const MOUTH: RGB = [0.36, 0.13, 0.12];
 const TOOTH: RGB = [0.86, 0.82, 0.7];
 const KERATIN: RGB = [0.24, 0.21, 0.17];
+// Hadrosaur bill sheath (rhamphotheca): darker, browner keratin (colour unknown; interpretation).
+const BILL: RGB = [0.14, 0.115, 0.09];
 
 /**
  * Sculpted head: a closed skull (roof, cheeks, palate), a separate solid
@@ -875,6 +888,7 @@ function buildHead(sp: SpeciesDef, bp: Blueprint, parts: Part[], boneIndex: Map<
   const round = (t: number) => Math.sqrt(Math.max(0.0, smooth(-0.02, 0.16, t))) * 0.55 + 0.45 * smooth(-0.02, 0.1, t);
   const tipRound = (t: number) => (fam === 'ptero' ? 1 : 0.35 + 0.65 * Math.sqrt(Math.max(0, 1 - smooth(0.9, 1.0, t))));
   const keratin = (t: number) => beaked && t > (fam === 'ptero' ? 0.35 : fam === 'duck' ? 0.78 : 0.82);
+  const KER = fam === 'duck' ? BILL : KERATIN;
 
   // ---- Upper skull: roof arch over the mouth line, closed by the palate.
   const skull: { p: THREE.Vector3; c: RGB }[][] = [];
@@ -899,12 +913,12 @@ function buildHead(sp: SpeciesDef, bp: Blueprint, parts: Part[], boneIndex: Map<
         x = Math.sign(ca) * Math.pow(Math.abs(ca), e) * hw * (1 + 0.06 * Math.sin(a * 2) * (1 - t));
         y = lip + Math.pow(sa, 0.85) * top;
         const nostril = t > (fam === 'longSnout' ? 0.55 : fam === 'croc' ? 0.94 : 0.84) && t < (fam === 'longSnout' ? 0.66 : 0.97) && sa > 0.35 && sa < 0.75 && fam !== 'ptero';
-        c = nostril ? [0.06, 0.05, 0.045] : keratin(t) ? KERATIN : paint(P(t, x, y), -0.6 * sa + 0.1, 'head');
+        c = nostril ? [0.06, 0.05, 0.045] : keratin(t) ? KER : paint(P(t, x, y), -0.6 * sa + 0.1, 'head');
       } else {
         // Palate, just above the mouth line, recessed inside the tooth row.
         x = ca * hw * 0.9;
         y = lip + sa * H * 0.05;
-        c = keratin(t) ? KERATIN : sa < -0.3 ? MOUTH : paint(P(t, x, y), 0.6, 'head');
+        c = keratin(t) ? KER : sa < -0.3 ? MOUTH : paint(P(t, x, y), 0.6, 'head');
       }
       ring.push({ p: P(t, x, y), c });
     }
@@ -940,11 +954,11 @@ function buildHead(sp: SpeciesDef, bp: Blueprint, parts: Part[], boneIndex: Map<
         // Mouth floor with the tongue in the middle.
         x = ca * hw * 0.9;
         y = lip - H * 0.03 + sa * H * 0.03;
-        c = keratin(t) ? KERATIN : Math.abs(ca) < 0.8 ? MOUTH : paint(P(t, x, y), 0.5, 'head');
+        c = keratin(t) ? KER : Math.abs(ca) < 0.8 ? MOUTH : paint(P(t, x, y), 0.5, 'head');
       } else {
         x = Math.sign(ca) * Math.pow(Math.abs(ca), 0.8) * hw;
         y = lip + sa * depth;
-        c = keratin(t) ? KERATIN : paint(P(t, x, y), 0.4 - sa * 0.6, 'head');
+        c = keratin(t) ? KER : paint(P(t, x, y), 0.4 - sa * 0.6, 'head');
       }
       ring.push({ p: P(t, x, y), c });
     }
@@ -1191,9 +1205,33 @@ function buildFeatures(sp: SpeciesDef, bp: Blueprint, parts: Part[], boneIndex: 
     g.dispose();
   }
   if (f.has('crestTube')) {
-    const root = at.clone().addScaledVector(fwd, len * 0.45).addScaledVector(up, height * 0.7);
-    const pts = [root, root.clone().addScaledVector(fwd, -len * 0.5 * fs).addScaledVector(up, height * 1.0 * fs), root.clone().addScaledVector(fwd, -len * 1.35 * fs).addScaledVector(up, height * 1.6 * fs)];
-    tube(parts[DMAT.scales], pts, [height * 0.22, height * 0.22, height * 0.16], detail ? 10 : 5, (p) => paint(p, -0.3, 'accent'), () => [[hb], [1]], 1, true);
+    // Parasaurolophus: the premaxillae and nasals grow back into a long hollow tube
+    // (the nasal passages loop through it). It starts on the snout, follows the
+    // skull roof and sweeps up and back well past the back of the skull, about as
+    // long again as the skull, slightly flattened side to side, with a rounded end
+    // that bends a little down. Juveniles had only a low bump.
+    const roof = (t: number) => {
+      const pr = skullProfile('duck', Math.min(1, Math.max(0, t)));
+      return (pr.lip + pr.top) * height;
+    };
+    const ext = bp.juvenile ? 0.25 : 1;
+    const rise = bp.juvenile ? 0.4 : 1;
+    const path: [number, number][] = [
+      [0.7, roof(0.7) - height * 0.3],
+      [0.52, roof(0.52) - height * 0.02],
+      [0.28, roof(0.28) + height * 0.3 * rise],
+      [0.05, roof(0.05) + height * 0.62 * rise],
+      [0.05 - 0.35 * ext, roof(0) + height * (0.62 + 0.42 * ext) * rise],
+      [0.05 - 0.68 * ext, roof(0) + height * (0.62 + 0.66 * ext) * rise],
+      [0.05 - 0.86 * ext, roof(0) + height * (0.62 + 0.64 * ext) * rise],
+      [0.05 - 0.93 * ext, roof(0) + height * (0.62 + 0.56 * ext) * rise],
+    ];
+    const pts = path.map(([t, y]) => onSkull(t, 0, y));
+    const r = height * 0.27 * (bp.juvenile ? 0.8 : 1);
+    const p = parts[DMAT.scales];
+    p.region = 0.15;
+    tube(p, pts, [r * 0.45, r * 0.85, r, r, r * 0.98, r * 0.92, r * 0.72, r * 0.18], detail ? 12 : 6, (q, t) => paint(q, -0.4 - 0.3 * t, t > 0.3 ? 'accent' : 'head'), () => [[hb], [1]], 1, true, 1.35);
+    p.region = 0;
   }
   if (f.has('dualCrest')) for (const s of [1, -1]) {
     const p = parts[DMAT.scales];
