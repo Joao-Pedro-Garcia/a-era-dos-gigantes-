@@ -185,4 +185,22 @@ describe('realism pilot: triceratops and skin regions', () => {
     const torso = t.bp.cps.find((c) => c.bone === 'torso')!;
     expect(torso.p.y - torso.ry - torso.drop).toBeLessThan(sp.hipHeightM);
   });
+
+  it('the ankylosaurus is low and broad, with a wide club, skull horns and banded armour', () => {
+    const sp = SPECIES.ankylosaurus;
+    const t = buildDinoTemplate(sp);
+    const torso = t.bp.cps.find((c) => c.bone === 'torso')!;
+    expect(torso.rx).toBeGreaterThan(torso.ry * 1.5);
+    t.geometry.computeBoundingBox();
+    const bb = t.geometry.boundingBox!;
+    // Top of the back, armour included, about 2 m (~1.7 m at the hips plus the osteoderms).
+    expect(bb.max.y).toBeLessThan(sp.hipHeightM * 1.4);
+    // Club: the tail tip region is about as wide as the skull (~0.5-0.7 m).
+    const pos = t.geometry.attributes.position;
+    const tipZ = t.bp.cps[0].p.z;
+    let w = 0;
+    for (let i = 0; i < pos.count; i++) if (Math.abs(pos.getZ(i) - tipZ) < 0.15) w = Math.max(w, Math.abs(pos.getX(i)));
+    expect(2 * w).toBeGreaterThan(0.45);
+    expect(2 * w).toBeLessThan(0.9);
+  });
 });

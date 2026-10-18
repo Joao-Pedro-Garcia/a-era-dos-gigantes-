@@ -97,6 +97,7 @@ O inventário completo das espécies, com o que foi reconstruído na v0.4 e o qu
 - [piloto do tricerátops](docs/realismo/piloto-triceratops.md): crânio, chifres, gola, cauda, membros e pele por região (escamas grandes com tubérculos no dorso e pequenas nos membros), com antes e depois. A pele por região e o brilho menor já valem para todas as espécies com escamas.
 - [parassaurolofo](docs/realismo/parassaurolofo.md): crista tubular presa ao crânio, coxas e braços proporcionais, corpo mais alto do que largo, cauda alta e achatada, cascos rombudos e bico escuro, com antes e depois.
 - [braquiossauro](docs/realismo/braquiossauro.md): ombros mais altos que o quadril, pescoço reto e erguido, arco nasal alto, cauda mais curta, pernas em coluna e pés de saurópode, com antes, depois e no jogo.
+- [anquilossauro](docs/realismo/anquilossauro.md): armadura em faixas de osteodermos irregulares, corpo baixo e largo, cauda em "cabo" com clava larga e cabeça larga com chifres, com antes e depois.
 
 **Modelos de artista (v0.5):** três espécies usam arquivos GLB animados listados em [`public/models/manifest.json`](public/models/manifest.json): tiranossauro (LasquetiSpice), estegossauro e paquicefalossauro (Ferocious Industries), todos em CC BY 4.0.
 - O clipe é escolhido pelo estado do animal: parado, andar, correr, comer, beber, dormir, atacar, alerta (rugido) e morte.
@@ -452,7 +453,7 @@ Comparação com capturas reais das mesmas cenas, antes e depois, no perfil Méd
 
 ## Testes executados e resultados
 
-### Testes automatizados (`npm test`): **193 de 193 passando**
+### Testes automatizados (`npm test`): **194 de 194 passando**
 
 | Arquivo | Cobre |
 |---|---|

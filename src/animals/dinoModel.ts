@@ -228,19 +228,24 @@ function blueprint(sp: SpeciesDef, juvenile = false): Blueprint {
     const Hh = H;
     const wide = ankylo ? 1.35 : croc ? 1.0 : 1.0;
     // Tails are held clear of the ground (trackways show no tail drag).
-    const tailY = stego ? 0.9 : croc ? 0.25 : 0.72;
+    const tailY = stego ? 0.9 : croc ? 0.25 : ankylo ? 0.85 : 0.72;
+    // Ankylosaurs: low, very broad body; the distal tail is a narrow, stiff "handle"
+    // (interlocking vertebrae) carrying the club.
+    const ay = ankylo ? 0.78 : 1;
+    const ar = ankylo ? 0.72 : 1;
+    const hd = ankylo ? 0.6 : 1;
     // Ceratopsian tails are short and stout (no whip-like tip).
     // Ceratopsian tails are comparatively short and stout, ending in a blunt point.
     const ct = cera ? 1.35 : 1;
     const tz = cera ? 0.78 : 1;
-    cp(-0.55 * L * tz, Hh * tailY, 0.004 * L * (cera ? 1.5 : 1), 0.005 * L * (cera ? 1.5 : 1), 0, null);
-    cp(-0.42 * L * tz, Hh * lerp(tailY, 1, 0.3), 0.022 * L * wide * ct, 0.024 * L * ct, 0, 'tail4');
-    cp(-0.3 * L * (cera ? 0.85 : 1), Hh * lerp(tailY, 1, 0.6), 0.04 * L * wide * (cera ? 1.15 : 1), 0.045 * L * (cera ? 1.15 : 1), 0, 'tail3');
-    cp(-0.18 * L, Hh * (croc ? 0.8 : 0.98), 0.06 * L * wide, 0.065 * L, 0.004 * L, 'tail2');
-    cp(-0.09 * L, Hh * (croc ? 0.85 : 1.08), 0.085 * L * wide, 0.09 * L * (croc ? 0.6 : 1), 0.015 * L, 'tail1');
-    cp(0.0, Hh * (croc ? 0.86 : stego ? 1.32 : 1.1), 0.1 * L * wide, (croc ? 0.06 : 0.095) * L, (croc ? 0.008 : 0.03) * L, 'pelvis');
-    cp(0.08 * L, Hh * (croc ? 0.85 : stego ? 1.2 : 1.1), 0.105 * L * wide, (croc ? 0.06 : 0.1) * L, (croc ? 0.01 : 0.04) * L, 'torso');
-    cp(0.16 * L, Hh * (croc ? 0.82 : stego ? 0.95 : 1.02), 0.085 * L * wide, (croc ? 0.05 : 0.085) * L, (croc ? 0.008 : 0.03) * L, 'chest');
+    cp(-0.55 * L * tz, Hh * tailY, (ankylo ? 0.011 : 0.004) * L * (cera ? 1.5 : 1), (ankylo ? 0.009 : 0.005) * L * (cera ? 1.5 : 1), 0, null);
+    cp(-0.42 * L * tz, Hh * lerp(tailY, 1, 0.3), 0.022 * L * wide * ct * hd, 0.024 * L * ct * hd, 0, 'tail4');
+    cp(-0.3 * L * (cera ? 0.85 : 1), Hh * lerp(tailY, 1, 0.6), 0.04 * L * wide * (cera ? 1.15 : 1) * (ankylo ? 0.75 : 1), 0.045 * L * (cera ? 1.15 : 1) * (ankylo ? 0.75 : 1), 0, 'tail3');
+    cp(-0.18 * L, Hh * (croc ? 0.8 : ankylo ? 0.86 : 0.98), 0.06 * L * wide * (ankylo ? 0.85 : 1), 0.065 * L * ar, 0.004 * L, 'tail2');
+    cp(-0.09 * L, Hh * (croc ? 0.85 : 1.08 * ay), 0.085 * L * wide, 0.09 * L * (croc ? 0.6 : 1) * ar, 0.015 * L, 'tail1');
+    cp(0.0, Hh * (croc ? 0.86 : stego ? 1.32 : 1.1 * ay), 0.1 * L * wide, (croc ? 0.06 : 0.095 * ar) * L, (croc ? 0.008 : 0.03) * L, 'pelvis');
+    cp(0.08 * L, Hh * (croc ? 0.85 : stego ? 1.2 : 1.1 * ay), 0.105 * L * wide, (croc ? 0.06 : 0.1 * ar) * L, (croc ? 0.01 : 0.04) * L, 'torso');
+    cp(0.16 * L, Hh * (croc ? 0.82 : stego ? 0.95 : 1.02 * ay), 0.085 * L * wide, (croc ? 0.05 : 0.085 * ar) * L, (croc ? 0.008 : 0.03) * L, 'chest');
     cp(0.22 * L, Hh * (croc ? 0.76 : stego ? 0.8 : 0.9), 0.055 * L * wide, (croc ? 0.04 : 0.065) * L, 0.012 * L, 'neck1');
     // Ceratopsians carry the heavy head higher (beak around knee height), not drooping.
     cp(0.255 * L, Hh * (croc ? 0.74 : stego ? 0.72 : cera ? 0.9 : 0.84), 0.045 * L * wide, (croc ? 0.035 : 0.055) * L, 0.006 * L, 'neck2');
@@ -250,12 +255,12 @@ function blueprint(sp: SpeciesDef, juvenile = false): Blueprint {
     // skull, ~0.6 m deep, broad cheeks), carried low with the beak pointing down and forward.
     const hl = croc ? 0.22 * L : cera ? (f.has('horns3') ? 0.155 * L : 0.15 * L) : ankylo ? 0.08 * L : stego ? 0.06 * L : 0.12 * L;
     const hh = croc ? 0.018 * L : cera ? (f.has('horns3') ? 0.07 * L : 0.062 * L) : ankylo ? 0.03 * L : 0.022 * L;
-    head = { bone: 'head', at: end.clone(), len: hl, height: hh, width: croc ? hh * 1.4 : ankylo ? hh * 1.6 : cera ? hh * 1.05 : hh * 0.95, pitch: croc ? 0.02 : cera ? 0.36 : 0.35 };
+    head = { bone: 'head', at: end.clone(), len: hl, height: hh, width: croc ? hh * 1.4 : ankylo ? hh * 1.8 : cera ? hh * 1.05 : hh * 0.95, pitch: croc ? 0.02 : cera ? 0.36 : ankylo ? 0.25 : 0.35 };
     const legY = croc ? Hh * 0.95 : Hh;
     for (const [front, side] of [[false, 1], [false, -1], [true, 1], [true, -1]] as [boolean, number][]) {
       const z = front ? 0.15 * L : -0.04 * L;
       const len = front ? legY * (stego ? 0.62 : croc ? 0.9 : 0.86) : legY;
-      const x = side * (croc ? 0.07 : 0.085) * L * wide;
+      const x = side * (croc ? 0.07 : ankylo ? 0.068 : 0.085) * L * wide;
       const top = V(x, front ? len * 1.02 : legY * 1.02, z);
       // Ceratopsian forelimbs were semi-erect: the elbows stood a little out from the body.
       const spread = croc ? side * 0.08 * L : cera && front ? side * 0.028 * L : side * 0.008 * L;
@@ -266,7 +271,7 @@ function blueprint(sp: SpeciesDef, juvenile = false): Blueprint {
         name: `${front ? 'front' : 'hind'}${side > 0 ? 'L' : 'R'}`,
         joints: [top, knee, ankle, toe, toe.clone().add(V(0, -0.02 * len, 0.14 * len))],
         // Pillar-like limbs of heavy quadrupeds (thick thigh and upper arm, stout forearm and shin).
-        radii: [(front ? 0.036 : 0.05) * L * (croc ? 0.55 : cera ? 1.12 : 1), (front ? 0.031 : 0.036) * L * (croc ? 0.55 : cera ? 1.08 : 1), 0.027 * L * (croc ? 0.6 : 1), 0.028 * L * (croc ? 0.6 : 1), 0.022 * L * (croc ? 0.5 : 1)],
+        radii: [(front ? 0.036 : 0.05) * L * (croc ? 0.55 : cera ? 1.12 : ankylo ? (front ? 0.85 : 0.72) : 1), (front ? 0.031 : 0.036) * L * (croc ? 0.55 : cera ? 1.08 : 1), 0.027 * L * (croc ? 0.6 : 1), 0.028 * L * (croc ? 0.6 : 1), 0.022 * L * (croc ? 0.5 : 1)],
         parent: front ? 'chest' : 'pelvis',
         front,
         // Lateral-sequence walk: LH, LF, RH, RF.
@@ -717,7 +722,8 @@ function buildLeg(sp: SpeciesDef, leg: LegDef, parts: Part[], boneIndex: Map<str
   // The upper end starts deep inside the body and swells outward, so the
   // thigh/shoulder emerges from the flank instead of a capped cylinder.
   const quad = sp.locomotion.plan === 'quadruped';
-  const inside = V(leg.joints[0].x * 0.35, leg.joints[0].y + leg.radii[0] * (quad ? 1.0 : 1.4), leg.joints[0].z);
+  // (Ankylosaurs: the low, flat back leaves less room above the hip.)
+  const inside = V(leg.joints[0].x * 0.35, leg.joints[0].y + leg.radii[0] * (quad ? (sp.look.features.includes('armor') ? 0.4 : 1.0) : 1.4), leg.joints[0].z);
   path.unshift({ p: inside, seg: 0, t: 0 });
   radii.unshift(leg.radii[0] * (quad ? 0.95 : 0.55));
   // Colour: the top of the thigh/shoulder continues the flank colour; lower limbs are a little paler.
@@ -764,7 +770,7 @@ function buildLeg(sp: SpeciesDef, leg: LegDef, parts: Part[], boneIndex: Map<str
 }
 
 /** Skull family: decides the shape of the head, jaws, teeth and eyes. */
-type SkullFamily = 'theropod' | 'apex' | 'longSnout' | 'croc' | 'duck' | 'beak' | 'cera' | 'sauropod' | 'ptero' | 'small' | 'mosa';
+type SkullFamily = 'theropod' | 'apex' | 'longSnout' | 'croc' | 'duck' | 'beak' | 'cera' | 'anky' | 'sauropod' | 'ptero' | 'small' | 'mosa';
 
 function skullFamily(sp: SpeciesDef): SkullFamily {
   const f = new Set(sp.look.features);
@@ -776,6 +782,7 @@ function skullFamily(sp: SpeciesDef): SkullFamily {
   if (plan === 'hadrosaur') return 'duck';
   if (plan === 'sauropod') return 'sauropod';
   if (f.has('frill')) return 'cera';
+  if (f.has('armor')) return 'anky';
   if (f.has('beak') || f.has('frill') || f.has('dome') || f.has('plates') || f.has('armor') || f.has('thumbSpike')) return 'beak';
   if (sp.ecology === 'apexPredator' || sp.massKg > 1500) return 'apex';
   if (sp.lengthM < 2.6) return 'small';
@@ -812,6 +819,10 @@ function skullProfile(fam: SkullFamily, t: number): { top: number; hw: number; l
     case 'beak':
       // Ceratopsians, ornithomimids, thyreophorans: deep face ending in a hooked keratin beak.
       return { top: 1.1 - 0.55 * Math.pow(t, 1.3), hw: 1 - 0.75 * Math.pow(t, 1.2), lip: -0.3 - 0.18 * smooth(0.75, 1, t), jaw: 0.5 - 0.35 * t };
+    case 'anky':
+      // Ankylosaurid: short, flat-topped skull, wider than long at the back,
+      // tapering to a narrow, squared keratin beak; shallow lower jaw.
+      return { top: 0.9 - 0.32 * smooth(0.35, 1, t), hw: 1.08 - 0.12 * t - 0.42 * smooth(0.62, 1, t), lip: -0.3 - 0.08 * smooth(0.8, 1, t), jaw: 0.36 - 0.16 * t };
     case 'cera':
       // Ceratopsid: very deep face (tall over the nose), cheeks (jugals) flaring out
       // below the eyes, narrowing to a hooked, parrot-like rostral beak over a
@@ -890,7 +901,7 @@ function buildHead(sp: SpeciesDef, bp: Blueprint, parts: Part[], boneIndex: Map<
   const segs = hi ? 22 : detail === 1 ? 14 : 8;
   const rings = hi ? 22 : detail === 1 ? 12 : 6;
   const mat = bp.feathered && plan !== 'bird' && sp.lengthM < 3 ? DMAT.feathers : DMAT.scales;
-  const beaked = fam === 'beak' || fam === 'cera' || fam === 'duck' || fam === 'ptero';
+  const beaked = fam === 'beak' || fam === 'cera' || fam === 'anky' || fam === 'duck' || fam === 'ptero';
   const H = height;
   const Wd = width;
   // Point on the head: t along the skull, x across (m), y up (m, from the head axis).
@@ -899,7 +910,7 @@ function buildHead(sp: SpeciesDef, bp: Blueprint, parts: Part[], boneIndex: Map<
   const round = (t: number) => Math.sqrt(Math.max(0.0, smooth(-0.02, 0.16, t))) * 0.55 + 0.45 * smooth(-0.02, 0.1, t);
   const tipRound = (t: number) => (fam === 'ptero' ? 1 : 0.35 + 0.65 * Math.sqrt(Math.max(0, 1 - smooth(0.9, 1.0, t))));
   const keratin = (t: number) => beaked && t > (fam === 'ptero' ? 0.35 : fam === 'duck' ? 0.78 : 0.82);
-  const KER = fam === 'duck' ? BILL : KERATIN;
+  const KER = fam === 'duck' || fam === 'anky' ? BILL : KERATIN;
 
   // ---- Upper skull: roof arch over the mouth line, closed by the palate.
   const skull: { p: THREE.Vector3; c: RGB }[][] = [];
@@ -944,7 +955,7 @@ function buildHead(sp: SpeciesDef, bp: Blueprint, parts: Part[], boneIndex: Map<
   const jaw: { p: THREE.Vector3; c: RGB }[][] = [];
   const jr = hi ? 16 : detail === 1 ? 9 : 5;
   const j0 = 0.06;
-  const j1 = fam === 'duck' ? 0.97 : fam === 'beak' || fam === 'cera' ? 0.94 : 0.96;
+  const j1 = fam === 'duck' ? 0.97 : fam === 'beak' || fam === 'cera' || fam === 'anky' ? 0.94 : 0.96;
   for (let i = 0; i <= jr; i++) {
     const t = j0 + (i / jr) * (j1 - j0);
     const pr = skullProfile(fam, t);
@@ -978,7 +989,7 @@ function buildHead(sp: SpeciesDef, bp: Blueprint, parts: Part[], boneIndex: Map<
   ringLoft(parts[mat], jaw, [jb], [1], 2, true, true);
 
   // ---- Teeth along the margins (carnivores and piscivores; toothless beaks have none).
-  const toothed = (sp.diet === 'carnivore' || sp.diet === 'piscivore' || sp.diet === 'omnivore') && fam !== 'ptero' && fam !== 'beak' && fam !== 'cera' && fam !== 'duck';
+  const toothed = (sp.diet === 'carnivore' || sp.diet === 'piscivore' || sp.diet === 'omnivore') && fam !== 'ptero' && fam !== 'beak' && fam !== 'cera' && fam !== 'anky' && fam !== 'duck';
   if (toothed && detail < 2) {
     const n = hi ? (fam === 'croc' || fam === 'longSnout' ? 18 : 13) : 7;
     const toothLen = H * (fam === 'apex' ? 0.2 : fam === 'small' ? 0.12 : fam === 'croc' || fam === 'longSnout' ? 0.14 : 0.16);
@@ -1008,7 +1019,7 @@ function buildHead(sp: SpeciesDef, bp: Blueprint, parts: Part[], boneIndex: Map<
   }
 
   // ---- Eyes: eyeball (sclera hidden in the socket, coloured iris, dark pupil), lids, brow.
-  const eyeT = fam === 'ptero' ? 0.14 : fam === 'croc' ? 0.2 : fam === 'longSnout' ? 0.16 : fam === 'sauropod' ? 0.3 : fam === 'duck' || fam === 'beak' || fam === 'cera' ? 0.24 : 0.27;
+  const eyeT = fam === 'ptero' ? 0.14 : fam === 'croc' ? 0.2 : fam === 'longSnout' ? 0.16 : fam === 'sauropod' ? 0.3 : fam === 'duck' || fam === 'beak' || fam === 'cera' || fam === 'anky' ? 0.24 : 0.27;
   const prE = skullProfile(fam, eyeT);
   const big = (fam === 'small' ? 1.4 : fam === 'ptero' ? 1.1 : 1) * (bp.juvenile ? 1.3 : 1);
   const r = Math.max(0.006, H * 0.13 * big);
@@ -1380,14 +1391,58 @@ function buildFeatures(sp: SpeciesDef, bp: Blueprint, parts: Part[], boneIndex: 
   if (f.has('club')) {
     const tb = boneIndex.get('tail4') ?? boneIndex.get('tail3')!;
     const c = atS(0.02).p;
-    // Tail club: fused osteoderms (two large lateral knobs and a smaller tip), skin-coloured.
+    // Tail club: fused osteoderms, about as wide as the skull (~0.6 m in Ankylosaurus):
+    // two big, flattened lateral knobs around a smaller central one; skin-coloured.
     const clubCol = (q: THREE.Vector3): RGB => { const c = paint(q, -0.3, 'body'); return [c[0] * 0.8, c[1] * 0.8, c[2] * 0.8]; };
-    tube(parts[DMAT.horn], [c.clone().add(V(0, 0, 0.02 * L)), c, c.clone().add(V(0, 0, -0.04 * L))], [0.025 * L, 0.04 * L, 0.018 * L], detail ? 10 : 6, clubCol, () => [[tb], [1]], 1, true, 0.6);
-    for (const sx of [1, -1]) tube(parts[DMAT.horn], [c.clone().add(V(sx * 0.02 * L, 0, 0)), c.clone().add(V(sx * 0.045 * L, 0, -0.005 * L))], [0.028 * L, 0.012 * L], detail ? 8 : 5, clubCol, () => [[tb], [1]], 1, true, 0.7);
+    tube(parts[DMAT.horn], [c.clone().add(V(0, 0, 0.035 * L)), c.clone().add(V(0, 0, 0.01 * L)), c.clone().add(V(0, 0, -0.025 * L)), c.clone().add(V(0, 0, -0.045 * L))], [0.012 * L, 0.024 * L, 0.022 * L, 0.004 * L], detail ? 12 : 6, clubCol, () => [[tb], [1]], 1, true, 0.6);
+    for (const sx of [1, -1]) tube(parts[DMAT.horn], [c.clone().add(V(sx * 0.008 * L, 0, 0.022 * L)), c.clone().add(V(sx * 0.026 * L, 0, 0.004 * L)), c.clone().add(V(sx * 0.028 * L, 0, -0.018 * L)), c.clone().add(V(sx * 0.016 * L, 0, -0.034 * L))], [0.008 * L, 0.022 * L, 0.018 * L, 0.004 * L], detail ? 10 : 5, clubCol, () => [[tb], [1]], 1, true, 0.62);
   }
-  if (f.has('armor') || f.has('scutes')) {
-    // Rows of osteoderms over the back and flanks.
-    const rows = f.has('armor') ? 5 : 3;
+  if (f.has('armor')) {
+    // Skull horns: pyramidal squamosal horns at the back corners pointing back and
+    // out, and quadratojugal horns below the eyes pointing down and back.
+    const back = fwd.clone().multiplyScalar(-1);
+    const hw = bp.head.width;
+    for (const sx of [1, -1]) {
+      horn(onSkull(0.08, sx * hw * 0.85, height * 0.45), back.clone().addScaledVector(side, sx * 1.1).addScaledVector(up, 0.15), 0.032 * L, 0.012 * L, hb, 0);
+      horn(onSkull(0.2, sx * hw * 0.92, -height * 0.2), back.clone().multiplyScalar(0.6).addScaledVector(side, sx * 0.5).addScaledVector(up, -1), 0.022 * L, 0.01 * L, hb, 0);
+    }
+    // Ankylosaur armour: transverse bands of low, keeled osteoderms of uneven size
+    // over the back, larger keeled spikes along the flank edge, two bony half-rings
+    // over the neck and triangular plates along the sides of the tail. Between them
+    // the hide carries small ossicles (the skin texture).
+    const n = detail ? 24 : 9;
+    const osteo = (root: THREE.Vector3, nrm: THREE.Vector3, r: number, h: number, bones: [number[], number[]], dark: number) =>
+      tube(parts[DMAT.horn], [root.clone().addScaledVector(nrm, -h * 0.5), root.clone().addScaledVector(nrm, h * 0.55), root.clone().addScaledVector(nrm, h)], [r, r * 0.55, r * 0.1], detail ? 6 : 4, (q, t) => { const c = paint(q, -0.6, 'body'); const d = dark - 0.25 * t; return [c[0] * d, c[1] * d, c[2] * d]; }, () => bones, 1, true);
+    for (let i = 0; i < n; i++) {
+      const s = lerp(0.08, 0.9, i / (n - 1));
+      const sm = atS(s);
+      const bones = spineBone(s);
+      const neck = s > 0.8;
+      const tail = s < 0.4;
+      const cols = tail ? 2 : neck ? (detail ? 6 : 4) : detail ? 9 : 5;
+      for (let c = 0; c < cols; c++) {
+        const a = tail ? (c === 0 ? 0.12 : 0.88) * Math.PI : lerp(neck ? 0.18 : 0.08, neck ? 0.82 : 0.92, c / (cols - 1)) * Math.PI;
+        const jit = hash(i, c, 3.7);
+        const ca = Math.cos(a);
+        const sa = Math.sin(a);
+        const nrm = V(ca / sm.rx, sa / sm.ry, 0).normalize();
+        const root = sm.p.clone().add(V(ca * sm.rx, sa * sm.ry, 0));
+        const edge = Math.abs(ca) > 0.85;
+        if (tail) {
+          // Tail plates shrink toward the club.
+          const k = 0.5 + 0.5 * smooth(0.05, 0.4, s);
+          osteo(root, nrm.clone().add(V(0, 0, -0.35)).normalize(), 0.02 * L * k, 0.03 * L * k * (0.85 + 0.3 * jit), bones, 0.72);
+        } else if (edge) {
+          osteo(root, nrm.clone().add(V(0, -0.15, -0.25)).normalize(), 0.017 * L, 0.03 * L * (0.8 + 0.4 * jit), bones, 0.7);
+        } else {
+          const r = (neck ? 0.026 : 0.019) * L * (0.75 + 0.5 * jit);
+          osteo(root, nrm, r, r * (neck ? 0.55 : 0.42), bones, neck ? 0.68 : 0.78);
+        }
+      }
+    }
+  } else if (f.has('scutes')) {
+    // Rows of osteoderms over the back and flanks (crocodyliforms).
+    const rows = 3;
     const n = detail ? 26 : 10;
     for (let i = 0; i < n; i++) {
       const s = lerp(0.12, 0.85, i / (n - 1));
@@ -1397,7 +1452,7 @@ function buildFeatures(sp: SpeciesDef, bp: Blueprint, parts: Part[], boneIndex: 
         const a = Math.PI / 2 + ((r - (rows - 1) / 2) / rows) * Math.PI * 0.8;
         const dir = V(Math.cos(a), Math.sin(a), 0);
         const root = sm.p.clone().add(V(dir.x * sm.rx * 0.95, dir.y * sm.ry * 0.95, 0));
-        const h = (f.has('armor') ? 0.022 : 0.012) * L * (r === 0 || r === rows - 1 ? 1.4 : 1);
+        const h = 0.012 * L * (r === 0 || r === rows - 1 ? 1.4 : 1);
         const pts = [root, root.clone().addScaledVector(dir, h)];
         // Osteoderms: bony scutes covered in skin and keratin, darker than the hide.
         tube(parts[DMAT.horn], pts, [h * 0.7, h * 0.08], 5, (q, t) => { const c = paint(q, -0.6, 'body'); const d = 0.75 - 0.3 * t; return [c[0] * d, c[1] * d, c[2] * d]; }, () => [bi, bw], 1, true);
