@@ -8,13 +8,13 @@ import { Viewmodel } from '../player/viewmodel';
 import { prewarmPlants } from '../world/plants';
 import { Ecosystem, createEcosystemState, type EcoContext, type EcoEvent } from '../animals/ecosystem';
 import { SPECIES } from '../animals/species';
-import { Building, PIECES, type Piece, type PieceType } from '../building/building';
+import { Building, PIECES, type Piece, type PieceType, type Placement } from '../building/building';
 import { applyBuildingTextures, createGhost, createPieceObject, disposeObject, syncPieceObject } from '../building/pieceViews';
 import { resolveDamage, snareable } from '../combat/combat';
 import { Crafting } from '../crafting/crafting';
 import { RECIPES, type Station } from '../crafting/recipes';
 import { Exploration, createExploration } from '../exploration/exploration';
-import { Input } from '../input/input';
+import { Input, type Action } from '../input/input';
 import { Inventory, createInventory, type ItemList, type Stack } from '../inventory/inventory';
 import { ITEMS, type EquipSlot } from '../inventory/items';
 import { language, setLanguage, t } from '../localization/i18n';
@@ -51,6 +51,8 @@ import { DIFFICULTY, effectiveQuality, loadSettings, saveSettings, type QualityL
 import { Interactions, type Interaction } from './interactions';
 import { clamp } from './math';
 import { Rng } from './rng';
+import { BuildController, HoldRepeat, type NudgeDir } from '../building/buildMode';
+import { PieceThumbs } from '../building/pieceThumbs';
 import { Profiler } from '../performance/profiler';
 
 type GameState = 'menu' | 'loading' | 'playing' | 'paused' | 'dead' | 'ending';
@@ -121,10 +123,23 @@ export class Game {
   discovered = new Set<string>();
   seenSpecies = new Set<string>();
   selectedHotbar = 0;
-  buildPiece: PieceType = 'foundation';
-  buildSnap = true;
   building = false;
-  private buildRot = 0;
+  /** Build screen placement state (selected piece, anchor, lift, rotation, step). */
+  readonly buildCtl = new BuildController();
+  private buildRepeat = new HoldRepeat();
+  /** 3D pictures of the build pieces (made lazily from the real models). */
+  private thumbs: PieceThumbs | null = null;
+  get pieceThumbs(): PieceThumbs {
+    return (this.thumbs ??= new PieceThumbs(this.renderer));
+  }
+  /** Last validated placement shown by the preview (read by the build screen). */
+  buildPlacement: Placement | null = null;
+  get buildPiece(): PieceType | null {
+    return this.buildCtl.selected;
+  }
+  get buildSnap(): boolean {
+    return this.buildCtl.snap;
+  }
   private ghost: THREE.Group | null = null;
   private ghostType: PieceType | null = null;
   private storageOpen: Piece | null = null;
@@ -849,6 +864,7 @@ export class Game {
     // --- UI toggles.
     if (input.consume('pause')) {
       if (panel) this.resume();
+      else if (this.building && this.buildCtl.selected) this.cancelBuildPlacement();
       else if (this.building) this.toggleBuild();
       else this.pause();
       return;
@@ -865,7 +881,7 @@ export class Game {
     if (input.consume('camera')) this.applySettings({ firstPerson: !this.settings.firstPerson });
     for (let i = 0; i < 6; i++) if (input.consume(`hot${i + 1}` as 'hot1')) this.selectedHotbar = i;
     if (input.wheel) {
-      if (this.building) this.buildRot += input.wheel * (this.buildSnap ? Math.PI / 2 : Math.PI / 12);
+      if (this.building) this.buildCtl.rotate(input.wheel > 0 ? 1 : -1);
       else if (!this.settings.firstPerson) this.rig.zoom(input.wheel);
       input.wheel = 0;
     }
@@ -962,7 +978,7 @@ export class Game {
     // --- Actions.
     this.profiler.begin('actions');
     this.attackCooldown -= realDt;
-    if (this.building) this.updateBuild();
+    if (this.building) this.updateBuild(realDt);
     else if (!panel) this.actions.update(this.interaction);
     if (mount || this.sleeping) this.combat.cancel();
     this.actions.updateCombat(realDt, !panel && !this.building && !mount && !this.sleeping);
@@ -1759,42 +1775,94 @@ export class Game {
 
   toggleBuild(): void {
     this.building = !this.building;
-    if (!this.building && this.ghost) {
-      this.ghost.removeFromParent();
-      disposeObject(this.ghost);
-      this.ghost = null;
-      this.ghostType = null;
+    // With a mouse the cursor is released to aim and to use the build screen.
+    this.input.freeCursor = this.building && this.input.mode !== 'touch';
+    if (this.input.freeCursor && this.input.pointerLocked) document.exitPointerLock?.();
+    if (!this.building) {
+      this.buildCtl.cancel();
+      this.removeGhost();
     }
+    this.buildRepeat.clear();
+    this.buildPlacement = null;
     this.hud.showBuild(this.building);
   }
 
   setBuildPiece(p: PieceType): void {
-    this.buildPiece = p;
+    this.buildCtl.select(p);
   }
 
-  private updateBuild(): void {
+  /** Drops the preview without building anything or spending materials. */
+  cancelBuildPlacement(): void {
+    this.buildCtl.cancel();
+    this.removeGhost();
+    this.buildPlacement = null;
+  }
+
+  private removeGhost(): void {
+    if (!this.ghost) return;
+    this.ghost.removeFromParent();
+    disposeObject(this.ghost);
+    this.ghost = null;
+    this.ghostType = null;
+  }
+
+  private updateBuild(dt: number): void {
     const p = this.player!;
     const input = this.input;
-    if (input.consume('rotateLeft')) this.buildRot -= this.buildSnap ? Math.PI / 2 : Math.PI / 12;
-    if (input.consume('rotateRight')) this.buildRot += this.buildSnap ? Math.PI / 2 : Math.PI / 12;
-    if (input.consume('snapToggle')) this.buildSnap = !this.buildSnap;
-    if (this.ghostType !== this.buildPiece) {
-      if (this.ghost) {
-        this.ghost.removeFromParent();
-        disposeObject(this.ghost);
-      }
-      this.ghost = createGhost(this.buildPiece);
-      this.ghostType = this.buildPiece;
+    const bc = this.buildCtl;
+    const rr = this.buildRepeat;
+    if (input.consume('snapToggle')) bc.snap = !bc.snap;
+    if (input.consume('buildStep')) bc.cycleStep();
+    if (input.consume('buildRotReset')) bc.resetRotation();
+    const yaw = p.s.yaw;
+    const held = (a: Action) => rr.steps(a, input.consume(a), input.isHeld(a), dt);
+    const rotL = held('rotateLeft');
+    const rotR = held('rotateRight');
+    const moves: [Action, NudgeDir][] = [['buildForward', 'forward'], ['buildBack', 'back'], ['buildLeft', 'left'], ['buildRight', 'right']];
+    const nudges = moves.map(([a, d]) => [d, held(a)] as const);
+    const up = held('buildRaise');
+    const down = held('buildLower');
+
+    if (!bc.selected) {
+      // Catalogue only: no preview until a piece is chosen.
+      this.removeGhost();
+      this.buildPlacement = null;
+      input.consume('attack');
+      this.hud.showBuild(true);
+      this.demolishInFront();
+      return;
+    }
+    const type = bc.selected;
+    if (this.ghostType !== type) {
+      this.removeGhost();
+      this.ghost = createGhost(type);
+      this.ghostType = type;
       this.worldRoot.add(this.ghost);
     }
-    const big = ['foundation', 'stone_foundation', 'platform', 'floor', 'roof'].includes(this.buildPiece);
+    const big = ['foundation', 'stone_foundation', 'platform', 'floor', 'roof'].includes(type);
     const dist = big ? 5 : 3.5;
     const [fx, fz] = p.forward();
-    const pl = this.buildingSys!.preview(this.buildPiece, p.s.x + fx * dist, p.s.z + fz * dist, this.buildRot + p.s.yaw, this.buildSnap, {
+    let aimX = p.s.x + fx * dist;
+    let aimZ = p.s.z + fz * dist;
+    // Free cursor: the preview goes where the mouse points on the ground.
+    const hit = input.freeCursor && !input.pointerLocked && input.cursor.valid ? this.groundUnderCursor() : null;
+    if (hit) {
+      aimX = hit.x;
+      aimZ = hit.z;
+    }
+    // Adjustments start from where the preview is shown now (already snapped).
+    const cur = this.buildPlacement && this.buildPlacement.type === type ? { x: this.buildPlacement.x, z: this.buildPlacement.z } : bc.target(aimX, aimZ, yaw);
+    for (const [d, n] of nudges) if (n) bc.nudge(d, cur, yaw, n);
+    if (up) bc.raise(1, cur, yaw, up);
+    if (down) bc.raise(-1, cur, yaw, down);
+    if (rotL) bc.rotate(-1, rotL);
+    if (rotR) bc.rotate(1, rotR);
+    const tg = bc.target(aimX, aimZ, yaw);
+    const pl = this.buildingSys!.preview(type, tg.x, tg.z, tg.rot, bc.snap, {
       height: (x, z) => this.terrain!.height(x, z),
       waterLevel: this.env!.waterLevel,
       collision: this.collision,
-    }, p.s.x, p.s.z);
+    }, p.s.x, p.s.z, bc.lift);
     if (pl.valid && !this.pieceAvailable(pl.type)) {
       pl.valid = false;
       pl.reason = 'locked';
@@ -1815,8 +1883,12 @@ export class Game {
     g.position.set(pl.x, pl.y, pl.z);
     g.rotation.y = -pl.rot;
     (g.userData.mat as THREE.MeshBasicMaterial).color.set(pl.valid ? 0x55ff77 : 0xff5544);
+    this.buildPlacement = pl;
     this.hud.showBuild(true, pl.valid ? null : pl.reason ?? null);
 
+    // Confirm: the placement was validated this very frame (position, support,
+    // obstacles, materials); materials are only taken if the piece is created.
+    // The cooldown absorbs double clicks/taps.
     if (input.consume('attack') && this.attackCooldown <= 0) {
       this.attackCooldown = 0.25;
       if (pl.valid) {
@@ -1825,9 +1897,33 @@ export class Game {
           this.addPieceView(piece);
           this.audio.sfx('place', [piece.x, piece.y, piece.z]);
           this.xp('building', 5);
+          bc.placed();
+          this.notify('build.placed', { what: t(`piece.${piece.type}`) }, 'good');
         }
       } else if (pl.reason) this.notify(`build.invalid.${pl.reason}`, {}, 'warn');
     }
+    this.demolishInFront();
+  }
+
+  private readonly rayDir = new THREE.Vector3();
+  /** Ground (terrain or a walkable piece) under the mouse cursor, within building reach. */
+  private groundUnderCursor(): { x: number; z: number } | null {
+    const c = this.input.cursor;
+    const o = this.camera.position;
+    const d = this.rayDir.set(c.x, c.y, 0.5).unproject(this.camera).sub(o).normalize();
+    const p = this.player!.s;
+    for (let s = 0.5; s < 30; s += 0.25) {
+      const x = o.x + d.x * s;
+      const y = o.y + d.y * s;
+      const z = o.z + d.z * s;
+      const ground = Math.max(this.terrain!.height(x, z), this.collision.surfaceAt(x, z, y + 0.3));
+      if (y <= ground) return Math.hypot(x - p.x, z - p.z) <= 11 ? { x, z } : null;
+    }
+    return null;
+  }
+
+  private demolishInFront(): void {
+    const input = this.input;
     if (input.consume('demolish')) {
       // The piece the player is looking at (closest in front, within 7 m).
       let target: Piece | null = null;

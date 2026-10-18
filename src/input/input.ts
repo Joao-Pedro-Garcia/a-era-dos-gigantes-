@@ -7,7 +7,8 @@ export type InputMode = 'keyboard' | 'touch' | 'gamepad';
 
 export type Action =
   | 'jump' | 'sprint' | 'crouch' | 'interact' | 'attack' | 'inventory' | 'build' | 'camera' | 'pause'
-  | 'rotateLeft' | 'rotateRight' | 'snapToggle' | 'map' | 'hot1' | 'hot2' | 'hot3' | 'hot4' | 'hot5' | 'hot6' | 'demolish' | 'eat';
+  | 'rotateLeft' | 'rotateRight' | 'snapToggle' | 'map' | 'hot1' | 'hot2' | 'hot3' | 'hot4' | 'hot5' | 'hot6' | 'demolish' | 'eat'
+  | 'buildForward' | 'buildBack' | 'buildLeft' | 'buildRight' | 'buildRaise' | 'buildLower' | 'buildRotReset' | 'buildStep';
 
 export const DEFAULT_KEYS: Record<Action, string[]> = {
   jump: ['Space'],
@@ -31,6 +32,15 @@ export const DEFAULT_KEYS: Record<Action, string[]> = {
   hot6: ['Digit6'],
   demolish: ['KeyX'],
   eat: ['KeyF'],
+  // Placement adjustments in the build screen (arrows/WASD keep moving the player).
+  buildForward: ['KeyU'],
+  buildBack: ['KeyJ'],
+  buildLeft: ['KeyH'],
+  buildRight: ['KeyK'],
+  buildRaise: ['PageUp', 'KeyO'],
+  buildLower: ['PageDown', 'KeyL'],
+  buildRotReset: ['KeyZ'],
+  buildStep: ['KeyN'],
 };
 
 const KEYMAP_KEY = 'edg.keys.v1';
@@ -52,6 +62,13 @@ export class Input {
   onModeChange: (m: InputMode) => void = () => {};
   /** UI open: gameplay input is ignored but key presses for toggles still register. */
   uiCapture = false;
+  /**
+   * Build screen with a mouse: the cursor stays free to aim and to use the
+   * panel; the left button confirms, holding the right button looks around.
+   */
+  freeCursor = false;
+  /** Last cursor position over the 3D view, in normalised device coordinates. */
+  cursor = { x: 0, y: 0, valid: false };
 
   constructor(canvas: HTMLCanvasElement) {
     this.keys = this.loadKeys();
@@ -59,13 +76,30 @@ export class Input {
     addEventListener('keyup', (e) => this.onKey(e, false));
     canvas.addEventListener('mousedown', (e) => {
       this.setMode('keyboard');
+      if (this.freeCursor && !this.pointerLocked) {
+        if (e.button === 2) canvas.requestPointerLock?.();
+        else this.code(`Mouse${e.button}`, true);
+        return;
+      }
       if (!this.pointerLocked && !this.uiCapture) {
         canvas.requestPointerLock?.();
         return;
       }
       this.code(`Mouse${e.button}`, true);
     });
-    addEventListener('mouseup', (e) => this.code(`Mouse${e.button}`, false));
+    addEventListener('mouseup', (e) => {
+      this.code(`Mouse${e.button}`, false);
+      if (this.freeCursor && e.button === 2 && this.pointerLocked) document.exitPointerLock?.();
+    });
+    canvas.addEventListener('contextmenu', (e) => {
+      if (this.freeCursor) e.preventDefault();
+    });
+    canvas.addEventListener('mousemove', (e) => {
+      const r = canvas.getBoundingClientRect();
+      this.cursor.x = ((e.clientX - r.left) / r.width) * 2 - 1;
+      this.cursor.y = -((e.clientY - r.top) / r.height) * 2 + 1;
+      this.cursor.valid = true;
+    });
     addEventListener('mousemove', (e) => {
       if (this.pointerLocked) {
         this.look.x += e.movementX;
@@ -120,7 +154,7 @@ export class Input {
   private onKey(e: KeyboardEvent, isDown: boolean): void {
     if ((e.target as HTMLElement)?.tagName === 'INPUT') return;
     this.setMode('keyboard');
-    if (e.code === 'Tab' || e.code === 'Space') e.preventDefault();
+    if (e.code === 'Tab' || e.code === 'Space' || e.code === 'PageUp' || e.code === 'PageDown') e.preventDefault();
     if (!e.repeat || !isDown) this.code(e.code, isDown);
   }
 
@@ -152,6 +186,13 @@ export class Input {
   }
 
   /** True once per press. */
+  /** Is the action held right now (key down or touch button pressed)? */
+  isHeld(a: Action): boolean {
+    if (this.touchHeld.has(a)) return true;
+    for (const k of this.keys[a]) if (this.down.has(k)) return true;
+    return false;
+  }
+
   consume(a: Action): boolean {
     if (this.pressed.has(a)) {
       this.pressed.delete(a);

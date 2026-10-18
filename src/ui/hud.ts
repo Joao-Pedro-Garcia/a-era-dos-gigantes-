@@ -1,7 +1,6 @@
 import { DEFAULT_SETTINGS, WORLD, type Settings } from '../core/config';
 import type { Game } from '../core/game';
 import { SPECIES, SPECIES_IDS } from '../animals/species';
-import { PIECES, type PieceType } from '../building/building';
 import { RECIPES } from '../crafting/recipes';
 import { CELL, GRID_N } from '../exploration/exploration';
 import type { Action } from '../input/input';
@@ -9,6 +8,7 @@ import type { Stack } from '../inventory/inventory';
 import { ITEMS, type EquipSlot } from '../inventory/items';
 import { modelCredits } from '../graphics/externalModels';
 import { language, setLanguage, t } from '../localization/i18n';
+import { BuildScreen } from './buildScreen';
 import { DOCS } from '../mysteries/mysteries';
 import { SKILLS } from '../progression/skills';
 import type { SurvivalData } from '../survival/survival';
@@ -66,6 +66,7 @@ export class Hud {
   private xpEl: HTMLElement;
   private captionsEl: HTMLElement;
   private buildEl: HTMLElement;
+  private buildScreen: BuildScreen;
   private panelEl: HTMLElement;
   private docEl: HTMLElement;
   private menuEl: HTMLElement;
@@ -113,7 +114,31 @@ export class Hud {
     this.xpEl = this.add(h('div', 'xp-toast hidden'));
     this.captionsEl = this.add(h('div', 'captions'));
     this.hotbarEl = this.add(h('div', 'hotbar'));
-    this.buildEl = this.add(h('div', 'buildbar interactive hidden'));
+    this.buildEl = this.add(h('div', 'buildscreen interactive hidden'));
+    const host = this.game;
+    this.buildScreen = new BuildScreen(this.buildEl, {
+      get buildCtl() {
+        return host.buildCtl;
+      },
+      get buildPlacement() {
+        return host.buildPlacement;
+      },
+      get inventory() {
+        return host.inventory;
+      },
+      get input() {
+        return host.input;
+      },
+      get thumbs() {
+        return host.pieceThumbs;
+      },
+      pieceAvailable: (p) => host.pieceAvailable(p),
+      pieceCost: (p) => host.pieceCost(p),
+      setBuildPiece: (p) => host.setBuildPiece(p),
+      cancelBuildPlacement: () => host.cancelBuildPlacement(),
+      toggleBuild: () => host.toggleBuild(),
+      itemName,
+    });
     this.touchEl = this.add(h('div', 'touch hidden'));
     this.panelEl = this.add(h('div', 'panel hidden'));
     this.docEl = this.add(h('div', 'doc hidden'));
@@ -283,45 +308,7 @@ export class Hud {
   // ------------------------------------------------------------------ build bar
 
   showBuild(on: boolean, validReason: string | null = null): void {
-    this.buildEl.classList.toggle('hidden', !on);
-    if (!on) return;
-    const g = this.game;
-    const touch = g.input.mode === 'touch';
-    const key = `${g.buildPiece}|${g.buildSnap}|${validReason}|${touch}|${language()}|${JSON.stringify(g.inventory.data.slots.map((s) => s && s.qty))}|${g.crafting.unlocked.size}`;
-    if (this.buildEl.dataset.key === key) return;
-    this.buildEl.dataset.key = key;
-    this.buildEl.innerHTML = '';
-    const pieces = h('div', 'pieces');
-    for (const p of Object.keys(PIECES) as PieceType[]) {
-      const available = g.pieceAvailable(p);
-      const cost = g.pieceCost(p);
-      const ok = available && g.inventory.has(cost);
-      const costText = available ? Object.entries(cost).map(([k, q]) => `${q} ${itemName(k)}`).join(', ') : `🔒 ${t(`unlock.${PIECES[p].unlock}`)}`;
-      const b = h('button', p === g.buildPiece ? 'active' : '', `${t(`piece.${p}`)}<br><span class="muted" style="color:${ok ? 'var(--muted)' : 'var(--bad)'}">${costText}</span>`);
-      b.disabled = !available;
-      b.onclick = () => g.setBuildPiece(p);
-      pieces.appendChild(b);
-    }
-    this.buildEl.appendChild(pieces);
-    const info = h('div', 'info');
-    info.textContent = `${t('build.mode', { snap: g.buildSnap ? t('build.snap') : t('build.free') })}${validReason ? ` — ${t(`build.invalid.${validReason}`)}` : ''} · ${touch ? t('build.helpTouch') : t('build.help')}`;
-    this.buildEl.appendChild(info);
-    if (touch) {
-      const row = h('div', 'row');
-      row.style.justifyContent = 'center';
-      const mk = (label: string, a: Action) => {
-        const b = h('button', '', label);
-        b.onclick = () => g.input.touchPress(a);
-        row.appendChild(b);
-      };
-      mk('⟲', 'rotateLeft');
-      mk(t('build.place'), 'attack');
-      mk('⟳', 'rotateRight');
-      mk('⌗', 'snapToggle');
-      mk('✖', 'demolish');
-      mk(t('menu.back'), 'build');
-      this.buildEl.appendChild(row);
-    }
+    this.buildScreen.update(on, validReason);
   }
 
   // ------------------------------------------------------------------ panels

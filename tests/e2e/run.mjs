@@ -137,20 +137,33 @@ const fastSettings = () => localStorage.setItem('edg.settings.v1', JSON.stringif
   await press(page, 'Escape');
   await until(page, () => !window.__edg.hud.panelOpen);
 
-  // Building: B, place a foundation in front, demolish it.
+  // Building: B opens the build screen; pick a foundation, cancel (free), place once, demolish.
   await ev(page, () => { const g = window.__edg; g.inventory.addAll({ wood: 30, stone: 30 }); g.player.s.pitch = -0.2; });
   await press(page, 'KeyB');
-  await until(page, () => window.__edg.building && !!document.querySelector('.buildbar:not(.hidden)'));
-  await until(page, () => /encaixe/.test(document.querySelector('.buildbar .info')?.textContent ?? ''));
+  await until(page, () => window.__edg.building && !!document.querySelector('.buildscreen:not(.hidden) .bs-card'));
+  check('building: screen lists the catalogue', (await page.locator('.bs-card').count()) > 0);
+  const wood0 = await ev(page, () => window.__edg.inventory.count('wood'));
+  await page.locator('.bs-card[data-piece=foundation]').click();
+  await until(page, () => window.__edg.buildPiece === 'foundation' && !!window.__edg.buildPlacement);
+  await page.locator('.bs-cancel').click();
+  await until(page, () => window.__edg.buildPiece === null);
+  check('building: cancel spends nothing', (await ev(page, () => window.__edg.inventory.count('wood'))) === wood0);
+  await page.locator('.bs-card[data-piece=foundation]').click();
+  await until(page, () => window.__edg.buildPiece === 'foundation');
   const placed = await ev(page, () => window.__edg.buildingSys.pieces.size);
   for (let i = 0; i < 5 && (await ev(page, () => window.__edg.buildingSys.pieces.size)) === placed; i++) {
-    await ev(page, () => window.__edg.input.touchPress('attack'));
+    await until(page, () => window.__edg.buildPlacement?.valid === true, null, 3000);
+    // A double press must not build (or charge) twice.
+    await ev(page, () => { window.__edg.input.touchPress('attack'); window.__edg.input.touchPress('attack'); });
     await until(page, (n) => window.__edg.buildingSys.pieces.size > n, placed, 3000);
     if ((await ev(page, () => window.__edg.buildingSys.pieces.size)) === placed) await ev(page, () => { window.__edg.player.s.yaw += 0.8; });
   }
+  await page.waitForTimeout(800);
   const placedAfter = await ev(page, () => window.__edg.buildingSys.pieces.size);
+  const wood1 = await ev(page, () => window.__edg.inventory.count('wood'));
   await page.screenshot({ path: `${out}/e2e-04-build.png` });
-  check('building: preview + place adds a piece', placedAfter === placed + 1, `${placed}->${placedAfter} (${await page.locator('.buildbar .info').textContent()})`);
+  check('building: confirm adds exactly one piece', placedAfter === placed + 1, `${placed}->${placedAfter} (${await page.locator('.bs-status').textContent().catch(() => '')})`);
+  check('building: materials charged once', wood1 === wood0 - 6, `${wood0}->${wood1}`);
   await press(page, 'KeyX');
   check('building: X demolishes it', await until(page, (n) => window.__edg.buildingSys.pieces.size === n, placed, 5000));
   await press(page, 'KeyB');

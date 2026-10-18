@@ -115,7 +115,7 @@ export interface Placement {
   z: number;
   rot: number;
   valid: boolean;
-  reason?: 'water' | 'slope' | 'blocked' | 'support' | 'overlap' | 'distance' | 'materials' | 'locked';
+  reason?: 'water' | 'slope' | 'blocked' | 'support' | 'overlap' | 'distance' | 'materials' | 'locked' | 'floating' | 'buried';
 }
 
 export interface BuildEnv {
@@ -169,14 +169,39 @@ export class Building {
     if (c) this.collision.add(c);
   }
 
-  /** Computes a snapped/validated placement for a piece aimed at (ax, az). */
-  preview(type: PieceType, ax: number, az: number, rot: number, snap: boolean, env: BuildEnv, playerX: number, playerZ: number): Placement {
+  /** Bottom and top of a piece's solid body (foundations include their skirt). */
+  static verticalSpan(type: PieceType, y: number): [number, number] {
+    const h = PIECES[type].size[1];
+    if (type === 'foundation' || type === 'stone_foundation') return [y - h - 2, y];
+    if (type === 'platform') return [y - h, y];
+    return [y, y + Math.max(h, 0.05)];
+  }
+
+  /**
+   * Position step the snap grid imposes on manual nudges (0 = any step).
+   * Snapped foundations/platforms move a whole grid cell at a time.
+   */
+  static snapStep(type: PieceType, snap: boolean): number {
+    if (!snap) return 0;
+    if (type === 'foundation' || type === 'stone_foundation' || type === 'platform') return GRID;
+    if (type === 'stairs') return 0.5;
+    return 0;
+  }
+
+  /**
+   * Computes a snapped/validated placement for a piece aimed at (ax, az).
+   * `lift` raises (+) or lowers (-) the piece from its natural height; the
+   * result is still validated (no floating pieces, no buried ones).
+   */
+  preview(type: PieceType, ax: number, az: number, rot: number, snap: boolean, env: BuildEnv, playerX: number, playerZ: number, lift = 0): Placement {
     const def = PIECES[type];
     let x = ax;
     let z = az;
     let r = rot;
     let y = env.height(x, z);
     let supported = true;
+    /** Hangs on another piece (wall on a foundation edge, roof on walls). */
+    let attached = false;
 
     if (snap) r = Math.round(rot / (Math.PI / 2)) * (Math.PI / 2);
 
@@ -226,6 +251,7 @@ export class Building {
         z = base.z + ex * s + ez * c;
         r = er;
         y = base.y;
+        attached = true;
       } else {
         y = env.height(x, z);
         if (type === 'wall' || type === 'door' || type === 'stone_wall') supported = !snap;
@@ -261,13 +287,21 @@ export class Building {
       y = Math.max(env.height(x, z), surf);
     }
 
+    if (Math.abs(lift) > 0.01) {
+      const lifted = this.applyLift(type, x, y, z, r, lift, env, attached);
+      y = lifted.y;
+      if (lifted.reason) return { type, x, y, z, rot: r, valid: false, reason: lifted.reason };
+    }
     if (Math.hypot(x - playerX, z - playerZ) > 10) return { type, x, y, z, rot: r, valid: false, reason: 'distance' };
     if (!supported) return { type, x, y, z, rot: r, valid: false, reason: 'support' };
     if (type !== 'platform' && env.height(x, z) < env.waterLevel + 0.2 && y < env.waterLevel + 0.5) return { type, x, y, z, rot: r, valid: false, reason: 'water' };
 
     // Overlap with existing pieces of the same kind at the same place.
+    const span = Building.verticalSpan(type, y);
     for (const p of this.pieces.values()) {
-      if (Math.hypot(p.x - x, p.z - z) < 0.6 && Math.abs(p.y - y) < 0.6) {
+      const o = Building.verticalSpan(p.type, p.y);
+      // Same footprint centre and intersecting heights (a raised piece cannot sink into another).
+      if (Math.hypot(p.x - x, p.z - z) < 0.6 && Math.min(span[1], o[1]) - Math.max(span[0], o[0]) > -0.05 && (Math.abs(p.y - y) < 0.6 || Math.min(span[1], o[1]) - Math.max(span[0], o[0]) > 0.05)) {
         const sameClass = PIECES[p.type].category === def.category || (STRUCT_SUPPORT.includes(p.type) && STRUCT_SUPPORT.includes(type));
         if (sameClass && Math.abs(Math.cos(p.rot - r)) > 0.7) return { type, x, y, z, rot: r, valid: false, reason: 'overlap' };
       }
@@ -279,6 +313,33 @@ export class Building {
       if (c.kind === 'circle' && CollisionWorld.penetration(probe, c.x, c.z, c.r * 0.8)) return { type, x, y, z, rot: r, valid: false, reason: 'blocked' };
     }
     return { type, x, y, z, rot: r, valid: true };
+  }
+
+  /** Height adjustment rules: what each kind of piece may do when raised or lowered. */
+  private applyLift(type: PieceType, x: number, y: number, z: number, r: number, lift: number, env: BuildEnv, attached: boolean): { y: number; reason?: Placement['reason'] } {
+    const ny = y + lift;
+    const isFoundation = type === 'foundation' || type === 'stone_foundation';
+    if (isFoundation) {
+      // The foundation block (1 m) plus its 2 m skirt must still reach the ground,
+      // and its top must stay above the highest corner.
+      const hs = this.cornerHeights(x, z, r, GRID / 2, GRID / 2, env);
+      if (ny - PIECES[type].size[1] - 2 > Math.min(...hs)) return { y: ny, reason: 'floating' };
+      if (ny < Math.max(...hs) - 0.6) return { y: ny, reason: 'buried' };
+      return { y: ny };
+    }
+    if (type === 'platform') {
+      const hs = this.cornerHeights(x, z, r, GRID / 2, GRID / 2, env);
+      if (lift > 0.05) return { y: ny, reason: 'floating' };
+      if (ny - PIECES.platform.size[1] < Math.min(...hs) - 1.2) return { y: ny, reason: 'buried' };
+      return { y: ny };
+    }
+    // Pieces that hang on other pieces (walls on foundations, roofs, floors, stairs) keep their support height.
+    if (type === 'roof' || type === 'floor' || type === 'stairs' || (WALLISH.includes(type) && attached)) return { y, reason: 'support' };
+    // Everything else stands on the ground or on a walkable surface.
+    const ground = Math.max(env.height(x, z), env.collision.surfaceAt(x, z, ny + 0.5));
+    if (ny > ground + 0.05) return { y: ny, reason: 'floating' };
+    if (ny < ground - 0.35) return { y: ny, reason: 'buried' };
+    return { y: ny };
   }
 
   /** Cost after skill discounts (never below 1 of each material). */
