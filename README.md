@@ -2,15 +2,16 @@
 
 Jogo 3D de sobrevivência pré-histórica em mundo aberto, feito para navegador (computador, Android, iPhone e tablets), com Three.js, TypeScript e Vite.
 
-> **Estado: v0.4, jogável e integrado: combate animado e dinossauros reconstruídos.**
+> **Estado: v0.5, jogável e integrado: combate animado, dinossauros reconstruídos e os primeiros modelos de artista.**
+> - **v0.5:** tiranossauro, estegossauro e paquicefalossauro agora usam modelos 3D feitos por artistas (Sketchfab, CC BY 4.0, autores creditados no jogo), com texturas pintadas e animações de andar, correr, comer, beber, atacar e morrer. As outras 23 espécies continuam procedurais. Detalhes, critérios e o que foi descartado: [`docs/modelos-externos.md`](docs/modelos-externos.md).
 > - Todos os sistemas pedidos têm implementação real, conectada ao inventário, ao mundo e ao salvamento.
 > - A v0.3 substituiu os modelos de primitivas por geometria e texturas PBR geradas pelo código.
 > - A v0.4 trouxe:
 >   - **combate e uso de ferramentas com animação real em 1ª e 3ª pessoa**: braços em primeira pessoa, golpes com fases, acerto no quadro de impacto, arco com tensão da corda, efeitos e sons por material e reação dos alvos;
 >   - **reconstrução da geometria dos animais**: crânio fechado com boca, dentes, olhos com pálpebras, penas, golas e placas sólidas, asas de pterossauro com dedo alar e membrana, filhotes com proporções próprias e 3 níveis de detalhe;
 >   - **um animal novo, o mosassauro**, que vive no mar.
-> - Tudo é coberto por 148 testes automatizados, 39 verificações gerais e 21 verificações de combate num navegador real.
-> - O visual **não é fotorrealista**: sem modelos e texturas artísticos, ele continua procedural.
+> - Tudo é coberto por 149 testes automatizados, 39 verificações gerais e 21 verificações de combate num navegador real.
+> - O visual **não é fotorrealista**: fora as 3 espécies com modelo de artista, ele continua procedural.
 > - O que depende de recursos externos e as limitações conhecidas estão no fim deste documento, sem rodeios.
 
 ## Instalação e execução
@@ -70,6 +71,13 @@ As teclas podem ser reconfiguradas em **Controles**. A interface de toque só ap
 ### Dinossauros e IA (26 espécies)
 
 O inventário completo das espécies, com o que foi reconstruído na v0.4 e o que ainda falta, está em [`docs/dinosaurs.md`](docs/dinosaurs.md).
+
+**Modelos de artista (v0.5):** três espécies usam arquivos GLB animados listados em [`public/models/manifest.json`](public/models/manifest.json): tiranossauro (LasquetiSpice), estegossauro e paquicefalossauro (Ferocious Industries), todos em CC BY 4.0.
+- O clipe é escolhido pelo estado do animal: parado, andar, correr, comer, beber, dormir, atacar, alerta (rugido) e morte.
+- A velocidade dos clipes de locomoção é ajustada à velocidade real, medida nos pés do próprio modelo, para os pés não deslizarem.
+- De longe, o jogo volta ao modelo procedural leve.
+- Créditos: menu principal → **Créditos**.
+- Antes e depois: [`docs/visual/modelos/compare.jpg`](docs/visual/modelos/compare.jpg).
 
 - **Comportamento:** percepção por visão, audição e **olfato a favor do vento**. A cobertura da selva reduz a visibilidade do jogador.
 - **Memória e personalidade:** memória episódica limitada e personalidade individual. A habituação e a confiança mudam com a convivência.
@@ -382,7 +390,7 @@ Comparação com capturas reais das mesmas cenas, antes e depois, no perfil Méd
 
 ## Testes executados e resultados
 
-### Testes automatizados (`npm test`): **148 de 148 passando**
+### Testes automatizados (`npm test`): **149 de 149 passando**
 
 | Arquivo | Cobre |
 |---|---|
@@ -400,7 +408,7 @@ Comparação com capturas reais das mesmas cenas, antes e depois, no perfil Méd
 | `mysteries.test.ts` | textos nos 2 idiomas, baterias, requisitos do final, coleta única, saneamento, rádio |
 | `save.test.ts` / `save2.test.ts` | migrações v0→v2, soma de verificação, arquivos inválidos, valores impossíveis, fallback para backup, IndexedDB |
 | `i18n.test.ts` / `settings.test.ts` | chaves completas (inclusive dinâmicas), troca de idioma, perfis gráficos e saneamento das configurações |
-| `graphics.test.ts` | texturas sem emenda e determinísticas, plantas (todas as variantes e níveis de detalhe, vento), pools de instâncias, pesos de solo e trilhas, esqueleto humano (pesos normalizados, altura), as 26 espécies (dados finitos, pesos e ossos válidos, tamanho), perfis gráficos e manifesto de modelos externos (rejeita URLs inseguras) |
+| `graphics.test.ts` | texturas sem emenda e determinísticas, plantas (todas as variantes e níveis de detalhe, vento), pools de instâncias, pesos de solo e trilhas, esqueleto humano (pesos normalizados, altura), as 26 espécies (dados finitos, pesos e ossos válidos, tamanho), perfis gráficos e manifesto de modelos externos (rejeita URLs inseguras; v0.5: velocidades medidas dos clipes, créditos válidos, beber/alerta/morte, taxa de reprodução limitada) |
 | `actions.test.ts` (v0.4) | ações por item, fases e quadro de impacto, alternância esquerda/direita, equipar/trocar sem golpear com o item antigo, trocas repetidas, filtro de entrada duplicada, repetição ao segurar, arco (puxar, soltar, toque rápido, sem flechas), tarefa no impacto (coleta), IK do braço alcança cada pose-chave (erro < 2 cm) |
 | `dinos.test.ts` (v0.4) | as 26 espécies geram 3 níveis de detalhe com a mesma silhueta (dados finitos, pesos de osso normalizados), filhotes com proporções próprias, dedo da asa dos pterossauros, reação a golpes proporcional ao tamanho, mosassauro classificado como escamado e sempre em mar profundo ao nadar e caçar |
 
@@ -494,6 +502,25 @@ Todas as medições abaixo foram feitas neste ambiente: Intel Xeon 2,8 GHz, 4 n�
   - sem sombras dinâmicas, mapas normais nem pós-processamento.
 - **A meta de desempenho em aparelhos reais continua pendente de verificação.**
 
+**v0.5 (modelos de artista), mesmo método:** perfil Baixo, escala de resolução 0,5, 9 grupos (tiranossauros, estegossauros e paquicefalossauros) gerados perto do jogador, média de 8 s. Cada linha é uma rodada; o renderizador por software varia bastante de uma rodada para outra.
+
+| Medição | Só procedurais (manifesto vazio) | Com os 3 modelos externos |
+|---|---|---|
+| FPS | 2,75 / 2,88 / 2,25 | 1,63 / 1,88 / 1,88 |
+| Triângulos por quadro | 190–210 mil | 270–300 mil (antes da redução de malha: 485–500 mil) |
+| Chamadas de desenho | 94–111 | 99–111 |
+| Tempo de `renderer.render` na thread principal | 6,1 ms/quadro | 10,9 ms/quadro |
+| Memória JS | 61–78 MB | 90–98 MB |
+| Download extra | — | 6,2 MB (1,6 + 1,3 + 3,4 MB), uma vez; depois fica no cache offline |
+| Tempo de download dos 3 GLB (servidor local) | — | 40–143 ms cada |
+
+- **Na renderização por software, o jogo ficou mais lento nessa cena de estresse** (cerca de 20–40% menos FPS) e usa uns 20–30 MB a mais de memória JS.
+- **Medidas tomadas para reduzir o custo:**
+  - redução de malha (tiranossauro 75%, estegossauro 50%, paquicefalossauro 45% dos triângulos originais);
+  - sombras só de perto;
+  - retorno ao procedural leve além de 1,2× a distância de detalhe, sem atualizar a animação.
+- **Não foi medido em GPU real.**
+
 ### Problemas encontrados e corrigidos na v0.4
 
 - **Arco disparava como golpe corpo a corpo.** Um teste unitário mostrou que, depois de encaixar a flecha, o arco entrava na fase de golpe e gerava um impacto. Corrigido: ele passa direto para "puxar a corda".
@@ -576,16 +603,16 @@ Também verifica que nenhum erro aparece na página. Capturas reais em `docs/vis
 ## Recursos externos ainda necessários
 
 - **Modelos 3D artísticos com animações (GLB/glTF):**
-  - um por espécie (26) e um para o personagem, além de braços e armas em 1ª pessoa com animações de ataque feitas por animador ou capturadas;
-  - o jogo já sabe usá-los pelo `public/models/manifest.json`, escolhendo o clipe pelo estado e sincronizando o passo;
-  - não há arquivos incluídos, e os modelos atuais são procedurais.
+  - faltam 23 espécies (só tiranossauro, estegossauro e paquicefalossauro têm), o personagem, e os braços e armas em 1ª pessoa com animações de ataque feitas por animador ou capturadas;
+  - na busca no Sketchfab não apareceram modelos animados, de origem limpa e anatomicamente aceitáveis para as outras espécies. A maioria dos "gratuitos" é extraída de jogos ([`docs/modelos-externos.md`](docs/modelos-externos.md));
+  - o caminho mais realista é encomendar ou comprar modelos com licença clara.
   - Para chegar a um visual realmente cinematográfico, seriam necessários:
     - esculturas com anatomia detalhada (músculos, pele com dobras, rosto humano realista);
     - texturas pintadas ou escaneadas;
     - animações capturadas ou feitas à mão.
 - **Texturas fotográficas ou escaneadas** (PBR com cor, normal, rugosidade e AO) de solo, rochas, casca e folhas. Hoje elas são geradas proceduralmente: convincentes de média distância, mas sem a riqueza de uma foto.
 - **Vegetação feita por artista** (folhas recortadas de fotos, *impostors* para longe), para substituir os cartões de folha gerados.
-- **Possível uso de bibliotecas CC0** (Poly Haven, ambientCG): o ambiente de desenvolvimento não tinha acesso a esses sites, por isso não foram usadas.
+- **Bibliotecas CC0** (Poly Haven, ambientCG): o acesso foi liberado na v0.5, mas as texturas e os modelos do mundo ainda não foram integrados.
 - **Sons gravados** (opcional). Todo o áudio atual é sintetizado; vocalizações gravadas ou desenhadas por um sound designer soariam mais naturais.
 - **Testes em aparelhos reais:** Android, iPhone (incluindo instalação como app pela tela inicial), tablets e PCs com GPU.
 
@@ -598,8 +625,13 @@ Também verifica que nenhum erro aparece na página. Capturas reais em `docs/vis
   - não há bloqueio, esquiva, ataque carregado nem combos além da alternância de socos;
   - o acerto em animais usa uma esfera aproximada, não o corpo real;
   - não existem armas de fogo.
+- **Modelos de artista (v0.5):** limitações específicas em [`docs/modelos-externos.md`](docs/modelos-externos.md):
+  - o tiranossauro não tem clipe de andar (usa a corrida em câmera lenta);
+  - filhotes usam o modelo do adulto em escala menor;
+  - sem IK de olhar e mandíbula nem reação corporal procedural a golpes nesses três;
+  - a troca para o modelo procedural ao longe é visível se observada.
 - **Visual (sem fotorrealismo):**
-  - o personagem e os dinossauros são procedurais, com esqueleto e pele contínua (detalhes da v0.4 e o que ainda falta em [`docs/dinosaurs.md`](docs/dinosaurs.md));
+  - o personagem e 23 das 26 espécies são procedurais, com esqueleto e pele contínua (detalhes da v0.4 e o que ainda falta em [`docs/dinosaurs.md`](docs/dinosaurs.md));
   - o rosto humano é simples, sem expressões nem dedos articulados;
   - os dinossauros não têm músculos, dobras de pele nem rugas esculpidas, e a anatomia é aproximada por seções;
   - as animações são procedurais, não capturadas;
@@ -632,7 +664,7 @@ src/
                  vegetationPools (instâncias globais), terrainMesh/terrainWorker e farTerrain (horizonte)
   graphics/      texgen (texturas PBR procedurais), textureLibrary (carregamento progressivo e cache),
                  terrainMaterial, vegetationMaterial, sky, atmosphere (neblina física), water,
-                 precipitation, wind, postfx (GTAO), contactShadow, externalModels (GLB/glTF opcionais),
+                 precipitation, wind, postfx (GTAO), contactShadow, externalModels (GLB/glTF de artistas, créditos),
                  impactFx (lascas, poeira, respingos)
   animals/       espécies, estado do animal, ecossistema, dinoModel (dinossauros com esqueleto, 3 LODs, filhotes),
                  animalView (pose, IK, comportamentos, reação a golpes), aquatic (animais marinhos)
@@ -647,7 +679,9 @@ src/
                  itemModels (ferramentas e armas na mão)
   survival/  inventory/  crafting/  building/  input/  ui/  audio/  performance/  save/  localization/  dev/
 tests/           testes unitários e de integração (Vitest) + tests/e2e/run.mjs e combat.mjs (navegador)
-docs/            dinosaurs.md (inventário das espécies) e visual/ (capturas antes e depois)
+docs/            dinosaurs.md (inventário das espécies), modelos-externos.md (busca e integração) e visual/ (capturas antes e depois)
+public/models/   GLBs de artistas + manifest.json (créditos e clipes)
+tools/           optimize-model.mjs (normaliza e otimiza um GLB baixado)
 ```
 
 Para adicionar uma espécie: inclua uma entrada em `src/animals/species.ts`, outra em `src/taming/profiles.ts` (e, se for blindada, em `src/combat/combat.ts`) e coloque-a na tabela de fauna de um bioma em `src/world/biomes.ts`. Os testes verificam se faltou algo, inclusive as traduções.

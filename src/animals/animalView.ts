@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { clamp, damp } from '../core/math';
 import type { TextureLibrary } from '../graphics/textureLibrary';
 import { createContactShadow } from '../graphics/contactShadow';
-import { driveExternal, hasExternal, instantiate, type ExternalInstance } from '../graphics/externalModels';
+import { driveExternal, instantiate, setExternalShadows, type ExternalInstance } from '../graphics/externalModels';
 import type { AnimalData } from './animal';
 import { growthScale } from './animal';
 import { buildDinoTemplate, DMAT, type DinoTemplate } from './dinoModel';
@@ -102,6 +102,9 @@ let groundFn: ((x: number, z: number) => number) | null = null;
 const baseMats = new Map<string, THREE.MeshStandardMaterial[]>();
 
 /** The game supplies the texture library and terrain height (both optional for tools/tests). */
+/** Multiple of the LOD distance up to which artist models are drawn. */
+const EXTERNAL_LOD = 1.2;
+
 export function setAnimalContext(lib: TextureLibrary | null, ground: ((x: number, z: number) => number) | null): void {
   library = lib;
   groundFn = ground;
@@ -259,12 +262,16 @@ export function createAnimalView(speciesId: string, individual = '', juvenile = 
   });
   const size = 0.94 + hashId(individual || speciesId, 3) * 0.12;
   const view: AnimalView = { root, sp, tpl, meshHi, meshMid, meshLo, bones, rest, materials, shadow, size, posture: 0, flap: 0, jaw: 0, look: 0, pelvisDrop: 0, bodyPitch: 0, legInfo, ext: null, juvenile, deadT: 99, scan: 0, turn: 0, lastHeading: NaN, hitT: 99, hitLX: 0, hitLZ: 0, hitAmp: 0 };
-  if (hasExternal(speciesId))
-    void instantiate(speciesId).then((inst) => {
-      if (!inst || !root.parent) return;
-      view.ext = inst;
-      root.add(inst.root);
-    });
+  // Resolves after the optional models finish loading (null when the species has none).
+  void instantiate(speciesId).then((inst) => {
+    if (!inst) return;
+    if (!root.parent) {
+      inst.dispose();
+      return;
+    }
+    view.ext = inst;
+    root.add(inst.root);
+  });
   return view;
 }
 
@@ -298,10 +305,17 @@ export function poseAnimalView(v: AnimalView, a: AnimalData, stride: number, alt
   v.meshMid.castShadow = shadows;
   v.meshLo.castShadow = shadows;
   if (v.ext) {
-    v.meshHi.visible = v.meshMid.visible = v.meshLo.visible = false;
-    v.ext.root.rotation.z = a.alive ? 0 : Math.PI / 2;
-    driveExternal(v.ext, dt, a.state, a.speed / Math.max(0.2, g), sp.walkSpeed, sp.runSpeed, altitude > 1);
-    return;
+    // Far away the artist model gives way to the cheap procedural one (no mixer update).
+    const near = camDist < lodDistance * EXTERNAL_LOD;
+    v.ext.root.visible = near;
+    if (near) {
+      v.meshHi.visible = v.meshMid.visible = v.meshLo.visible = false;
+      setExternalShadows(v.ext, camDist < lodDistance * 0.65);
+      // Files without a death clip just roll onto their side.
+      v.ext.root.rotation.z = a.alive || v.ext.actions.has('death') ? 0 : Math.PI / 2;
+      driveExternal(v.ext, dt, a.alive ? a.state : 'dead', a.speed / Math.max(0.2, g), sp.walkSpeed, sp.runSpeed, altitude > 1);
+      return;
+    }
   }
 
   const B = v.bones;

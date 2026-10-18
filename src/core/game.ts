@@ -243,6 +243,9 @@ export class Game {
 
   // ------------------------------------------------------------------ helpers used by modules
 
+  /** Warning to show when the world finishes loading (e.g. a backup save was used). */
+  private noticeOnStart: string | null = null;
+
   notify(key: string, params: Record<string, string | number> = {}, kind: 'info' | 'warn' | 'good' = 'info'): void {
     this.hud.notify(t(key, params), kind);
   }
@@ -360,7 +363,8 @@ export class Game {
     try {
       const res = await loadWithFallback(SAVE_SLOT);
       if (!res) return this.newGame(Date.now() % 1e6);
-      if (res.fromBackup) this.notify('save.usedBackup', {}, 'warn');
+      // Shown once the world is on screen, so it is not lost behind the loading screen.
+      if (res.fromBackup) this.noticeOnStart = 'save.usedBackup';
       if (res.issues.length) console.warn('Save repaired:', res.issues);
       this.startWorld(res.data);
     } catch (e) {
@@ -735,6 +739,10 @@ export class Game {
       this.hud.hideMenu();
       this.hud.setGameplayVisible(true);
       this.hud.renderHotbar();
+      if (this.noticeOnStart) {
+        this.notify(this.noticeOnStart, {}, 'warn');
+        this.noticeOnStart = null;
+      }
       this.audio.setMusicMood('calm');
     }
   }

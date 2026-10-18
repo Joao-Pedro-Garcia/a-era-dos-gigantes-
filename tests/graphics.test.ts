@@ -238,5 +238,30 @@ describe('external model manifest', () => {
     expect(chooseClip(all, 'graze', 0, 2, 7, false)).toBe('eat');
     expect(chooseClip(new Set(['walk'] as const), 'flee', 6, 2, 7, false)).toBe('walk');
     expect(chooseClip(new Set(), 'idle', 0, 2, 7, false)).toBeNull();
+    const rich = new Set(['idle', 'walk', 'run', 'eat', 'drink', 'roar', 'death'] as const);
+    expect(chooseClip(rich, 'drink', 0, 2, 7, false)).toBe('drink');
+    expect(chooseClip(all, 'drink', 0, 2, 7, false)).toBe('eat');
+    expect(chooseClip(rich, 'alert', 0, 2, 7, false)).toBe('roar');
+    expect(chooseClip(rich, 'dead', 0, 2, 7, false)).toBe('death');
+    expect(chooseClip(all, 'dead', 0, 2, 7, false)).toBe('idle');
+  });
+
+  it('reads measured clip speeds and author credits, rejecting bad ones', async () => {
+    const { parseManifest, locomotionRate } = await import('../src/graphics/externalModels');
+    const credit = { title: 'Rex', author: 'Someone', url: 'https://sketchfab.com/3d-models/x', license: 'CC BY 4.0' };
+    const m = parseManifest({
+      species: {
+        tyrannosaurus: { url: 'a.glb', clipSpeeds: { run: 10.7, walk: -1, swim: 3 }, credit },
+        stegosaurus: { url: 'b.glb', credit: { ...credit, url: 'javascript:alert(1)' } },
+      },
+    });
+    expect(m.species.tyrannosaurus.clipSpeeds).toEqual({ run: 10.7 });
+    expect(m.species.tyrannosaurus.credit).toEqual(credit);
+    expect(m.species.stegosaurus.credit).toBeNull();
+    // Measured speed: plays at real speed ÷ clip speed, clamped to a sane range.
+    expect(locomotionRate(m.species.tyrannosaurus, 'run', 9, 7.5)).toBeCloseTo(7.5 / 10.7, 5);
+    expect(locomotionRate(m.species.tyrannosaurus, 'run', 9, 0.1)).toBe(0.15);
+    // Without one: a clip cycle covers two strides.
+    expect(locomotionRate({ ...m.species.stegosaurus, strideM: 2 }, 'walk', 2, 1)).toBeCloseTo(0.5, 5);
   });
 });

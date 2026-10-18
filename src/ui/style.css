@@ -185,3 +185,6 @@ body.reduce-motion * { animation: none !important; transition: none !important; 
   body.touch-mode .tbtns { grid-template-columns: repeat(3, 58px); }
   body.touch-mode .tbtn { width: 58px; height: 58px; }
 }
+
+.card ul.credits { text-align: left; font-size: 13px; line-height: 1.5; padding-left: 18px; margin: 6px 0; }
+.card ul.credits a { color: inherit; }

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { createAnimal } from '../animals/animal';
 import { createAnimalView, poseAnimalView, setAnimalContext } from '../animals/animalView';
+import { loadExternalModels } from '../graphics/externalModels';
 import { SPECIES_IDS, SPECIES } from '../animals/species';
 import { Rng } from '../core/rng';
 import { installAtmosphere } from '../graphics/atmosphere';
@@ -14,9 +15,15 @@ import type { PlayerController } from '../player/player';
  * Developer showcase (open the game with ?showcase): every species lined up
  * on a flat stage, walking in place, for model and animation review.
  * Optional ?species=id focuses one species; ?side shows a side view.
+ * ?ext also loads the artist models from public/models; ?state=… and
+ * ?still / ?run pick the behaviour and speed shown.
  */
 export function runShowcase(canvas: HTMLCanvasElement): void {
   const params = new URLSearchParams(location.search);
+  if (params.has('ext'))
+    void loadExternalModels().then((r) => {
+      (window as unknown as { __extReady: unknown }).__extReady = r;
+    });
   if (params.has('combat')) {
     runCombatShowcase(canvas, params);
     return;
@@ -66,8 +73,8 @@ export function runShowcase(canvas: HTMLCanvasElement): void {
     a.x = x;
     a.z = 0;
     a.heading = params.has('side') ? Math.PI / 2 : 0.6;
-    a.speed = sp.walkSpeed;
-    a.state = 'wander';
+    a.speed = params.has('still') ? 0 : params.has('run') ? sp.runSpeed : sp.walkSpeed;
+    a.state = (params.get('state') ?? (params.has('run') ? 'flee' : 'wander')) as typeof a.state;
     x += sp.lengthM / 2 + 3;
     scene.add(v.root);
     return { a, v, sp, stride: 0 };

@@ -7,6 +7,7 @@ import { CELL, GRID_N } from '../exploration/exploration';
 import type { Action } from '../input/input';
 import type { Stack } from '../inventory/inventory';
 import { ITEMS, type EquipSlot } from '../inventory/items';
+import { modelCredits } from '../graphics/externalModels';
 import { language, setLanguage, t } from '../localization/i18n';
 import { DOCS } from '../mysteries/mysteries';
 import { SKILLS } from '../progression/skills';
@@ -921,6 +922,9 @@ export class Hud {
     const k = h('button', '', t('menu.controls'));
     k.onclick = () => this.controlsMenu(() => this.mainMenu());
     card.appendChild(k);
+    const cr = h('button', '', t('menu.credits'));
+    cr.onclick = () => this.creditsMenu(() => this.mainMenu());
+    card.appendChild(cr);
     card.appendChild(this.importButton());
     if (g.hasSave) {
       const r = h('button', '', t('save.restoreBackup'));
@@ -1081,6 +1085,33 @@ export class Hud {
       this.settingsMenu(back);
     };
     card.appendChild(reset);
+    const b = h('button', 'primary', t('menu.back'));
+    b.onclick = back;
+    card.appendChild(b);
+    this.showMenu(card);
+  }
+
+  /** Authors of the artist models in use (CC-BY requires the credit). */
+  creditsMenu(back: () => void): void {
+    const card = h('div', 'card');
+    card.appendChild(h('h2', '', t('menu.credits')));
+    const list = modelCredits();
+    card.appendChild(h('p', 'muted', list.length ? t('credits.models') : t('credits.none')));
+    const ul = h('ul', 'credits');
+    for (const { id, credit } of list) {
+      const li = h('li', '');
+      const name = SPECIES[id]?.name[language()] ?? id;
+      li.appendChild(h('b', '', name));
+      li.appendChild(document.createTextNode(` — “${credit.title}”, ${credit.author} · ${credit.license} · `));
+      const a = h('a', '', credit.url.replace(/^https:\/\//, '').split('/')[0]) as HTMLAnchorElement;
+      a.href = credit.url;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      li.appendChild(a);
+      ul.appendChild(li);
+    }
+    card.appendChild(ul);
+    card.appendChild(h('p', 'muted', t('credits.procedural')));
     const b = h('button', 'primary', t('menu.back'));
     b.onclick = back;
     card.appendChild(b);

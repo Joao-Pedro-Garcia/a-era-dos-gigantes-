@@ -172,8 +172,9 @@ const fastSettings = () => localStorage.setItem('edg.settings.v1', JSON.stringif
     return a.id;
   });
   await page.waitForTimeout(500);
-  await ev(page, (id) => { const a = window.__edg.eco.get(id); const p = window.__edg.player.s; a.x = p.x; a.z = p.z + 3; a.state = 'idle'; a.fear = 0; }, tame);
-  await until(page, () => /Oferecer/.test(document.querySelector('.prompt')?.textContent ?? ''), undefined, 8000);
+  // Keep the animal in front of the player while waiting (slow frames let it wander off).
+  const hold = (id) => { const g = window.__edg; const a = g.eco.get(id); const p = g.player.s; a.x = p.x; a.z = p.z + 3; a.state = 'idle'; a.fear = 0; p.yaw = 0; return /Oferecer/.test(document.querySelector('.prompt')?.textContent ?? ''); };
+  await until(page, hold, tame, 20000);
   await press(page, 'KeyE');
   await until(page, (id) => !!window.__edg.eco.get(id)?.tame, tame, 30000);
   const isTame = await ev(page, (id) => !!window.__edg.eco.get(id)?.tame, tame);
@@ -184,7 +185,7 @@ const fastSettings = () => localStorage.setItem('edg.settings.v1', JSON.stringif
     // A well-fed, trained animal (hungry ones may ignore commands by design).
     await ev(page, (id) => { const a = window.__edg.eco.get(id); a.tame.obedience = 1; a.hunger = 0.1; a.thirst = 0.1; a.fear = 0; }, tame);
     await page.locator('.box.animal').first().getByRole('button', { name: 'Ficar' }).click();
-    await until(page, (id) => window.__edg.eco.get(id).tame.command === 'stay', tame, 5000);
+    await until(page, (id) => window.__edg.eco.get(id).tame.command === 'stay', tame, 15000);
     await page.screenshot({ path: `${out}/e2e-05-animals.png` });
     check('taming: command from the animals panel', (await ev(page, (id) => window.__edg.eco.get(id).tame.command, tame)) === 'stay');
     await press(page, 'Escape');

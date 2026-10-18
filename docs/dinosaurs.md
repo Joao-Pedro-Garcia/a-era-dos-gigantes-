@@ -2,6 +2,8 @@
 
 Este documento registra **o que existe de fato** em cada espécie do jogo depois da v0.4, como foi feito e o que ainda falta. Todos os números foram extraídos do próprio código (`buildDinoTemplate`) ou medidos neste ambiente. Nenhum modelo externo, arquivo de arte ou animação de captura foi adicionado: **todos os animais continuam sendo gerados proceduralmente** por `src/animals/dinoModel.ts` e animados por `src/animals/animalView.ts`.
 
+> **Atualização v0.5:** tiranossauro, estegossauro e paquicefalossauro passaram a usar, de perto, modelos de artista com animações próprias (CC BY 4.0). Os modelos procedurais descritos aqui continuam valendo para as outras 23 espécies e para essas três quando vistas de longe. Veja [`modelos-externos.md`](modelos-externos.md).
+
 > Imagens de referência: a solicitação mencionava "imagens de referência fornecidas", mas nenhuma imagem foi anexada. As referências usadas foram o conhecimento paleontológico geral (proporções publicadas, reconstruções esqueléticas amplamente aceitas). As capturas "antes" e "depois" abaixo são renders reais do jogo.
 
 ## Inventário
