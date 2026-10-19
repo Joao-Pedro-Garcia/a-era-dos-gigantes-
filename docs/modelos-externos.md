@@ -123,3 +123,23 @@ Os três usam o mesmo processo do carnotauro (`rig` no manifesto e `RIG_FITS`).
 **Megatério de AneesAnimates:** ficou de fora por enquanto. O modelo está de pé, sobre as patas traseiras, e no jogo o megatério anda de quatro: os braços não alcançariam o chão.
 
 **Descartado:** o dilofossauro de LilCick. A conta publica personagens de jogos e filmes, e o modelo não informa a origem.
+
+## Modelos sem esqueleto: sarcosuco e barionix (esqueleto automático)
+Alguns modelos bons vêm **sem esqueleto**. Para eles o jogo calcula os pesos da pele sozinho (`autoSkin` no manifesto):
+- o esqueleto do jogo é encaixado nas partes do modelo (`RIG_FITS`), medidas por fatias ao longo do corpo;
+- cada vértice fica preso aos 2 ou 3 ossos mais próximos, com peso que cai com a 4ª potência da distância;
+- ossos muito mais distantes que o mais próximo são ignorados, para a perna não puxar a barriga.
+
+| Espécie | Modelo (CC BY 4.0) | Preparação |
+|---|---|---|
+| Sarcosuco | pjmedranog, "sarcosuchus" | O modelo está de boca aberta. A mandíbula de cima é fechada na própria malha (`closeMouth`, 0,45 rad); com mais que isso os dentes atravessavam a mandíbula. |
+| Barionix | add4d, "Baryonix- Walkeri" | É uma estátua: a base de pedra (cerca de 230 mil vértices) foi cortada abaixo da altura dos pés. O corpo, posado na diagonal, foi alinhado (`rigRotY`, `rigShiftX/Z`) e simplificado para 49 mil triângulos. |
+
+## O que ainda não entrou
+| Espécie | Motivo |
+|---|---|
+| Quetzalcoatlo (seirogan) e pteranodonte (victory_) | O esqueleto de asas precisa de um mapeamento próprio. |
+| Megatério (AneesAnimates) | O modelo está de pé e no jogo ele anda de quatro. |
+| Mosassauro (tilossauro de FreddyFoxFreddy) | O modelo está curvado em S (pose de nado); com esqueleto reto ficaria torto. |
+| Tricerátops (aumakua) | É o escaneamento de uma miniatura de plástico: o desenho é do fabricante do brinquedo. |
+| Braquiossauro, anquilossauro, parassaurolofo, dilofossauro, compsognato, microraptor, galimimo, iguanodonte, alossauro, protocerátops, paquirrinossauro, troodonte, smilodonte, sucuri e pteranodonte | Nenhum modelo gratuito de origem limpa e boa qualidade. Os bons do AneesAnimates são pagos. |
