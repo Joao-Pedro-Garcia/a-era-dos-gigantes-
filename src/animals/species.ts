@@ -89,7 +89,7 @@ const S: Record<string, Def> = {
     threat: { response: 'mob', flightDistance: 14 }, attack: { damage: 18, range: 1.8, cooldown: 1.1 }, health: 160,
     taming: { possible: true, difficulty: 0.75, preferredFood: ['raw_meat'] }, habitat: ['plains', 'jungle', 'ruins'], tempRange: [10, 36],
     locomotion: { plan: 'theropod', stride: 0.9, turnRate: 4, swims: false, flies: false },
-    audio: { pitch: 620, call: 'chirp' }, look: { base: 0x8a6a45, belly: 0xc9b38a, accent: 0x3d2b1b, pattern: 'stripes', features: ['longClaws'] },
+    audio: { pitch: 620, call: 'chirp' }, look: { base: 0x5e5940, belly: 0xa89a78, accent: 0x2a2a1e, pattern: 'stripes', features: ['longClaws'] },
     huntsHumans: true,
   },
   triceratops: {
@@ -102,7 +102,7 @@ const S: Record<string, Def> = {
     threat: { response: 'charge', flightDistance: 18 }, attack: { damage: 45, range: 4, cooldown: 2 }, health: 1400,
     taming: { possible: true, difficulty: 0.6, preferredFood: ['berries', 'cycad_fronds'] }, habitat: ['plains'], tempRange: [10, 34],
     locomotion: { plan: 'quadruped', stride: 2.2, turnRate: 0.9, swims: true, flies: false },
-    audio: { pitch: 90, call: 'grunt' }, look: { base: 0x655a40, belly: 0xa79b7a, accent: 0x463a29, pattern: 'countershade', features: ['horns3', 'frill'] },
+    audio: { pitch: 90, call: 'grunt' }, look: { base: 0x6b6a58, belly: 0x9c9882, accent: 0x4e4c3e, pattern: 'countershade', features: ['horns3', 'frill'] },
     huntsHumans: false,
   },
   brachiosaurus: {
@@ -115,7 +115,7 @@ const S: Record<string, Def> = {
     threat: { response: 'defend', flightDistance: 10 }, attack: { damage: 70, range: 5, cooldown: 3 }, health: 4200,
     taming: { possible: false, difficulty: 1, preferredFood: ['cycad_fronds'] }, habitat: ['jungle', 'plains', 'swamp'], tempRange: [16, 38],
     locomotion: { plan: 'sauropod', stride: 3.2, turnRate: 0.45, swims: true, flies: false },
-    audio: { pitch: 35, call: 'bellow' }, look: { base: 0x6e6a5a, belly: 0x9f9a85, accent: 0x50483a, pattern: 'plain', features: ['longNeck'] },
+    audio: { pitch: 35, call: 'bellow' }, look: { base: 0x8a7448, belly: 0xb8a274, accent: 0x5a4a30, pattern: 'countershade', features: ['longNeck'] },
     huntsHumans: false,
   },
   ankylosaurus: {
@@ -128,7 +128,7 @@ const S: Record<string, Def> = {
     threat: { response: 'defend', flightDistance: 6 }, attack: { damage: 55, range: 4, cooldown: 2.5 }, health: 1800,
     taming: { possible: true, difficulty: 0.55, preferredFood: ['berries', 'herb'] }, habitat: ['plains', 'jungle'], tempRange: [10, 34],
     locomotion: { plan: 'quadruped', stride: 1.4, turnRate: 0.8, swims: false, flies: false },
-    audio: { pitch: 80, call: 'grunt' }, look: { base: 0x5e5340, belly: 0x8a7d62, accent: 0x40382a, pattern: 'spots', features: ['armor', 'club', 'scutes'] },
+    audio: { pitch: 80, call: 'grunt' }, look: { base: 0x4a5236, belly: 0x6e6c52, accent: 0x2e3424, pattern: 'spots', features: ['armor', 'club', 'scutes'] },
     huntsHumans: false,
   },
   spinosaurus: {
@@ -167,7 +167,7 @@ const S: Record<string, Def> = {
     threat: { response: 'flee', flightDistance: 25 }, attack: { damage: 22, range: 2.5, cooldown: 1.8 }, health: 260,
     taming: { possible: true, difficulty: 0.85, preferredFood: ['raw_meat'] }, habitat: ['mountain', 'plains', 'volcanic'], tempRange: [6, 38],
     locomotion: { plan: 'pterosaur', stride: 1.6, turnRate: 1.2, swims: false, flies: true },
-    audio: { pitch: 400, call: 'screech' }, look: { base: 0x7a7468, belly: 0xcfc6b2, accent: 0xb84a2a, pattern: 'plain', features: ['wings', 'headCrest', 'beak', 'longNeck'] },
+    audio: { pitch: 400, call: 'screech' }, look: { base: 0x4a4a48, belly: 0x8a7a70, accent: 0x2a4a78, pattern: 'plain', features: ['wings', 'headCrest', 'beak', 'longNeck'] },
     huntsHumans: false,
   },
   parasaurolophus: {
@@ -180,7 +180,7 @@ const S: Record<string, Def> = {
     threat: { response: 'flee', flightDistance: 40 }, attack: { damage: 15, range: 2.5, cooldown: 2 }, health: 700,
     taming: { possible: true, difficulty: 0.4, preferredFood: ['berries', 'cycad_fronds'] }, habitat: ['plains', 'swamp', 'jungle'], tempRange: [10, 36],
     locomotion: { plan: 'hadrosaur', stride: 2, turnRate: 1.3, swims: true, flies: false },
-    audio: { pitch: 140, call: 'honk' }, look: { base: 0x6a5a3c, belly: 0xb8a77f, accent: 0x7d3f22, pattern: 'stripes', features: ['crestTube'] },
+    audio: { pitch: 140, call: 'honk' }, look: { base: 0x8a6a40, belly: 0xc8b48a, accent: 0x8a3a28, pattern: 'stripes', features: ['crestTube'] },
     huntsHumans: false,
   },
   stegosaurus: {
@@ -193,7 +193,7 @@ const S: Record<string, Def> = {
     threat: { response: 'defend', flightDistance: 10 }, attack: { damage: 50, range: 4.5, cooldown: 2.2 }, health: 1300,
     taming: { possible: true, difficulty: 0.5, preferredFood: ['berries', 'fern_fronds'] }, habitat: ['plains', 'mountain'], tempRange: [10, 34],
     locomotion: { plan: 'quadruped', stride: 1.6, turnRate: 0.8, swims: false, flies: false },
-    audio: { pitch: 100, call: 'grunt' }, look: { base: 0x6b6644, belly: 0xa59e78, accent: 0xa04b2b, pattern: 'spots', features: ['plates', 'tailSpikes'] },
+    audio: { pitch: 100, call: 'grunt' }, look: { base: 0x6e6c40, belly: 0xa8a070, accent: 0x8a6e42, pattern: 'spots', features: ['plates', 'tailSpikes'] },
     huntsHumans: false,
   },
   dilophosaurus: {
@@ -206,7 +206,7 @@ const S: Record<string, Def> = {
     threat: { response: 'defend', flightDistance: 12 }, attack: { damage: 15, range: 1.8, cooldown: 1.4 }, health: 180,
     taming: { possible: true, difficulty: 0.8, preferredFood: ['raw_meat', 'raw_fish'] }, habitat: ['jungle', 'swamp'], tempRange: [14, 38],
     locomotion: { plan: 'theropod', stride: 1.6, turnRate: 2.2, swims: true, flies: false },
-    audio: { pitch: 300, call: 'hiss' }, look: { base: 0x6a6a3e, belly: 0xb4ae80, accent: 0xc8742a, pattern: 'stripes', features: ['dualCrest', 'neckFrill'] },
+    audio: { pitch: 300, call: 'hiss' }, look: { base: 0x6a6438, belly: 0xb4a878, accent: 0x3e3a22, pattern: 'spots', features: ['dualCrest', 'neckFrill'] },
     huntsHumans: true,
   },
   compsognathus: {
@@ -219,7 +219,7 @@ const S: Record<string, Def> = {
     threat: { response: 'flee', flightDistance: 9 }, attack: { damage: 2, range: 0.8, cooldown: 0.8 }, health: 12,
     taming: { possible: true, difficulty: 0.3, preferredFood: ['raw_meat', 'raw_fish'] }, habitat: ['jungle', 'plains', 'ruins', 'beach'], tempRange: [12, 38],
     locomotion: { plan: 'theropod', stride: 0.4, turnRate: 6, swims: false, flies: false },
-    audio: { pitch: 1400, call: 'chirp' }, look: { base: 0x7f7448, belly: 0xc3b88a, accent: 0x4b4228, pattern: 'stripes', features: [] },
+    audio: { pitch: 1400, call: 'chirp' }, look: { base: 0x6e7c3c, belly: 0xc4ac84, accent: 0xa04a32, pattern: 'countershade', features: [] },
     huntsHumans: false,
   },
   archaeopteryx: {
@@ -245,7 +245,7 @@ const S: Record<string, Def> = {
     threat: { response: 'flee', flightDistance: 10 }, attack: { damage: 1, range: 0.6, cooldown: 1 }, health: 6,
     taming: { possible: true, difficulty: 0.5, preferredFood: ['raw_fish', 'insects'] }, habitat: ['jungle'], tempRange: [14, 36],
     locomotion: { plan: 'bird', stride: 0.25, turnRate: 5, swims: false, flies: true },
-    audio: { pitch: 2000, call: 'chirp' }, look: { base: 0x1a1c22, belly: 0x2c3240, accent: 0x3a5a8a, pattern: 'plain', features: ['feathers', 'wings'] },
+    audio: { pitch: 2000, call: 'chirp' }, look: { base: 0x18181a, belly: 0x2a2a2e, accent: 0x6a2a1e, pattern: 'plain', features: ['feathers', 'wings'] },
     huntsHumans: false,
   },
   gallimimus: {
@@ -258,7 +258,7 @@ const S: Record<string, Def> = {
     threat: { response: 'flee', flightDistance: 45 }, attack: { damage: 4, range: 1.2, cooldown: 1.5 }, health: 160,
     taming: { possible: true, difficulty: 0.45, preferredFood: ['berries', 'insects'] }, habitat: ['plains'], tempRange: [12, 38],
     locomotion: { plan: 'theropod', stride: 2.2, turnRate: 3, swims: false, flies: false },
-    audio: { pitch: 700, call: 'honk' }, look: { base: 0x8c7a56, belly: 0xd6c8a2, accent: 0x5a4a32, pattern: 'countershade', features: ['beak', 'longNeck'] },
+    audio: { pitch: 700, call: 'honk' }, look: { base: 0x9a7a42, belly: 0xdcc9a0, accent: 0x6a5230, pattern: 'countershade', features: ['beak', 'longNeck'] },
     huntsHumans: false,
   },
   pachycephalosaurus: {
@@ -284,7 +284,7 @@ const S: Record<string, Def> = {
     threat: { response: 'defend', flightDistance: 28 }, attack: { damage: 25, range: 2.5, cooldown: 1.8 }, health: 850,
     taming: { possible: true, difficulty: 0.45, preferredFood: ['fern_fronds', 'berries'] }, habitat: ['plains', 'jungle'], tempRange: [10, 34],
     locomotion: { plan: 'hadrosaur', stride: 2, turnRate: 1.2, swims: true, flies: false },
-    audio: { pitch: 120, call: 'bellow' }, look: { base: 0x5d6342, belly: 0xa2a77c, accent: 0x3e4428, pattern: 'countershade', features: ['thumbSpike'] },
+    audio: { pitch: 120, call: 'bellow' }, look: { base: 0x6c6c66, belly: 0xb4a284, accent: 0x4a4a44, pattern: 'stripes', features: ['thumbSpike'] },
     huntsHumans: false,
   },
   allosaurus: {
@@ -310,7 +310,7 @@ const S: Record<string, Def> = {
     threat: { response: 'charge', flightDistance: 0 }, attack: { damage: 45, range: 3, cooldown: 1.6 }, health: 750,
     taming: { possible: false, difficulty: 1, preferredFood: ['raw_meat'] }, habitat: ['plains', 'jungle'], tempRange: [10, 36],
     locomotion: { plan: 'theropod', stride: 2.6, turnRate: 1.2, swims: false, flies: false },
-    audio: { pitch: 95, call: 'roar' }, look: { base: 0x7a4632, belly: 0xb88a6a, accent: 0x3a2018, pattern: 'spots', features: ['browHorns'] },
+    audio: { pitch: 95, call: 'roar' }, look: { base: 0x6e3a24, belly: 0xb08868, accent: 0x1c120c, pattern: 'spots', features: ['browHorns'] },
     huntsHumans: true,
   },
   therizinosaurus: {
@@ -323,7 +323,7 @@ const S: Record<string, Def> = {
     threat: { response: 'defend', flightDistance: 12 }, attack: { damage: 50, range: 3.5, cooldown: 2 }, health: 1200,
     taming: { possible: true, difficulty: 0.7, preferredFood: ['berries', 'fern_fronds'] }, habitat: ['jungle', 'plains'], tempRange: [12, 36],
     locomotion: { plan: 'theropod', stride: 1.6, turnRate: 1, swims: false, flies: false },
-    audio: { pitch: 160, call: 'grunt' }, look: { base: 0x6a5e4a, belly: 0xb4a688, accent: 0x3a3226, pattern: 'plain', features: ['feathers', 'longClaws', 'longNeck', 'beak'] },
+    audio: { pitch: 160, call: 'grunt' }, look: { base: 0x3c3a36, belly: 0x5c5650, accent: 0x24221f, pattern: 'plain', features: ['feathers', 'longClaws', 'longNeck', 'beak'] },
     huntsHumans: false,
   },
   baryonyx: {
@@ -336,7 +336,7 @@ const S: Record<string, Def> = {
     threat: { response: 'defend', flightDistance: 8 }, attack: { damage: 35, range: 3, cooldown: 1.6 }, health: 700,
     taming: { possible: true, difficulty: 0.8, preferredFood: ['raw_fish'] }, habitat: ['swamp', 'beach'], tempRange: [14, 36],
     locomotion: { plan: 'theropod', stride: 2, turnRate: 1.3, swims: true, flies: false },
-    audio: { pitch: 120, call: 'hiss' }, look: { base: 0x5a5a44, belly: 0x9e9a7a, accent: 0x2e2e22, pattern: 'stripes', features: ['longSnout', 'longClaws'] },
+    audio: { pitch: 120, call: 'hiss' }, look: { base: 0x6a6a44, belly: 0xb4aa80, accent: 0x96462e, pattern: 'countershade', features: ['longSnout', 'longClaws'] },
     huntsHumans: true,
   },
   sarcosuchus: {
@@ -349,7 +349,7 @@ const S: Record<string, Def> = {
     threat: { response: 'charge', flightDistance: 0 }, attack: { damage: 60, range: 3, cooldown: 2.5 }, health: 1300,
     taming: { possible: false, difficulty: 1, preferredFood: ['raw_meat'] }, habitat: ['swamp'], tempRange: [18, 40],
     locomotion: { plan: 'crocodyliform', stride: 1.2, turnRate: 0.9, swims: true, flies: false },
-    audio: { pitch: 60, call: 'hiss' }, look: { base: 0x3e4230, belly: 0x8a8a68, accent: 0x262a1e, pattern: 'spots', features: ['longSnout', 'scutes'] },
+    audio: { pitch: 60, call: 'hiss' }, look: { base: 0x6a5236, belly: 0xa89068, accent: 0x3a2a1a, pattern: 'stripes', features: ['longSnout', 'scutes'] },
     huntsHumans: true,
   },
   protoceratops: {
@@ -362,7 +362,7 @@ const S: Record<string, Def> = {
     threat: { response: 'mob', flightDistance: 15 }, attack: { damage: 6, range: 1.2, cooldown: 1.4 }, health: 90,
     taming: { possible: true, difficulty: 0.3, preferredFood: ['berries', 'cycad_fronds'] }, habitat: ['beach', 'plains'], tempRange: [10, 38],
     locomotion: { plan: 'quadruped', stride: 0.6, turnRate: 2.4, swims: false, flies: false },
-    audio: { pitch: 380, call: 'grunt' }, look: { base: 0xa08a5a, belly: 0xd8c8a0, accent: 0x6a5232, pattern: 'countershade', features: ['frill', 'beak'] },
+    audio: { pitch: 380, call: 'grunt' }, look: { base: 0x6e6038, belly: 0xb0a070, accent: 0x4a4026, pattern: 'countershade', features: ['frill', 'beak'] },
     huntsHumans: false,
   },
   pachyrhinosaurus: {
@@ -375,7 +375,7 @@ const S: Record<string, Def> = {
     threat: { response: 'charge', flightDistance: 20 }, attack: { damage: 35, range: 3, cooldown: 2 }, health: 1000,
     taming: { possible: true, difficulty: 0.55, preferredFood: ['berries', 'fern_fronds'] }, habitat: ['snow', 'mountain'], tempRange: [-12, 22],
     locomotion: { plan: 'quadruped', stride: 1.8, turnRate: 1, swims: true, flies: false },
-    audio: { pitch: 110, call: 'bellow' }, look: { base: 0x6a5a48, belly: 0xa8987e, accent: 0x3a2e24, pattern: 'plain', features: ['nasalBoss', 'frill', 'frillSpikes'] },
+    audio: { pitch: 110, call: 'bellow' }, look: { base: 0x8a9598, belly: 0xd2cab0, accent: 0x4a5250, pattern: 'stripes', features: ['nasalBoss', 'frill', 'frillSpikes'] },
     huntsHumans: false,
   },
   troodon: {
@@ -388,7 +388,7 @@ const S: Record<string, Def> = {
     threat: { response: 'mob', flightDistance: 16 }, attack: { damage: 10, range: 1.3, cooldown: 1 }, health: 80,
     taming: { possible: true, difficulty: 0.65, preferredFood: ['raw_meat', 'berries'] }, habitat: ['snow', 'mountain', 'plains'], tempRange: [-10, 30],
     locomotion: { plan: 'theropod', stride: 1, turnRate: 4, swims: false, flies: false },
-    audio: { pitch: 800, call: 'chirp' }, look: { base: 0x8a8070, belly: 0xd6d0c2, accent: 0x4a4236, pattern: 'spots', features: ['feathers', 'longClaws'] },
+    audio: { pitch: 800, call: 'chirp' }, look: { base: 0xa47a3a, belly: 0xd4b484, accent: 0x9a4a2a, pattern: 'countershade', features: ['feathers', 'longClaws'] },
     huntsHumans: true,
   },
   mosasaurus: {
@@ -404,7 +404,7 @@ const S: Record<string, Def> = {
     threat: { response: 'charge', flightDistance: 0 }, attack: { damage: 90, range: 4.5, cooldown: 2.4 }, health: 1500,
     taming: { possible: false, difficulty: 1, preferredFood: ['raw_fish'] }, habitat: ['ocean'], tempRange: [12, 34],
     locomotion: { plan: 'mosasaur', stride: 3, turnRate: 0.8, swims: true, flies: false, aquatic: true },
-    audio: { pitch: 50, call: 'grunt' }, look: { base: 0x2c3438, belly: 0xc8c8be, accent: 0x1c2226, pattern: 'countershade', features: ['fluke'] },
+    audio: { pitch: 50, call: 'grunt' }, look: { base: 0x3a4448, belly: 0xb0a074, accent: 0x6a2a22, pattern: 'countershade', features: ['fluke'] },
     huntsHumans: true,
   },
   deinosuchus: {
@@ -430,7 +430,7 @@ const S: Record<string, Def> = {
     threat: { response: 'defend', flightDistance: 8 }, attack: { damage: 55, range: 3, cooldown: 2.2 }, health: 1500,
     taming: { possible: true, difficulty: 0.6, preferredFood: ['berries', 'fern_fronds'] }, habitat: ['forest', 'plains', 'jungle'], tempRange: [0, 32],
     locomotion: { plan: 'mammal', stride: 1.6, turnRate: 0.7, swims: false, flies: false },
-    audio: { pitch: 70, call: 'grunt' }, look: { base: 0x6a5236, belly: 0x8f7552, accent: 0x4a3824, pattern: 'plain', features: ['fur', 'shaggy', 'longClaws'] },
+    audio: { pitch: 70, call: 'grunt' }, look: { base: 0x8a6e44, belly: 0xa8906a, accent: 0x5a4630, pattern: 'plain', features: ['fur', 'shaggy', 'longClaws'] },
     huntsHumans: false,
   },
   smilodon: {
@@ -443,7 +443,7 @@ const S: Record<string, Def> = {
     threat: { response: 'charge', flightDistance: 6 }, attack: { damage: 42, range: 2, cooldown: 1.4 }, health: 380,
     taming: { possible: true, difficulty: 0.75, preferredFood: ['raw_meat'] }, habitat: ['plains', 'forest', 'mountain'], tempRange: [-4, 32],
     locomotion: { plan: 'mammal', stride: 1.4, turnRate: 2.4, swims: true, flies: false },
-    audio: { pitch: 160, call: 'roar' }, look: { base: 0xa07a4a, belly: 0xdcc8a2, accent: 0x6b4b2a, pattern: 'spots', features: ['fur', 'sabers'] },
+    audio: { pitch: 160, call: 'roar' }, look: { base: 0xa8875a, belly: 0xdcc8a2, accent: 0x2e2014, pattern: 'spots', features: ['fur', 'sabers'] },
     huntsHumans: true,
   },
   dodo: {
@@ -469,7 +469,7 @@ const S: Record<string, Def> = {
     threat: { response: 'defend', flightDistance: 3 }, attack: { damage: 30, range: 1.8, cooldown: 2 }, health: 260,
     taming: { possible: false, difficulty: 1, preferredFood: ['raw_meat'] }, habitat: ['swamp', 'jungle'], tempRange: [20, 40],
     locomotion: { plan: 'serpent', stride: 0.8, turnRate: 1.6, swims: true, flies: false },
-    audio: { pitch: 400, call: 'hiss' }, look: { base: 0x3e4a26, belly: 0xb8a84a, accent: 0x14160c, pattern: 'spots', features: [] },
+    audio: { pitch: 400, call: 'hiss' }, look: { base: 0x6a4a2e, belly: 0xb8a070, accent: 0x1e1610, pattern: 'spots', features: [] },
     huntsHumans: true,
   },
 };

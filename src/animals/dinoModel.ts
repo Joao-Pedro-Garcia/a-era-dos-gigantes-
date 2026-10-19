@@ -1191,7 +1191,7 @@ function buildHead(sp: SpeciesDef, bp: Blueprint, parts: Part[], boneIndex: Map<
   const round = (t: number) => Math.sqrt(Math.max(0.0, smooth(-0.02, 0.16, t))) * 0.55 + 0.45 * smooth(-0.02, 0.1, t);
   const tipRound = (t: number) => (fam === 'ptero' ? 1 : 0.35 + 0.65 * Math.sqrt(Math.max(0, 1 - smooth(0.9, 1.0, t))));
   const keratin = (t: number) => beaked && t > (fam === 'ptero' ? 0.35 : fam === 'duck' ? 0.78 : fam === 'dodo' ? 0.42 : 0.82);
-  const KER: RGB = fam === 'duck' || fam === 'anky' ? BILL : fam === 'dodo' ? [0.5, 0.47, 0.33] : KERATIN;
+  const KER: RGB = fam === 'duck' || fam === 'anky' ? BILL : fam === 'dodo' ? [0.5, 0.47, 0.33] : sp.id === 'gallimimus' || sp.id === 'quetzalcoatlus' ? [0.72, 0.42, 0.14] : KERATIN;
 
   // ---- Upper skull: roof arch over the mouth line, closed by the palate.
   const skull: { p: THREE.Vector3; c: RGB }[][] = [];
@@ -1364,12 +1364,14 @@ function buildFeatures(sp: SpeciesDef, bp: Blueprint, parts: Part[], boneIndex: 
   const side = V(1, 0, 0);
   // Display structures (horns, frills, plates, crests, sails) are small in juveniles.
   const fs = bp.juvenile ? 0.4 : 1;
+  // Carnotaurus (film): black horns; everyone else pale keratin darkening to the tip.
+  const darkHorn = sp.id === 'carnotaurus';
   const horn = (root: THREE.Vector3, dir: THREE.Vector3, rawLength: number, r: number, bone: number, curve = 0.15) => {
     const length = rawLength * (bp.juvenile ? 0.35 : 1);
     const d = dir.clone().normalize();
     const pts = [root, root.clone().addScaledVector(d, length * 0.5).addScaledVector(up, length * curve * 0.3), root.clone().addScaledVector(d, length).addScaledVector(up, length * curve)];
     // Keratin sheath: pale grey-brown at the base, darker toward the tip.
-    tube(parts[DMAT.horn], pts, [r, r * 0.55, r * 0.04], detail ? 8 : 4, (_p, t) => [lerp(0.5, 0.2, t), lerp(0.45, 0.17, t), lerp(0.37, 0.14, t)], () => [[bone], [1]], 1, true);
+    tube(parts[DMAT.horn], pts, [r, r * 0.55, r * 0.04], detail ? 8 : 4, (_p, t) => (darkHorn ? [lerp(0.16, 0.07, t), lerp(0.13, 0.06, t), lerp(0.11, 0.05, t)] : [lerp(0.5, 0.2, t), lerp(0.45, 0.17, t), lerp(0.37, 0.14, t)]), () => [[bone], [1]], 1, true);
   };
   // Spine sample helper: position on the back at arc parameter s.
   const atS = (s: number) => {
@@ -1589,26 +1591,36 @@ function buildFeatures(sp: SpeciesDef, bp: Blueprint, parts: Part[], boneIndex: 
     const c = n3.p.clone().lerp(at, 0.35);
     const along = at.clone().sub(n3.p).normalize();
     const upN = V(0, 1, 0).sub(along.clone().multiplyScalar(along.y)).normalize();
-    const R = 0.12 * L * fs;
+    const R = 0.15 * L * fs;
     const rn = Math.max(n3.rx, n3.ry) * 0.9;
-    const ribs = detail ? 18 : 7;
-    const rows = detail ? 5 : 2;
+    // Dense enough for the vein pattern (painted per vertex) to read up close.
+    const ribs = detail ? 44 : 9;
+    const rows = detail ? 14 : 3;
     const p = parts[DMAT.membrane];
-    const yellow: RGB = [1, 0.82, 0.22];
-    const red: RGB = [0.95, 0.3, 0.08];
+    // Film look: olive-yellow fan with a red reticulated (net-like) pattern
+    // and a dark, serrated rim; it grows out of the neck skin.
+    const olive: RGB = [0.62, 0.6, 0.2];
+    const red: RGB = [0.8, 0.2, 0.06];
+    const rim: RGB = [0.16, 0.14, 0.07];
+    const kf = 9 / R;
     for (const sd of [1, -1]) {
       const b0 = p.pos.length / 3;
       for (let i = 0; i <= ribs; i++) {
         const th = lerp(-1.15, 1.45, i / ribs);
         const dir = V(sd * Math.cos(th), 0, 0).addScaledVector(upN, Math.sin(th)).addScaledVector(along, -0.45).normalize();
         const root = c.clone().addScaledVector(V(sd, 0, 0), Math.cos(th) * rn).addScaledVector(upN, Math.sin(th) * rn * 0.9);
-        const len = R * (0.75 + 0.25 * Math.sin(Math.PI * (i / ribs))) * (i % 2 ? 0.93 : 1);
+        const len = R * (0.75 + 0.25 * Math.sin(Math.PI * (i / ribs))) * (i % 2 ? 0.9 : 1);
         for (let k = 0; k <= rows; k++) {
           const u = k / rows;
           const q = root.clone().addScaledVector(dir, len * u).addScaledVector(along, -len * 0.15 * u * u);
           const base = paint(q, -0.2, 'body');
-          const spot = hash(Math.round(q.x * 20), Math.round(q.y * 20), Math.round(q.z * 20)) > 0.82 ? 0.45 : 1;
-          const col: RGB = u < 0.35 ? [lerp(base[0], yellow[0], u / 0.35), lerp(base[1], yellow[1], u / 0.35), lerp(base[2], yellow[2], u / 0.35)] : [lerp(yellow[0], red[0], (u - 0.35) / 0.65) * spot, lerp(yellow[1], red[1], (u - 0.35) / 0.65) * spot, lerp(yellow[2], red[2], (u - 0.35) / 0.65) * spot];
+          // Net of red veins: thin bands where two warped waves cross zero.
+          const wv = Math.abs(Math.sin(q.x * kf * sd + Math.sin(q.y * kf * 0.7) * 1.6)) * Math.abs(Math.sin(q.y * kf + Math.cos(q.z * kf * 0.8) * 1.6));
+          const vein = u > 0.2 && u < 0.9 ? 1 - smooth(0.12, 0.3, wv) : 0;
+          const fan: RGB = [lerp(olive[0], red[0], vein), lerp(olive[1], red[1], vein), lerp(olive[2], red[2], vein)];
+          const e = smooth(0.82, 1, u);
+          const inner = smooth(0, 0.25, u);
+          const col: RGB = [0, 1, 2].map((j) => lerp(lerp(base[j], fan[j], inner), rim[j], e)) as RGB;
           p.v(q, i / ribs, u, col, [nb], [1]);
         }
       }
@@ -1628,7 +1640,8 @@ function buildFeatures(sp: SpeciesDef, bp: Blueprint, parts: Part[], boneIndex: 
   }
   if (f.has('beak') && sp.locomotion.plan !== 'pterosaur') {
     const tip = at.clone().addScaledVector(fwd, len * 0.82);
-    tube(parts[DMAT.horn], [tip, tip.clone().addScaledVector(fwd, len * 0.14).addScaledVector(up, -height * 0.12)], [height * 0.25, height * 0.03], 8, () => [0.32, 0.28, 0.22], () => [[hb], [1]], 1, true);
+    const beakCol: RGB = sp.id === 'gallimimus' ? [0.72, 0.42, 0.14] : [0.32, 0.28, 0.22];
+    tube(parts[DMAT.horn], [tip, tip.clone().addScaledVector(fwd, len * 0.14).addScaledVector(up, -height * 0.12)], [height * 0.25, height * 0.03], 8, () => beakCol, () => [[hb], [1]], 1, true);
   }
   // Dorsal structures along the spine.
   const spineBone = (s: number) => spineWeights(s);
@@ -1693,8 +1706,9 @@ function buildFeatures(sp: SpeciesDef, bp: Blueprint, parts: Part[], boneIndex: 
     for (let i = 0; i < count; i++) {
       const t = i / (count - 1);
       const s = lerp(0.12, 0.82, t);
-      const base = dorsal(s, -0.012 * L);
-      const h = 0.085 * L * Math.sin(Math.PI * (0.12 + t * 0.8)) * (0.92 + 0.16 * hash(i, 3, 7)) * fs;
+      const base = dorsal(s, -0.004 * L);
+      // Film look: big plates, the tallest well above the hips.
+      const h = 0.15 * L * Math.sin(Math.PI * (0.12 + t * 0.8)) * (0.92 + 0.16 * hash(i, 3, 7)) * fs;
       const row = i % 2 ? 1 : -1;
       const [bi, bw] = spineBone(s);
       const p = parts[DMAT.scales];
@@ -1704,7 +1718,8 @@ function buildFeatures(sp: SpeciesDef, bp: Blueprint, parts: Part[], boneIndex: 
       for (let j = 0; j <= k; j++) {
         const a = Math.PI * (j / k);
         const r = 1 - 0.18 * Math.abs(Math.cos(a * 2));
-        outline.push([-Math.cos(a) * h * 0.55 * r, Math.sin(a) * h * r + 0.0]);
+        // Pointed, kite-like plate (film look) rather than a rounded lobe.
+        outline.push([-Math.cos(a) * h * 0.58 * r, h * (0.7 * (1 - Math.abs(Math.cos(a))) + 0.3 * Math.sin(a))]);
       }
       const lean = row * 0.12;
       const center = base.clone().add(V(row * 0.012 * L, 0, 0));
@@ -1714,7 +1729,14 @@ function buildFeatures(sp: SpeciesDef, bp: Blueprint, parts: Part[], boneIndex: 
         for (const [z, y] of outline) {
           const tt = y / h;
           const q = center.clone().add(V(face * th * (1 - tt * 0.8) * 0.5 + Math.sin(lean) * y, y * Math.cos(lean), z));
-          p.v(q, 0, 0, paint(q, -0.5, tt > 0.6 ? 'accent' : 'body'), bi, bw);
+          // Film look: beige plates crossed by dark brown bands that follow the edge.
+          const band = 0.5 + 0.5 * Math.sin(tt * 11 + (z / h) * 3 + i);
+          const bc = paint(q, -0.5, 'body');
+          const beige: RGB = [0.6, 0.5, 0.34];
+          const brown: RGB = [0.3, 0.22, 0.13];
+          const mix = smooth(0.15, 0.5, tt);
+          const pc: RGB = [0, 1, 2].map((j) => lerp(bc[j], lerp(beige[j], brown[j], smooth(0.55, 0.8, band)), mix)) as RGB;
+          p.v(q, 0, 0, pc, bi, bw);
         }
       const nO = outline.length;
       const cF = p.v(center.clone().add(V(th * 0.5 + Math.sin(lean) * h * 0.4, h * 0.4, 0)), 0, 0, paint(center, -0.5, 'body'), bi, bw);
