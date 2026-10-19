@@ -1,3 +1,4 @@
+import { modelState } from '../graphics/externalModels';
 import { matches } from './search';
 import { DEFAULT_SETTINGS, WORLD, type Settings } from '../core/config';
 import type { Game } from '../core/game';
@@ -1057,6 +1058,16 @@ export class Hud {
     card.appendChild(s);
     const k = h('button', '', t('menu.controls'));
     k.onclick = () => this.controlsMenu(() => this.mainMenu());
+    // Version and survivor model state: shows at a glance whether a device runs the latest build.
+    const ver = h('p', 'muted build-info', '');
+    const paint = () => {
+      const st = modelState('player');
+      ver.textContent = `${t('menu.version', { v: import.meta.env.VITE_BUILD ?? 'dev' })} · ${t(`menu.human.${st}`)}`;
+      if (st === 'loading' && ver.isConnected) setTimeout(paint, 1000);
+    };
+    paint();
+    setTimeout(paint, 1000);
+    queueMicrotask(() => card.appendChild(ver));
     card.appendChild(k);
     const cr = h('button', '', t('menu.credits'));
     cr.onclick = () => this.creditsMenu(() => this.mainMenu());

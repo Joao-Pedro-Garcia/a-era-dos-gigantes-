@@ -1,3 +1,4 @@
+import { execSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readFileSync, readdirSync } from 'node:fs';
 import { defineConfig, type Plugin } from 'vite';
@@ -79,8 +80,19 @@ self.addEventListener('message', (e) => {
   };
 }
 
+// Build label shown in the main menu (date and commit), to check which version a device runs.
+const BUILD = (() => {
+  const d = new Date().toISOString().slice(0, 16).replace('T', ' ');
+  try {
+    return `${d} · ${execSync('git rev-parse --short HEAD').toString().trim()}`;
+  } catch {
+    return d;
+  }
+})();
+
 export default defineConfig({
   base: './',
+  define: { 'import.meta.env.VITE_BUILD': JSON.stringify(BUILD) },
   plugins: [offlinePrecache()],
   worker: { format: 'es' },
   build: {

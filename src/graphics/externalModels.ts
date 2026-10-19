@@ -209,11 +209,28 @@ async function loadEach(base: string): Promise<{ loaded: string[]; failed: strin
     return result;
   }
   const jobs = Object.entries(manifest.species).map(([id, e]) => [id, e] as const);
-  if (manifest.player) jobs.push(['player', manifest.player]);
-  if (!jobs.length) return result;
+  // The survivor first and on its own: on phones the dinosaur files (tens of MB in all)
+  // must not starve or crowd out the one model that is always on screen.
+  const player = manifest.player;
+  if (!jobs.length && !player) return result;
   const [{ GLTFLoader }, { MeshoptDecoder }] = await Promise.all([import('three/examples/jsm/loaders/GLTFLoader.js'), import('three/examples/jsm/libs/meshopt_decoder.module.js')]);
   const loader = new GLTFLoader();
   loader.setMeshoptDecoder(MeshoptDecoder);
+  if (player)
+    for (let attempt = 0; attempt < 2 && !loaded.has('player'); attempt++) {
+      try {
+        const gltf = await loader.loadAsync(`${base}${player.url}`);
+        prepareBounds(gltf.scene);
+        loaded.set('player', { scene: gltf.scene, animations: gltf.animations, entry: player });
+        result.loaded.push('player');
+        settle('player', true);
+      } catch {
+        if (attempt === 1) {
+          result.failed.push('player');
+          settle('player', false);
+        }
+      }
+    }
   await Promise.all(
     jobs.map(async ([id, e]) => {
       try {
@@ -560,7 +577,11 @@ export function autoSkinWeights(g: THREE.BufferGeometry, b: AutoSkinBones): void
 }
 
 const waiters = new Map<string, ((ok: boolean) => void)[]>();
+const settled = new Map<string, boolean>();
+let allSettled = false;
 function settle(id: string | null, ok: boolean): void {
+  if (id !== null) settled.set(id, ok);
+  else allSettled = true;
   for (const [k, list] of [...waiters]) {
     if (id !== null && k !== id) continue;
     waiters.delete(k);
@@ -576,6 +597,13 @@ export function whenModel(id: string): Promise<boolean> {
     list.push(res);
     waiters.set(id, list);
   });
+}
+
+/** Load state of one model, for the menu: loaded, still loading, or failed / not listed. */
+export function modelState(id: string): 'loaded' | 'loading' | 'failed' {
+  if (loaded.has(id)) return 'loaded';
+  if (settled.get(id) === false || allSettled) return 'failed';
+  return 'loading';
 }
 
 /** The manifest entry of a loaded model. */
