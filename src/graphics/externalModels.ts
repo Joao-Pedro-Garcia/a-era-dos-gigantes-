@@ -1,3 +1,4 @@
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import * as THREE from 'three';
 
 /**
@@ -304,15 +305,17 @@ export function riggedMesh(id: string, boneIndex: Map<string, number>): { geomet
   if (rigged.has(id)) return rigged.get(id)!;
   const src = loaded.get(id);
   if (!src?.entry.rig) return null;
-  let skinned: THREE.SkinnedMesh | null = null;
+  // Every skinned mesh of the file (bodies split in parts, eyes, teeth) is merged
+  // into one geometry with a material group per part.
+  const parts: THREE.SkinnedMesh[] = [];
   src.scene.traverse((o) => {
-    if (!skinned && (o as THREE.SkinnedMesh).isSkinnedMesh) skinned = o as THREE.SkinnedMesh;
+    if ((o as THREE.SkinnedMesh).isSkinnedMesh) parts.push(o as THREE.SkinnedMesh);
   });
-  if (!skinned) {
+  if (!parts.length) {
     rigged.set(id, null);
     return null;
   }
-  const sm = skinned as THREE.SkinnedMesh;
+  const sm = parts[0];
   // Artist bone (as GLTFLoader names it) → game bone index; unmapped bones follow the pelvis.
   const map = new Map<string, number>();
   for (const [k, v] of Object.entries(src.entry.rig)) {
@@ -321,7 +324,32 @@ export function riggedMesh(id: string, boneIndex: Map<string, number>): { geomet
   }
   const fallback = boneIndex.get('pelvis') ?? 0;
   const target = sm.skeleton.bones.map((b) => map.get(b.name) ?? fallback);
-  const g = sm.geometry.clone();
+  const geos: THREE.BufferGeometry[] = [];
+  const mats: THREE.Material[] = [];
+  for (const m of parts) {
+    const pg = m.geometry.index ? m.geometry : m.geometry.clone();
+    const c = new THREE.BufferGeometry();
+    for (const name of ['position', 'normal', 'uv', 'skinIndex', 'skinWeight']) {
+      const a = pg.getAttribute(name);
+      if (!a) continue;
+      // Plain float copies (quantized or interleaved inputs merge badly).
+      const arr = new Float32Array(a.count * a.itemSize);
+      for (let i = 0; i < a.count; i++) for (let k = 0; k < a.itemSize; k++) arr[i * a.itemSize + k] = a.getComponent(i, k);
+      c.setAttribute(name, new THREE.BufferAttribute(arr, a.itemSize));
+    }
+    if (!c.getAttribute('uv')) c.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(c.getAttribute('position').count * 2), 2));
+    if (!c.getAttribute('normal')) c.computeVertexNormals();
+    if (pg.index) c.setIndex(Array.from(pg.index.array));
+    else c.setIndex([...Array(c.getAttribute('position').count).keys()]);
+    geos.push(c);
+    mats.push(Array.isArray(m.material) ? m.material[0] : m.material);
+  }
+  const merged = geos.length > 1 ? mergeGeometries(geos, true) : geos[0];
+  if (!merged) {
+    rigged.set(id, null);
+    return null;
+  }
+  const g = merged;
   const pos = g.attributes.position;
   const s = src.entry.scale;
   for (let i = 0; i < pos.count; i++) pos.setXYZ(i, pos.getX(i) * s, pos.getY(i) * s, pos.getZ(i) * s);
@@ -353,7 +381,7 @@ export function riggedMesh(id: string, boneIndex: Map<string, number>): { geomet
   g.setAttribute('skinWeight', new THREE.Float32BufferAttribute(wts, 4));
   g.computeBoundingSphere();
   g.computeBoundingBox();
-  const out = { geometry: g, material: sm.material };
+  const out = { geometry: g, material: geos.length > 1 ? mats : mats[0] };
   rigged.set(id, out);
   return out;
 }

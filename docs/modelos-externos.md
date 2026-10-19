@@ -100,3 +100,13 @@ Também foram descartadas as versões "rebuilt" de kenchoo baseadas nesses model
 - **Mãos e mandíbula:** não são controladas pelo jogo (o modelo externo não recebe a IK de olhar e de mandíbula dos procedurais).
 - **Reação a golpes:** a resposta corporal procedural não se aplica aos modelos externos; o animal reage pelo clipe de estado.
 - **Desempenho:** veja a medição no README. Com 16 modelos externos na tela, os triângulos subiram cerca de 30–60% e o FPS no renderizador por software caiu. Não foi medido em GPU real.
+
+## Carnotauro (modelo de artista com esqueleto do jogo)
+- **Modelo:** "Rigid Carnotaurus-Sastrei", de olahamieholahamieholahamieh, licença CC BY 4.0: https://sketchfab.com/3d-models/rigid-carnotaurus-sastrei-232b60653c1740fa8570b6c90b377871
+- **Preparação:**
+  - removida uma malha de dentes defeituosa (`Cone.025`, espalhada por mais de 100 m);
+  - simplificado de 209 mil para 63 mil triângulos (3,3 MB);
+  - texturas reduzidas a 1024 px.
+- **Cor no estilo do filme:** a textura foi recolorida de marrom-escuro e barriga rosada para **marrom-avermelhado com manchas pretas e barriga castanho-clara**. Olhos e boca foram mantidos.
+- **Animação:** como no espinossauro, a pele do artista foi religada ao esqueleto do jogo (campo `rig` com 43 ossos e `RIG_FITS.carnotaurus`). Por isso ele usa todas as animações e golpes do jogo: andar, correr, mordida, cabeçada e rabada.
+- **Junção das partes:** o jogo agora junta todas as malhas com esqueleto de um arquivo (corpo em duas partes, olhos e dentes) numa só, com um material por parte.
