@@ -162,6 +162,8 @@ describe('alpha males: dominance behaviour', () => {
     const al = adult('triceratops', s.x, s.z, 'm', now);
     makeAlpha(al);
     al.health = maxHealth(al, now);
+    // Pinned in place: this checks the rival's reaction, not the alpha's patrol.
+    al.heldUntil = now + 1e6;
     const rival = adult('triceratops', s.x + 10, s.z + 4, 'm', now);
     eco.animals.set(al.id, al);
     eco.animals.set(rival.id, rival);
