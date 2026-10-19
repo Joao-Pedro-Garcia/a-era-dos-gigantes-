@@ -45,7 +45,16 @@ Ficaram de fora, mesmo com boa aparência:
 - **Quetzalcoatlo de seirogan:** um único clipe de voo e 200 mil triângulos (candidato à mesma técnica do espinossauro).
 - **Pteranodonte de oscar.lopez.riviello:** tem animações completas, mas a conta publica modelos extraídos de jogos e filmes e não informa a origem deste. Risco de direito autoral.
 
-## Descartados, e por quê
+## Estilo dos filmes (decisão de 19/10/2026)
+
+A pedido, o visual dos dinossauros passa a priorizar o **estilo dos filmes Jurassic Park/World**, mesmo onde isso contradiz a ciência. Nenhum modelo copiado dos filmes ou dos jogos oficiais é usado (direito autoral). O jogo usa só modelos livres e geração própria, no estilo dos filmes:
+- **Tiranossauro:** textura do modelo de LasquetiSpice recolorida (pele azul e listras vermelhas → marrom-oliva); boca, olhos, dentes e ventre mantidos.
+- **Velocirraptor:** tamanho dos filmes (3,6 m, quadril a 1 m, 70 kg) e sem penas, também no modelo visto de longe.
+- **Dilofossauro:** gola de leque amarela e vermelha no pescoço (invenção do filme; sem evidência fóssil).
+- **Compsognato e galimimo:** sem penas.
+- **Espinossauro:** o modelo de seirogan já tem o visual do JP3 (pernas longas, cauda fina).
+
+
 
 **Extraídos de jogos ou filmes** (licença CC BY declarada pelo uploader, mas o modelo não é dele):
 - Jurassic World Evolution, Jurassic Park 3 e "JW";

@@ -120,7 +120,7 @@ describe('realism pilot: triceratops and skin regions', () => {
       expect(max, id).toBeCloseTo(scuteAmount(SPECIES[id]), 1);
     }
     expect(scuteAmount(SPECIES.triceratops)).toBe(1);
-    expect(scuteAmount(SPECIES.velociraptor)).toBe(0);
+    expect(scuteAmount(SPECIES.microraptor)).toBe(0);
     expect(scuteAmount(SPECIES.tyrannosaurus)).toBeLessThan(0.3);
   });
 

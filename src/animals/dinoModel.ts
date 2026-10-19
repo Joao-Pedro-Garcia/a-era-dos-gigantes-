@@ -1427,6 +1427,47 @@ function buildFeatures(sp: SpeciesDef, bp: Blueprint, parts: Part[], boneIndex: 
       p.idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3, a, a + 1, a + 2, a + 1, a + 3, a + 2);
     }
   }
+  if (f.has('neckFrill')) {
+    // Film-style neck frill (Jurassic Park's Dilophosaurus; no fossil evidence):
+    // a scalloped fan of skin on each side of the neck behind the head, half open,
+    // skin-coloured at the base, yellow in the middle and orange-red at the rim.
+    const n3 = bp.cps.find((c) => c.bone === 'neck3') ?? bp.cps[bp.cps.length - 2];
+    const nb = boneIndex.get('neck3') ?? hb;
+    const c = n3.p.clone().lerp(at, 0.35);
+    const along = at.clone().sub(n3.p).normalize();
+    const upN = V(0, 1, 0).sub(along.clone().multiplyScalar(along.y)).normalize();
+    const R = 0.085 * L * fs;
+    const rn = Math.max(n3.rx, n3.ry) * 0.9;
+    const ribs = detail ? 18 : 7;
+    const rows = detail ? 5 : 2;
+    const p = parts[DMAT.membrane];
+    const yellow: RGB = [1, 0.82, 0.22];
+    const red: RGB = [0.95, 0.3, 0.08];
+    for (const sd of [1, -1]) {
+      const b0 = p.pos.length / 3;
+      for (let i = 0; i <= ribs; i++) {
+        const th = lerp(-1.15, 1.45, i / ribs);
+        const dir = V(sd * Math.cos(th), 0, 0).addScaledVector(upN, Math.sin(th)).addScaledVector(along, -0.45).normalize();
+        const root = c.clone().addScaledVector(V(sd, 0, 0), Math.cos(th) * rn).addScaledVector(upN, Math.sin(th) * rn * 0.9);
+        const len = R * (0.75 + 0.25 * Math.sin(Math.PI * (i / ribs))) * (i % 2 ? 0.93 : 1);
+        for (let k = 0; k <= rows; k++) {
+          const u = k / rows;
+          const q = root.clone().addScaledVector(dir, len * u).addScaledVector(along, -len * 0.15 * u * u);
+          const base = paint(q, -0.2, 'body');
+          const spot = hash(Math.round(q.x * 20), Math.round(q.y * 20), Math.round(q.z * 20)) > 0.82 ? 0.45 : 1;
+          const col: RGB = u < 0.35 ? [lerp(base[0], yellow[0], u / 0.35), lerp(base[1], yellow[1], u / 0.35), lerp(base[2], yellow[2], u / 0.35)] : [lerp(yellow[0], red[0], (u - 0.35) / 0.65) * spot, lerp(yellow[1], red[1], (u - 0.35) / 0.65) * spot, lerp(yellow[2], red[2], (u - 0.35) / 0.65) * spot];
+          p.v(q, i / ribs, u, col, [nb], [1]);
+        }
+      }
+      for (let i = 0; i < ribs; i++)
+        for (let k = 0; k < rows; k++) {
+          const a0 = b0 + i * (rows + 1) + k;
+          const a1 = a0 + rows + 1;
+          if (sd > 0) p.idx.push(a0, a1, a0 + 1, a1, a1 + 1, a0 + 1);
+          else p.idx.push(a0, a0 + 1, a1, a1, a0 + 1, a1 + 1);
+        }
+    }
+  }
   if (f.has('headCrest')) {
     const root = at.clone().addScaledVector(up, height * 0.6);
     const back = fwd.clone().multiplyScalar(-1).addScaledVector(up, 0.4).normalize();

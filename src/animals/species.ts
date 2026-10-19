@@ -16,7 +16,7 @@ export type SocialType = 'solitary' | 'pair' | 'family' | 'herd' | 'pack' | 'flo
 export type ThreatResponse = 'flee' | 'defend' | 'charge' | 'mob' | 'freeze';
 export type Activity = 'diurnal' | 'nocturnal' | 'crepuscular' | 'cathemeral';
 export type Feature =
-  | 'horns3' | 'frill' | 'frillSpikes' | 'nasalBoss' | 'crestTube' | 'sail' | 'plates' | 'tailSpikes'
+  | 'horns3' | 'frill' | 'neckFrill' | 'frillSpikes' | 'nasalBoss' | 'crestTube' | 'sail' | 'plates' | 'tailSpikes'
   | 'club' | 'armor' | 'longNeck' | 'feathers' | 'dualCrest' | 'dome' | 'longClaws' | 'longSnout'
   | 'wings' | 'beak' | 'thumbSpike' | 'browHorns' | 'headCrest' | 'scutes' | 'fluke';
 
@@ -77,14 +77,14 @@ const S: Record<string, Def> = {
   velociraptor: {
     name: { 'pt-BR': 'Velocirraptor', en: 'Velociraptor' }, scientificName: 'Velociraptor mongoliensis', clade: 'dinosaur',
     period: 'Cretáceo Superior (~75–71 Ma)', diet: 'carnivore', ecology: 'smallPredator',
-    lengthM: 1.8, hipHeightM: 0.5, massKg: 18, walkSpeed: 1.8, runSpeed: 10, stamina: 9, foodNeed: 1.2, waterNeed: 0.8,
+    lengthM: 3.6, hipHeightM: 1.0, massKg: 70, walkSpeed: 1.8, runSpeed: 10, stamina: 9, foodNeed: 1.2, waterNeed: 0.8,
     social: { type: 'pack', size: [2, 4] }, senses: { sight: 70, hearing: 90, smell: 120, fovDeg: 200 },
     temperament: { aggression: 0.5, fearfulness: 0.45, curiosity: 0.75 }, territory: { radius: 400, defends: false },
     activity: 'crepuscular', reproduction: { clutch: [3, 6], incubationDays: 3, maturityDays: 10, parentalCare: 0.6, season: [5, 12] },
     threat: { response: 'mob', flightDistance: 14 }, attack: { damage: 9, range: 1.4, cooldown: 0.9 }, health: 70,
     taming: { possible: true, difficulty: 0.75, preferredFood: ['raw_meat'] }, habitat: ['plains', 'jungle', 'ruins'], tempRange: [10, 36],
     locomotion: { plan: 'theropod', stride: 0.9, turnRate: 4, swims: false, flies: false },
-    audio: { pitch: 620, call: 'chirp' }, look: { base: 0x8a6a45, belly: 0xc9b38a, accent: 0x3d2b1b, pattern: 'stripes', features: ['feathers', 'longClaws'] },
+    audio: { pitch: 620, call: 'chirp' }, look: { base: 0x8a6a45, belly: 0xc9b38a, accent: 0x3d2b1b, pattern: 'stripes', features: ['longClaws'] },
     huntsHumans: true,
   },
   triceratops: {
@@ -201,7 +201,7 @@ const S: Record<string, Def> = {
     threat: { response: 'defend', flightDistance: 12 }, attack: { damage: 22, range: 2.2, cooldown: 1.3 }, health: 320,
     taming: { possible: true, difficulty: 0.8, preferredFood: ['raw_meat', 'raw_fish'] }, habitat: ['jungle', 'swamp'], tempRange: [14, 38],
     locomotion: { plan: 'theropod', stride: 1.6, turnRate: 2.2, swims: true, flies: false },
-    audio: { pitch: 300, call: 'hiss' }, look: { base: 0x6a6a3e, belly: 0xb4ae80, accent: 0xb5532c, pattern: 'stripes', features: ['dualCrest'] },
+    audio: { pitch: 300, call: 'hiss' }, look: { base: 0x6a6a3e, belly: 0xb4ae80, accent: 0xc8742a, pattern: 'stripes', features: ['dualCrest', 'neckFrill'] },
     huntsHumans: true,
   },
   compsognathus: {
@@ -214,7 +214,7 @@ const S: Record<string, Def> = {
     threat: { response: 'flee', flightDistance: 9 }, attack: { damage: 2, range: 0.8, cooldown: 0.8 }, health: 12,
     taming: { possible: true, difficulty: 0.3, preferredFood: ['raw_meat', 'raw_fish'] }, habitat: ['jungle', 'plains', 'ruins', 'beach'], tempRange: [12, 38],
     locomotion: { plan: 'theropod', stride: 0.4, turnRate: 6, swims: false, flies: false },
-    audio: { pitch: 1400, call: 'chirp' }, look: { base: 0x7f7448, belly: 0xc3b88a, accent: 0x4b4228, pattern: 'stripes', features: ['feathers'] },
+    audio: { pitch: 1400, call: 'chirp' }, look: { base: 0x7f7448, belly: 0xc3b88a, accent: 0x4b4228, pattern: 'stripes', features: [] },
     huntsHumans: false,
   },
   archaeopteryx: {
@@ -253,7 +253,7 @@ const S: Record<string, Def> = {
     threat: { response: 'flee', flightDistance: 45 }, attack: { damage: 4, range: 1.2, cooldown: 1.5 }, health: 160,
     taming: { possible: true, difficulty: 0.45, preferredFood: ['berries', 'insects'] }, habitat: ['plains'], tempRange: [12, 38],
     locomotion: { plan: 'theropod', stride: 2.2, turnRate: 3, swims: false, flies: false },
-    audio: { pitch: 700, call: 'honk' }, look: { base: 0x8c7a56, belly: 0xd6c8a2, accent: 0x5a4a32, pattern: 'countershade', features: ['feathers', 'beak', 'longNeck'] },
+    audio: { pitch: 700, call: 'honk' }, look: { base: 0x8c7a56, belly: 0xd6c8a2, accent: 0x5a4a32, pattern: 'countershade', features: ['beak', 'longNeck'] },
     huntsHumans: false,
   },
   pachycephalosaurus: {

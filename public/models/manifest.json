@@ -74,10 +74,10 @@
     "velociraptor": {
       "url": "velociraptor.glb",
       "scale": 1,
-      "strideM": 1.2,
+      "strideM": 2.4,
       "clipSpeeds": {
-        "walk": 0.63,
-        "run": 1.2
+        "walk": 1.26,
+        "run": 2.4
       },
       "clips": {
         "idle": "eat",
