@@ -1,3 +1,4 @@
+import { hpOf, maxHp, repairCost } from '../building/durability';
 import { hitRegion, regionMultiplier } from '../combat/dinoAttacks';
 import * as THREE from 'three';
 import { growthScale, lifeStage, maxHealth, type AnimalData } from '../animals/animal';
@@ -142,6 +143,23 @@ export class Interactions {
       const r = this.pieceAction(piece, key);
       if (r) return r;
     }
+    // Damaged pieces: repair with materials (a quarter of the cost at most).
+    const hurt = g.buildingSys!.nearest(p.s.x, p.s.z, 4, (pc) => hpOf(pc) < maxHp(pc.type) - 0.5 && this.inFront(pc.x, pc.z, 4, 0.3, pc.y) !== null);
+    if (hurt) {
+      const cost = repairCost(hurt);
+      const list = Object.entries(cost).map(([k, q]) => `${q} ${t(`item.${k}`)}`).join(', ');
+      return {
+        label: t('build.repair', { key, what: t(`piece.${hurt.type}`), hp: Math.ceil(hpOf(hurt)), max: maxHp(hurt.type), cost: list }),
+        run: () => {
+          const r = g.buildingSys!.repair(hurt.id, g.inventory);
+          if (r === 'ok') {
+            g.audio.sfx('place', [hurt.x, hurt.y + 1, hurt.z]);
+            g.notify('build.repaired', { what: t(`piece.${hurt.type}`) }, 'good');
+            g.xp('crafting', 5);
+          } else if (r === 'materials') g.notify('build.repairMissing', { cost: list }, 'warn');
+        },
+      };
+    }
 
     // Carcasses.
     for (const a of g.eco!.active) {
@@ -265,6 +283,32 @@ export class Interactions {
     const held = g.heldItem();
     const now = g.env!.state.time;
     switch (pc.type) {
+      case 'watchtower': {
+        // Ladder: climb from the foot of the tower, climb down from its top.
+        const top = Math.abs(g.player!.s.y - pc.y) < 0.8;
+        return {
+          label: t(top ? 'tower.down' : 'tower.up', { key }),
+          run: () => {
+            const pl = g.player!;
+            if (top) {
+              const ang = Math.atan2(pl.s.x - pc.x, pl.s.z - pc.z);
+              const x = pc.x + Math.sin(ang) * 2.4;
+              const z = pc.z + Math.cos(ang) * 2.4;
+              pl.s.x = x;
+              pl.s.z = z;
+              pl.s.y = g.terrain!.height(x, z);
+            } else {
+              pl.s.x = pc.x;
+              pl.s.z = pc.z;
+              pl.s.y = pc.y;
+              g.notify('tower.view', {}, 'good');
+            }
+            pl.vx = pl.vz = pl.vy = 0;
+            pl.visualY = pl.s.y;
+            g.audio.sfx('place');
+          },
+        };
+      }
       case 'door':
       case 'gate':
         return { label: t('prompt.door', { key }), run: () => g.buildingSys!.toggleDoor(pc.id) };
@@ -959,7 +1003,7 @@ export class Interactions {
   }
 }
 
-const USABLE = new Set(['door', 'gate', 'bed', 'storage', 'feeding_trough', 'water_collector', 'well', 'crop_plot', 'nest_box', 'spike_trap', 'snare_trap', 'lamp', 'electric_fence', 'wind_generator']);
+const USABLE = new Set(['watchtower', 'door', 'gate', 'bed', 'storage', 'feeding_trough', 'water_collector', 'well', 'crop_plot', 'nest_box', 'spike_trap', 'snare_trap', 'lamp', 'electric_fence', 'wind_generator']);
 
 /** Which species a fossil belongs to (deterministic from its id). */
 export function fossilSpecies(id: string): string {

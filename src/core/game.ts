@@ -2,6 +2,7 @@ import { DinoCombatFx } from '../combat/dinoCombatFx';
 import * as THREE from 'three';
 import { AudioSystem, type Surface } from '../audio/audio';
 import { growthScale, lifeStage, type AIState, type AnimalData, type TameCommand } from '../animals/animal';
+import { alphaMul } from '../animals/alpha';
 import { updateAlphaAura } from '../animals/alphaAura';
 import { LandmarkViews } from '../world/landmarks';
 import { WORLD_LIMIT, applyCurrent, placeKey, worldPois } from '../world/pois';
@@ -14,6 +15,7 @@ import { Ecosystem, createEcosystemState, type EcoContext, type EcoEvent } from 
 import { SPECIES } from '../animals/species';
 import { Building, PIECES, type Piece, type PieceType, type Placement } from '../building/building';
 import { applyBuildingTextures, createGhost, createPieceObject, disposeObject, syncPieceObject } from '../building/pieceViews';
+import { materialOf } from '../building/durability';
 import { resolveDamage, snareable } from '../combat/combat';
 import { Crafting } from '../crafting/crafting';
 import { RECIPES, type Station } from '../crafting/recipes';
@@ -1094,6 +1096,9 @@ export class Game {
       incubationSeconds: (sp) => SPECIES[sp].reproduction.incubationDays * 1200 * prog.incubation(),
     });
     for (const box of tick.hatched) this.taming.hatch(this.tamingHost(), box.id);
+    this.buildingSys!.weather(dt, env.state.weather === 'rain' || env.state.weather === 'storm', env.state.weather === 'storm');
+    this.dinosAgainstStructures(env.state.time);
+    this.watchtowerView(env.state.time);
 
     // --- Streaming & visuals.
     this.profiler.begin('streaming');
@@ -1743,7 +1748,12 @@ export class Game {
 
   private createBag(items: Stack[], reason: ItemBag['reason']): void {
     const p = this.player!;
-    this.bags.push({ id: `b${this.nextBagId++}`, x: p.s.x, y: p.s.y, z: p.s.z, items, createdAt: this.env!.state.time, reason });
+    this.createBagAt(items, p.s.x, p.s.y, p.s.z, reason);
+  }
+
+  private createBagAt(items: Stack[], x: number, y: number, z: number, reason: ItemBag['reason'] = 'drop'): void {
+    const gy = this.inCave ? y : Math.max(this.terrain!.height(x, z), Math.min(y, this.collision.surfaceAt(x, z, y + 1)));
+    this.bags.push({ id: `b${this.nextBagId++}`, x, y: Number.isFinite(gy) ? gy : y, z, items, createdAt: this.env!.state.time, reason });
   }
 
   sleepIn(bed: Piece): void {
@@ -2094,6 +2104,77 @@ export class Game {
         this.notify('build.demolished');
       }
     }
+  }
+
+  /** Seconds between blows of each animal against structures. */
+  private structureHitAt = new Map<string, number>();
+
+  /**
+   * Big or aggressive animals that are hunting or fighting and find a wall,
+   * door, fence or tower in their way attack it (the blow lands every attack
+   * cooldown, scaled by the species' strength). Small animals cannot hurt
+   * buildings.
+   */
+  private dinosAgainstStructures(now: number): void {
+    const b = this.buildingSys!;
+    if (!b.pieces.size || this.inCave) return;
+    for (const a of this.eco!.active) {
+      if (!a.alive || a.tame || (a.state !== 'hunt' && a.state !== 'defend')) continue;
+      const sp = SPECIES[a.speciesId];
+      if (sp.massKg < 60 || sp.locomotion.flies || sp.locomotion.aquatic) continue;
+      if ((this.structureHitAt.get(a.id) ?? -1e9) > now) continue;
+      const g = growthScale(a, now);
+      const reach = sp.lengthM * 0.45 * g + 1.2;
+      const fx = a.x + Math.sin(a.heading) * reach * 0.6;
+      const fz = a.z + Math.cos(a.heading) * reach * 0.6;
+      const pc = b.nearest(fx, fz, reach, (x) => PIECES[x.type].solid && Math.abs(x.y - a.y) < sp.hipHeightM * 2 + 3);
+      if (!pc) continue;
+      this.structureHitAt.set(a.id, now + sp.attack.cooldown * 1.2);
+      const dmg = sp.attack.damage * (0.4 + 0.6 * g) * alphaMul(a, 'damage') * 0.8;
+      this.damagePiece(pc, dmg, a.x, a.z);
+    }
+  }
+
+  /** Damages a piece, with effects; breaks it and whatever it held up when it reaches zero. */
+  damagePiece(pc: Piece, dmg: number, fromX: number, fromZ: number): void {
+    const b = this.buildingSys!;
+    const dir = new THREE.Vector3(pc.x - fromX, 0, pc.z - fromZ).normalize();
+    const mat = materialOf(pc.type);
+    this.fx.spawn(mat === 'stone' ? 'stone' : mat === 'metal' ? 'metal' : 'wood', new THREE.Vector3(pc.x, pc.y + 1, pc.z), dir, 1);
+    this.audio.sfx(mat === 'stone' ? 'stone' : 'chop', [pc.x, pc.y + 1, pc.z]);
+    const res = b.damage(pc.id, dmg, (x, z) => this.terrain!.height(x, z));
+    if (!res.destroyed.length) return;
+    for (const d of res.destroyed) {
+      const view = this.pieceViews.get(d.id);
+      if (view) {
+        view.removeFromParent();
+        disposeObject(view);
+      }
+      this.pieceViews.delete(d.id);
+      if (this.storageOpen?.id === d.id) this.storageOpen = null;
+      if (this.respawnPoint?.pieceId === d.id) this.respawnPoint = null;
+      this.fx.spawn(materialOf(d.type) === 'stone' ? 'stone' : 'wood', new THREE.Vector3(d.x, d.y + 1, d.z), new THREE.Vector3(0, 1, 0), 1.5);
+    }
+    this.audio.sfx('demolish', [pc.x, pc.y, pc.z]);
+    const debris = Object.entries(res.debris).map(([id, qty]) => ({ id, qty }));
+    if (debris.length) this.createBagAt(debris, pc.x, pc.y, pc.z);
+    if (Math.hypot(pc.x - this.player!.s.x, pc.z - this.player!.s.z) < 150)
+      this.notify(res.destroyed.length > 1 ? 'build.collapsed' : 'build.broken', { what: t(`piece.${pc.type}`), n: res.destroyed.length - 1 }, 'warn');
+  }
+
+  /** Looking out from a watchtower reveals the map around it and spots animals far away. */
+  private towerRevealAt = 0;
+  onTower(): Piece | null {
+    const p = this.player!;
+    return this.buildingSys!.nearest(p.s.x, p.s.z, 2.2, (pc) => pc.type === 'watchtower' && Math.abs(p.s.y - pc.y) < 0.6);
+  }
+
+  private watchtowerView(now: number): void {
+    const tw = this.onTower();
+    if (!tw || now < this.towerRevealAt) return;
+    this.towerRevealAt = now + 5;
+    this.exploration.reveal(tw.x, tw.z, 320);
+    for (const a of this.eco!.active) if (a.alive && Math.hypot(a.x - tw.x, a.z - tw.z) < 300) this.seenSpecies.add(a.speciesId);
   }
 
   private addPieceView(p: Piece): void {

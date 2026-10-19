@@ -30,7 +30,7 @@ export const BUILD_CATEGORIES: { id: string; pieces: PieceType[] }[] = [
   { id: 'foundations', pieces: ['foundation', 'stone_foundation', 'floor', 'platform'] },
   { id: 'walls', pieces: ['wall', 'stone_wall', 'door'] },
   { id: 'roofs', pieces: ['roof', 'stairs'] },
-  { id: 'defense', pieces: ['fence', 'palisade', 'gate', 'electric_fence', 'spike_trap', 'snare_trap'] },
+  { id: 'defense', pieces: ['fence', 'palisade', 'gate', 'electric_fence', 'spike_trap', 'snare_trap', 'watchtower'] },
   { id: 'stations', pieces: ['campfire', 'workbench', 'forge', 'storage'] },
   { id: 'living', pieces: ['bed', 'crop_plot', 'water_collector', 'well'] },
   { id: 'animals', pieces: ['feeding_trough', 'nest_box'] },

@@ -275,6 +275,42 @@ export function createPieceObject(type: PieceType): THREE.Group {
       for (const side of [-1, 1]) g.add(mesh(new THREE.BoxGeometry(0.1, 1.6, 0.1), mats.darkWood, side * 0.85, 1.2, 0));
       g.add(mesh(new THREE.BoxGeometry(1.9, 0.1, 0.1), mats.darkWood, 0, 2, 0));
       break;
+    case 'watchtower': {
+      // Four slightly splayed log legs with cross braces, a plank deck at the top
+      // (y = 0 is the deck surface), a railing and a ladder on the +z side.
+      const top = 0;
+      for (const [x, z] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+        const leg = mesh(new THREE.CylinderGeometry(0.14, 0.2, h + 1.2, 7), mats.darkWood, x * (w / 2 - 0.2) * 1.08, -h / 2 + 0.6, z * (d / 2 - 0.2) * 1.08);
+        leg.rotation.z = -x * 0.03;
+        leg.rotation.x = z * 0.03;
+        g.add(leg);
+      }
+      for (const yy of [-h * 0.3, -h * 0.65]) {
+        for (const side of [-1, 1]) {
+          const bx = mesh(new THREE.BoxGeometry(w * 1.05, 0.12, 0.12), mats.wood, 0, yy, side * (d / 2 - 0.2));
+          bx.rotation.z = side * 0.55;
+          g.add(bx);
+          const bz = mesh(new THREE.BoxGeometry(0.12, 0.12, d * 1.05), mats.wood, side * (w / 2 - 0.2), yy, 0);
+          bz.rotation.x = side * 0.55;
+          g.add(bz);
+        }
+      }
+      g.add(mesh(new THREE.BoxGeometry(w + 0.5, 0.2, d + 0.5), mats.wood, 0, top - 0.1, 0));
+      for (const side of [-1, 1]) {
+        g.add(mesh(new THREE.BoxGeometry(w + 0.5, 0.1, 0.1), mats.darkWood, 0, top + 1, side * (d / 2 + 0.2)));
+        g.add(mesh(new THREE.BoxGeometry(0.1, 0.1, d + 0.5), mats.darkWood, side * (w / 2 + 0.2), top + 1, 0));
+      }
+      for (const [x, z] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) g.add(mesh(new THREE.CylinderGeometry(0.06, 0.06, 1.1, 5), mats.darkWood, x * (w / 2 + 0.2), top + 0.55, z * (d / 2 + 0.2)));
+      // Ladder.
+      for (const side of [-1, 1]) g.add(mesh(new THREE.BoxGeometry(0.08, h, 0.08), mats.darkWood, side * 0.3, -h / 2, d / 2 + 0.35));
+      for (let i = 0; i < 16; i++) g.add(mesh(new THREE.BoxGeometry(0.6, 0.05, 0.05), mats.wood, 0, -h + 0.4 + i * (h / 16), d / 2 + 0.35));
+      // Thatched roof over the deck.
+      const roof = mesh(new THREE.ConeGeometry(w * 0.9, 1.2, 4), mats.thatch, 0, top + 2.6, 0);
+      roof.rotation.y = Math.PI / 4;
+      g.add(roof);
+      for (const [x, z] of [[-1, -1], [1, 1]]) g.add(mesh(new THREE.CylinderGeometry(0.06, 0.06, 2, 5), mats.darkWood, x * (w / 2), top + 1, z * (d / 2)));
+      break;
+    }
     case 'torch_post': {
       g.add(mesh(new THREE.CylinderGeometry(0.05, 0.07, h, 5), mats.darkWood, 0, h / 2, 0));
       const flame = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.3, 6), mats.flame);

@@ -1,6 +1,7 @@
 import type { Station } from '../crafting/recipes';
 import { Inventory, type ItemList, type Stack } from '../inventory/inventory';
 import { CollisionWorld, type BoxCollider } from '../world/collision';
+import { COLLAPSE_BELOW, hpOf, repairCost, stability, unsupported, wear } from './durability';
 
 /**
  * Hybrid building: "snap" mode aligns pieces to a 4 m grid and to the edges
@@ -12,7 +13,7 @@ export type PieceType =
   | 'foundation' | 'floor' | 'wall' | 'door' | 'roof' | 'fence' | 'palisade' | 'platform'
   | 'campfire' | 'workbench' | 'storage' | 'bed' | 'water_collector' | 'crop_plot'
   | 'stairs' | 'stone_foundation' | 'stone_wall' | 'gate' | 'feeding_trough' | 'nest_box' | 'spike_trap' | 'snare_trap'
-  | 'forge' | 'wind_generator' | 'lamp' | 'electric_fence' | 'well' | 'torch_post';
+  | 'forge' | 'wind_generator' | 'lamp' | 'electric_fence' | 'well' | 'torch_post' | 'watchtower';
 
 export interface PieceDef {
   type: PieceType;
@@ -63,6 +64,8 @@ export const PIECES: Record<PieceType, PieceDef> = {
   electric_fence: { type: 'electric_fence', cost: { metal_ingot: 2, wood: 4, rope: 1 }, size: [GRID, 1.8, 0.2], walkable: false, solid: true, category: 'defense', unlock: 'skill:engineer', power: -0.25 },
   well: { type: 'well', cost: { stone: 20, wood: 6, rope: 2 }, size: [1.8, 1, 1.8], walkable: false, solid: true, category: 'utility', unlock: 'skill:mason' },
   torch_post: { type: 'torch_post', cost: { wood: 2, fiber: 3 }, size: [0.3, 2, 0.3], walkable: false, solid: false, category: 'utility' },
+  // Watchtower: four log legs, a ladder and a railed platform 8 m up (walkable top).
+  watchtower: { type: 'watchtower', cost: { wood: 30, rope: 4, fiber: 10 }, size: [3, 8, 3], walkable: true, solid: true, category: 'defense' },
 };
 
 export type CropType = 'berries' | 'herb' | 'fern_fronds';
@@ -91,6 +94,8 @@ export interface Piece {
   armed?: boolean;
   /** Power consumers: currently supplied. */
   powered?: boolean;
+  /** Hit points; absent = undamaged (see durability.ts). */
+  hp?: number;
 }
 
 export interface BuildTickContext {
@@ -129,7 +134,7 @@ export interface BuildingState {
   nextId: number;
 }
 
-const STRUCT_SUPPORT: PieceType[] = ['foundation', 'stone_foundation', 'floor', 'platform'];
+const STRUCT_SUPPORT: PieceType[] = ['foundation', 'stone_foundation', 'floor', 'platform', 'watchtower'];
 const SUPPORTS: PieceType[] = ['foundation', 'stone_foundation', 'floor', 'platform'];
 const WALLISH: PieceType[] = ['wall', 'door', 'fence', 'palisade', 'stone_wall', 'gate', 'electric_fence'];
 const WALL_SUPPORT: PieceType[] = ['wall', 'door', 'palisade', 'stone_wall', 'gate'];
@@ -155,8 +160,9 @@ export class Building {
     if (!def.solid) return null;
     const [w, h, d] = def.size;
     const found = p.type === 'foundation' || p.type === 'stone_foundation';
-    const y0 = found ? p.y - h - 2 : p.type === 'platform' ? p.y - h : p.y;
-    const y1 = p.type === 'platform' || found ? p.y : p.y + h;
+    const tall = p.type === 'platform' || p.type === 'watchtower';
+    const y0 = found ? p.y - h - 2 : tall ? p.y - h : p.y;
+    const y1 = tall || found ? p.y : p.y + h;
     return {
       kind: 'box', id: p.id, x: p.x, z: p.z, hx: w / 2, hz: d / 2, rot: p.rot, y0, y1,
       walkable: def.walkable, enabled: !((p.type === 'door' || p.type === 'gate') && p.open),
@@ -173,7 +179,7 @@ export class Building {
   static verticalSpan(type: PieceType, y: number): [number, number] {
     const h = PIECES[type].size[1];
     if (type === 'foundation' || type === 'stone_foundation') return [y - h - 2, y];
-    if (type === 'platform') return [y - h, y];
+    if (type === 'platform' || type === 'watchtower') return [y - h, y];
     return [y, y + Math.max(h, 0.05)];
   }
 
@@ -274,12 +280,12 @@ export class Building {
         x = Math.round(ax * 2) / 2;
         z = Math.round(az * 2) / 2;
       }
-    } else if (type === 'platform') {
-      if (snap) {
+    } else if (type === 'platform' || type === 'watchtower') {
+      if (snap && type === 'platform') {
         x = Math.round(ax / GRID) * GRID;
         z = Math.round(az / GRID) * GRID;
       }
-      const hs = this.cornerHeights(x, z, r, GRID / 2, GRID / 2, env);
+      const hs = this.cornerHeights(x, z, r, def.size[0] / 2, def.size[2] / 2, env);
       y = Math.max(Math.max(...hs), env.waterLevel) + def.size[1];
     } else {
       // Facilities sit on the ground or on a walkable surface.
@@ -327,10 +333,10 @@ export class Building {
       if (ny < Math.max(...hs) - 0.6) return { y: ny, reason: 'buried' };
       return { y: ny };
     }
-    if (type === 'platform') {
-      const hs = this.cornerHeights(x, z, r, GRID / 2, GRID / 2, env);
+    if (type === 'platform' || type === 'watchtower') {
+      const hs = this.cornerHeights(x, z, r, PIECES[type].size[0] / 2, PIECES[type].size[2] / 2, env);
       if (lift > 0.05) return { y: ny, reason: 'floating' };
-      if (ny - PIECES.platform.size[1] < Math.min(...hs) - 1.2) return { y: ny, reason: 'buried' };
+      if (ny - PIECES[type].size[1] < Math.min(...hs) - 1.2) return { y: ny, reason: 'buried' };
       return { y: ny };
     }
     // Pieces that hang on other pieces (walls on foundations, roofs, floors, stairs) keep their support height.
@@ -389,6 +395,57 @@ export class Building {
     this.pieces.delete(id);
     this.collision.remove(id);
     return { refund, overflow };
+  }
+
+  /**
+   * Damages a piece. When it breaks it is removed (a third of its materials
+   * are left as debris) and every piece that loses its support because of it
+   * collapses too. Pieces that were already unsupported before (older saves)
+   * are left alone.
+   */
+  damage(id: string, amount: number, ground: (x: number, z: number) => number): { destroyed: Piece[]; debris: ItemList } {
+    const p = this.pieces.get(id);
+    const out = { destroyed: [] as Piece[], debris: {} as ItemList };
+    if (!p || amount <= 0) return out;
+    p.hp = hpOf(p) - amount;
+    if (p.hp > 0) return out;
+    const before = stability(this.pieces.values(), ground);
+    const remove = (x: Piece) => {
+      this.pieces.delete(x.id);
+      this.collision.remove(x.id);
+      out.destroyed.push(x);
+      for (const [k, q] of Object.entries(PIECES[x.type].cost)) {
+        const n = Math.floor(q / 3);
+        if (n > 0) out.debris[k] = (out.debris[k] ?? 0) + n;
+      }
+      for (const st of x.storage ?? []) if (st) out.debris[st.id] = (out.debris[st.id] ?? 0) + st.qty;
+    };
+    remove(p);
+    // Cascade: whatever no longer stands falls (re-checked until nothing changes).
+    for (let i = 0; i < 20; i++) {
+      const fall = unsupported(this.pieces.values(), ground).filter((pid) => (before.get(pid) ?? 0) >= COLLAPSE_BELOW);
+      if (!fall.length) break;
+      for (const pid of fall) remove(this.pieces.get(pid)!);
+    }
+    return out;
+  }
+
+  /** Repairs a piece to full health if the inventory has the materials. */
+  repair(id: string, inv: Inventory): 'ok' | 'full' | 'materials' | null {
+    const p = this.pieces.get(id);
+    if (!p) return null;
+    const cost = repairCost(p);
+    if (!Object.keys(cost).length) return 'full';
+    for (const [k, q] of Object.entries(cost)) if (inv.count(k) < q) return 'materials';
+    for (const [k, q] of Object.entries(cost)) inv.remove(k, q);
+    delete p.hp;
+    return 'ok';
+  }
+
+  /** Weather wear on every piece (call with the elapsed game time). */
+  weather(dt: number, raining: boolean, storm: boolean): void {
+    if (!raining) return;
+    for (const p of this.pieces.values()) wear(p, dt, raining, storm);
   }
 
   toggleDoor(id: string): void {
