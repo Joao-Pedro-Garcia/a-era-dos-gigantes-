@@ -193,8 +193,9 @@ describe('realism pilot: triceratops and skin regions', () => {
     expect(torso.rx).toBeGreaterThan(torso.ry * 1.5);
     t.geometry.computeBoundingBox();
     const bb = t.geometry.boundingBox!;
-    // Top of the back, armour included, about 2 m (~1.7 m at the hips plus the osteoderms).
-    expect(bb.max.y).toBeLessThan(sp.hipHeightM * 1.4);
+    // Top of the back, armour included, a little over 2 m (~1.7 m at the hips plus the
+    // osteoderms; the film-look spikes are taller than the fossil ones).
+    expect(bb.max.y).toBeLessThan(sp.hipHeightM * 1.5);
     // Club: the tail tip region is about as wide as the skull (~0.5-0.7 m).
     const pos = t.geometry.attributes.position;
     const tipZ = t.bp.cps[0].p.z;

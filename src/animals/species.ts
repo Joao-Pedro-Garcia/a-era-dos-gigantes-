@@ -102,7 +102,7 @@ const S: Record<string, Def> = {
     threat: { response: 'charge', flightDistance: 18 }, attack: { damage: 45, range: 4, cooldown: 2 }, health: 1400,
     taming: { possible: true, difficulty: 0.6, preferredFood: ['berries', 'cycad_fronds'] }, habitat: ['plains'], tempRange: [10, 34],
     locomotion: { plan: 'quadruped', stride: 2.2, turnRate: 0.9, swims: true, flies: false },
-    audio: { pitch: 90, call: 'grunt' }, look: { base: 0x6b6a58, belly: 0x9c9882, accent: 0x4e4c3e, pattern: 'countershade', features: ['horns3', 'frill'] },
+    audio: { pitch: 90, call: 'grunt' }, look: { base: 0x77715c, belly: 0xd4c6a8, accent: 0x56603c, pattern: 'countershade', features: ['horns3', 'frill'] },
     huntsHumans: false,
   },
   brachiosaurus: {
@@ -128,7 +128,7 @@ const S: Record<string, Def> = {
     threat: { response: 'defend', flightDistance: 6 }, attack: { damage: 55, range: 4, cooldown: 2.5 }, health: 1800,
     taming: { possible: true, difficulty: 0.55, preferredFood: ['berries', 'herb'] }, habitat: ['plains', 'jungle'], tempRange: [10, 34],
     locomotion: { plan: 'quadruped', stride: 1.4, turnRate: 0.8, swims: false, flies: false },
-    audio: { pitch: 80, call: 'grunt' }, look: { base: 0x4a5236, belly: 0x6e6c52, accent: 0x2e3424, pattern: 'spots', features: ['armor', 'club', 'scutes'] },
+    audio: { pitch: 80, call: 'grunt' }, look: { base: 0x7e8260, belly: 0x9a967a, accent: 0x8c8c3a, pattern: 'spots', features: ['armor', 'club', 'scutes'] },
     huntsHumans: false,
   },
   spinosaurus: {
@@ -180,7 +180,7 @@ const S: Record<string, Def> = {
     threat: { response: 'flee', flightDistance: 40 }, attack: { damage: 15, range: 2.5, cooldown: 2 }, health: 700,
     taming: { possible: true, difficulty: 0.4, preferredFood: ['berries', 'cycad_fronds'] }, habitat: ['plains', 'swamp', 'jungle'], tempRange: [10, 36],
     locomotion: { plan: 'hadrosaur', stride: 2, turnRate: 1.3, swims: true, flies: false },
-    audio: { pitch: 140, call: 'honk' }, look: { base: 0x8a6a40, belly: 0xc8b48a, accent: 0x8a3a28, pattern: 'stripes', features: ['crestTube'] },
+    audio: { pitch: 140, call: 'honk' }, look: { base: 0xb8986e, belly: 0xe2d2b6, accent: 0x6a4a30, pattern: 'stripes', features: ['crestTube'] },
     huntsHumans: false,
   },
   stegosaurus: {
