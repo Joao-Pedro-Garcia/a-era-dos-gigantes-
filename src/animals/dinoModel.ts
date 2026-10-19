@@ -338,9 +338,11 @@ function blueprint(sp: SpeciesDef, juvenile = false): Blueprint {
     const end = cps[cps.length - 1].p;
     // Ceratopsian skulls are huge and deep (triceratops: ~1.3 m from beak to the back of the
     // skull, ~0.6 m deep, broad cheeks), carried low with the beak pointing down and forward.
-    const hl = croc ? 0.22 * L : cera ? (f.has('horns3') ? 0.155 * L : 0.15 * L) : ankylo ? 0.08 * L : stego ? 0.06 * L : 0.12 * L;
+    // Alligatoroids (Deinosuchus) have a broad, shorter snout than the slender-snouted Sarcosuchus.
+    const broad = croc && !f.has('longSnout');
+    const hl = croc ? (broad ? 0.15 * L : 0.22 * L) : cera ? (f.has('horns3') ? 0.155 * L : 0.15 * L) : ankylo ? 0.08 * L : stego ? 0.06 * L : 0.12 * L;
     const hh = croc ? 0.018 * L : cera ? (f.has('horns3') ? 0.07 * L : 0.062 * L) : ankylo ? 0.03 * L : 0.022 * L;
-    head = { bone: 'head', at: end.clone(), len: hl, height: hh, width: croc ? hh * 1.4 : ankylo ? hh * 1.8 : cera ? hh * 1.05 : hh * 0.95, pitch: croc ? 0.02 : cera ? 0.36 : ankylo ? 0.25 : 0.35 };
+    head = { bone: 'head', at: end.clone(), len: hl, height: hh, width: croc ? hh * (broad ? 2.1 : 1.4) : ankylo ? hh * 1.8 : cera ? hh * 1.05 : hh * 0.95, pitch: croc ? 0.02 : cera ? 0.36 : ankylo ? 0.25 : 0.35 };
     const legY = croc ? Hh * 0.95 : Hh;
     for (const [front, side] of [[false, 1], [false, -1], [true, 1], [true, -1]] as [boolean, number][]) {
       const z = front ? 0.15 * L : -0.04 * L;
@@ -427,18 +429,19 @@ function blueprint(sp: SpeciesDef, juvenile = false): Blueprint {
       cp(0.33 * L, Hh * 1.02, 0.043 * L, 0.047 * L, 0, 'neck3');
       cp(0.36 * L, Hh * 1.0, 0.037 * L, 0.041 * L, 0, null);
     } else {
-      cp(-0.5 * L, Hh * 0.78, 0.016 * L, 0.018 * L, 0, null);
-      cp(-0.45 * L, Hh * 0.9, 0.022 * L, 0.024 * L, 0, 'tail4');
-      cp(-0.4 * L, Hh * 0.99, 0.028 * L, 0.03 * L, 0, 'tail3');
-      cp(-0.34 * L, Hh * 1.04, 0.036 * L, 0.04 * L, 0, 'tail2');
-      cp(-0.28 * L, Hh * 1.07, 0.056 * L, 0.06 * L, 0.004 * L, 'tail1');
-      cp(-0.19 * L, Hh * 1.05, 0.08 * L, 0.095 * L, 0.01 * L, 'pelvis');
-      cp(-0.03 * L, Hh * 1.0, 0.088 * L, 0.112 * L, 0.024 * L, 'torso');
-      cp(0.11 * L, Hh * 1.08, 0.09 * L, 0.128 * L, 0.03 * L, 'chest');
-      cp(0.19 * L, Hh * 1.2, 0.06 * L, 0.074 * L, 0.012 * L, 'neck1');
-      cp(0.24 * L, Hh * 1.27, 0.05 * L, 0.06 * L, 0, 'neck2');
-      cp(0.28 * L, Hh * 1.29, 0.045 * L, 0.052 * L, 0, 'neck3');
-      cp(0.3 * L, Hh * 1.29, 0.04 * L, 0.046 * L, 0, null);
+      // Short bobtail, deep chest, thick neck carried low.
+      cp(-0.4 * L, Hh * 0.82, 0.02 * L, 0.022 * L, 0, null);
+      cp(-0.37 * L, Hh * 0.9, 0.028 * L, 0.03 * L, 0, 'tail4');
+      cp(-0.34 * L, Hh * 0.96, 0.036 * L, 0.038 * L, 0, 'tail3');
+      cp(-0.31 * L, Hh * 1.0, 0.046 * L, 0.05 * L, 0, 'tail2');
+      cp(-0.27 * L, Hh * 1.03, 0.064 * L, 0.07 * L, 0.004 * L, 'tail1');
+      cp(-0.19 * L, Hh * 1.02, 0.092 * L, 0.11 * L, 0.012 * L, 'pelvis');
+      cp(-0.03 * L, Hh * 0.98, 0.1 * L, 0.13 * L, 0.03 * L, 'torso');
+      cp(0.11 * L, Hh * 1.02, 0.104 * L, 0.148 * L, 0.036 * L, 'chest');
+      cp(0.19 * L, Hh * 1.08, 0.075 * L, 0.088 * L, 0.014 * L, 'neck1');
+      cp(0.24 * L, Hh * 1.12, 0.062 * L, 0.07 * L, 0, 'neck2');
+      cp(0.275 * L, Hh * 1.13, 0.054 * L, 0.06 * L, 0, 'neck3');
+      cp(0.295 * L, Hh * 1.12, 0.048 * L, 0.054 * L, 0, null);
     }
     const end = cps[cps.length - 1].p;
     head = sloth
@@ -464,7 +467,7 @@ function blueprint(sp: SpeciesDef, juvenile = false): Blueprint {
         joints,
         radii: sloth
           ? front ? [0.062 * L, 0.046 * L, 0.034 * L, 0.03 * L, 0.024 * L] : [0.09 * L, 0.062 * L, 0.042 * L, 0.04 * L, 0.034 * L]
-          : front ? [0.062 * L, 0.04 * L, 0.028 * L, 0.026 * L, 0.022 * L] : [0.07 * L, 0.042 * L, 0.024 * L, 0.022 * L, 0.02 * L],
+          : front ? [0.078 * L, 0.054 * L, 0.036 * L, 0.032 * L, 0.028 * L] : [0.085 * L, 0.052 * L, 0.03 * L, 0.028 * L, 0.025 * L],
         parent: front ? 'chest' : 'pelvis',
         front,
         phase: (front ? 0.25 : 0) + (side > 0 ? 0 : 0.5),
@@ -623,7 +626,7 @@ const apexW = (sp: SpeciesDef) => sp.ecology === 'apexPredator' || sp.massKg > 1
  */
 export function scuteAmount(sp: SpeciesDef): number {
   const f = new Set(sp.look.features);
-  if (f.has('feathers')) return 0;
+  if (f.has('feathers') || f.has('fur')) return 0;
   if (f.has('frill')) return 1;
   if (f.has('armor')) return 0.75;
   const plan = sp.locomotion.plan;
@@ -814,7 +817,8 @@ export function buildDinoTemplate(sp: SpeciesDef, juvenile = false): DinoTemplat
     const sNeck = sAt('neck1') > 0 ? sAt('neck1') : 2;
     const L = sp.lengthM;
     const gs = (x: number, c: number, w: number) => Math.exp(-((x - c) * (x - c)) / (w * w));
-    const fold = L * (feathered ? 0 : 0.011);
+    const furry = sp.look.features.includes('fur');
+    const fold = L * (feathered || furry ? 0 : 0.011);
     const sculpt = (sm: { s: number }, a: number, along: number, p: THREE.Vector3) => {
       if (!detail) return 1;
       const dt = Math.atan2(Math.cos(a), Math.sin(a)); // 0 on top, ±π/2 at the sides
@@ -1186,8 +1190,8 @@ function buildHead(sp: SpeciesDef, bp: Blueprint, parts: Part[], boneIndex: Map<
   // Rounding of the back of the skull (occiput) and of the snout tip.
   const round = (t: number) => Math.sqrt(Math.max(0.0, smooth(-0.02, 0.16, t))) * 0.55 + 0.45 * smooth(-0.02, 0.1, t);
   const tipRound = (t: number) => (fam === 'ptero' ? 1 : 0.35 + 0.65 * Math.sqrt(Math.max(0, 1 - smooth(0.9, 1.0, t))));
-  const keratin = (t: number) => beaked && t > (fam === 'ptero' ? 0.35 : fam === 'duck' ? 0.78 : 0.82);
-  const KER = fam === 'duck' || fam === 'anky' ? BILL : KERATIN;
+  const keratin = (t: number) => beaked && t > (fam === 'ptero' ? 0.35 : fam === 'duck' ? 0.78 : fam === 'dodo' ? 0.42 : 0.82);
+  const KER: RGB = fam === 'duck' || fam === 'anky' ? BILL : fam === 'dodo' ? [0.5, 0.47, 0.33] : KERATIN;
 
   // ---- Upper skull: roof arch over the mouth line, closed by the palate.
   const skull: { p: THREE.Vector3; c: RGB }[][] = [];
@@ -1548,6 +1552,32 @@ function buildFeatures(sp: SpeciesDef, bp: Blueprint, parts: Part[], boneIndex: 
     for (let i = 0; i < n; i++) {
       const a = b0 + i * 2;
       p.idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3, a, a + 1, a + 2, a + 1, a + 3, a + 2);
+    }
+  }
+  if (f.has('sabers')) {
+    // Sabre-toothed cat: two long, flattened, gently curved upper canines (~0.25 m in
+    // Smilodon populator), hanging below the closed jaw; ivory, darker at the root.
+    const w = bp.head.width;
+    const pr = skullProfile('felid', 0.8);
+    for (const sx of [1, -1]) {
+      const root = onSkull(0.8, sx * w * 0.32, pr.lip * height * 0.9);
+      const down = up.clone().multiplyScalar(-1);
+      const l = 0.11 * L * fs;
+      const pts = [0, 0.35, 0.7, 1].map((t) => root.clone().addScaledVector(down, l * t).addScaledVector(fwd, -l * 0.28 * t * t).addScaledVector(side, sx * l * 0.03 * t));
+      tube(parts[DMAT.horn], pts, [0.011 * L * fs, 0.0095 * L * fs, 0.007 * L * fs, 0.0015 * L], detail ? 8 : 4, (_q, t) => [lerp(0.62, 0.86, t), lerp(0.56, 0.82, t), lerp(0.45, 0.7, t)], () => [[hb], [1]], 1, true, 0.45);
+    }
+  }
+  if (sp.locomotion.plan === 'mammal') {
+    // Ears: rounded and upright on the cat, small on the sloth.
+    const w = bp.head.width;
+    const fam = skullFamily(sp);
+    const pr = skullProfile(fam, 0.1);
+    const big = fam === 'felid';
+    for (const sx of [1, -1]) {
+      const root = onSkull(0.1, sx * w * (big ? 0.6 : 0.7), (pr.lip + pr.top * 0.85) * height);
+      const dir = up.clone().addScaledVector(fwd, -0.35).addScaledVector(side, sx * 0.35).normalize();
+      const l = (big ? 0.026 : 0.02) * L;
+      tube(parts[DMAT.scales], [root, root.clone().addScaledVector(dir, l * 0.6), root.clone().addScaledVector(dir, l)], [l * 0.55, l * 0.45, l * 0.12], detail ? 8 : 4, (q) => paint(q, -0.3, 'body'), () => [[hb], [1]], 1, true, 0.35);
     }
   }
   if (f.has('neckFrill')) {

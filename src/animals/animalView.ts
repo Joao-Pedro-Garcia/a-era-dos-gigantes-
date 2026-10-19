@@ -182,6 +182,9 @@ function patchSkin(m: THREE.MeshStandardMaterial): void {
   m.customProgramCacheKey = () => 'dinoSkin';
 }
 
+/** The skin texture: a hair coat on mammals, scales on everything else. */
+const skinTexture = (sp: SpeciesDef) => (sp.look.features.includes('fur') ? 'fur' : 'scales');
+
 function speciesMaterials(sp: SpeciesDef): THREE.MeshStandardMaterial[] {
   let m = baseMats.get(sp.id);
   if (m) return m;
@@ -195,7 +198,7 @@ function speciesMaterials(sp: SpeciesDef): THREE.MeshStandardMaterial[] {
   const membrane = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.75, metalness: 0, side: THREE.DoubleSide, transparent: false });
   if (library) {
     patchSkin(scales);
-    library.bind(scales, 'scales');
+    library.bind(scales, skinTexture(sp));
     library.bind(feathers, 'feathers');
     library.bind(membrane, 'leather');
   }
@@ -293,7 +296,7 @@ export function createAnimalView(speciesId: string, individual = '', juvenile = 
     if (alpha) c.color.multiply(ALPHA_TINT);
     c.userData.shared = false;
     if (library && i === DMAT.scales) patchSkin(c);
-    if (library) library.bind(c, i === DMAT.scales ? 'scales' : 'feathers');
+    if (library) library.bind(c, i === DMAT.scales ? skinTexture(sp) : 'feathers');
     return c;
   });
   const mk = (g: THREE.BufferGeometry) => {
@@ -631,6 +634,26 @@ export function poseAnimalView(v: AnimalView, a: AnimalData, stride: number, alt
   });
   const head = bone('head');
   if (head) head.rotation.x = v.look * 0.35 - runF * 0.1;
+  if (sp.locomotion.plan === 'serpent') {
+    // Lateral undulation: a wave runs from the head to the tail as fast as the snake
+    // advances (each point of the body follows the path of the one ahead); at rest the
+    // body keeps a gentle S and only breathes. The head stays pointed forward.
+    const chain = ['neck3', 'neck2', 'neck1', 'chest', 'torso', 'pelvis', 'tail1', 'tail2', 'tail3', 'tail4'];
+    const amp = moving ? 0.32 + runF * 0.12 : 0.12;
+    const ph = moving ? cycle * Math.PI * 2 : 0.6 + Math.sin(now * 0.4 + a.x) * 0.15;
+    let acc = 0;
+    chain.forEach((n, i) => {
+      const b = bone(n);
+      if (!b) return;
+      // Bones down the tail are children of the pelvis in the other direction: flip their sign.
+      const sign = i <= 5 ? -1 : 1;
+      const yaw = Math.sin(ph + i * 0.9) * amp * (i === 0 ? 0.5 : 1);
+      b.rotation.y = sign * yaw;
+      b.rotation.x = 0;
+      if (i <= 2) acc += yaw;
+    });
+    if (head) head.rotation.y = acc * 0.6;
+  }
   const jawTarget = grazing ? 0.12 + Math.max(0, Math.sin(now * 6 + a.x)) * 0.18 : a.state === 'defend' || a.state === 'hunt' ? 0.5 : runF > 0.6 ? 0.18 : 0.02;
   v.jaw += (jawTarget - v.jaw) * k(8);
   const jaw = bone('jaw');

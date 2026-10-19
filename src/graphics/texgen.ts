@@ -655,6 +655,56 @@ export function feathers(n: number): TexImage {
   return c.finish(6);
 }
 
+/**
+ * Mammal coat: dense, fine hair strands lying along the body (v runs along the
+ * body), gathered into slightly darker locks, with a soft, matte sheen.
+ */
+export function fur(n: number): TexImage {
+  const c = new Canvas(n);
+  // Stretched value noise that still tiles: separate whole-number periods across (u)
+  // and along (v) the hair.
+  const aniso = (u: number, v: number, pu: number, pv: number, octaves: number, seed: number) => {
+    let sum = 0;
+    let amp = 1;
+    let norm = 0;
+    for (let o = 0; o < octaves; o++) {
+      const k = 1 << o;
+      const x = u * pu * k;
+      const y = v * pv * k;
+      const ix = Math.floor(x);
+      const iy = Math.floor(y);
+      const fx = x - ix;
+      const fy = y - iy;
+      const ux = fx * fx * (3 - 2 * fx);
+      const uy = fy * fy * (3 - 2 * fy);
+      const x0 = mod(ix, pu * k);
+      const y0 = mod(iy, pv * k);
+      const x1 = (x0 + 1) % (pu * k);
+      const y1 = (y0 + 1) % (pv * k);
+      const sd = seed + o * 101;
+      const a = hash3(x0, y0, sd);
+      const b = hash3(x1, y0, sd);
+      const cc = hash3(x0, y1, sd);
+      const d = hash3(x1, y1, sd);
+      sum += (a + (b - a) * ux + (cc - a) * uy + (a - b - cc + d) * ux * uy) * amp;
+      norm += amp;
+      amp *= 0.5;
+    }
+    return sum / norm;
+  };
+  c.each((u, v, i) => {
+    const strands = aniso(u, v, 96, 6, 3, 251);
+    const locks = aniso(u, v, 10, 4, 3, 253);
+    const tips = aniso(u, v, 24, 12, 2, 257);
+    const t = strands * 0.6 + locks * 0.4;
+    const tone = 0.62 + t * 0.32 + (tips - 0.5) * 0.08;
+    c.set(i, tone, tone * 0.98, tone * 0.95);
+    c.h[i] = strands * 0.7 + locks * 0.3;
+    c.rough[i] = 0.9 - strands * 0.08;
+  });
+  return c.finish(4);
+}
+
 /** Human skin: very subtle pores and tone variation. */
 export function skin(n: number): TexImage {
   const c = new Canvas(n);
@@ -783,6 +833,7 @@ export const MATERIAL_GENERATORS = {
   cloth,
   leather,
   hair,
+  fur,
   planks,
   concrete,
 } as const;

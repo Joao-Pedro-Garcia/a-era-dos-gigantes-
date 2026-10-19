@@ -436,7 +436,7 @@ const S: Record<string, Def> = {
   smilodon: {
     name: { 'pt-BR': 'Smilodonte', en: 'Smilodon' }, scientificName: 'Smilodon populator', clade: 'mammal',
     period: 'Pleistoceno (~1 Ma–10 mil anos)', diet: 'carnivore', ecology: 'mesoPredator',
-    lengthM: 2.1, hipHeightM: 0.95, massKg: 300, walkSpeed: 1.4, runSpeed: 11, stamina: 6, foodNeed: 1, waterNeed: 1,
+    lengthM: 2.1, hipHeightM: 0.85, massKg: 300, walkSpeed: 1.4, runSpeed: 11, stamina: 6, foodNeed: 1, waterNeed: 1,
     social: { type: 'pair', size: [1, 3] }, senses: { sight: 130, hearing: 140, smell: 130, fovDeg: 200 },
     temperament: { aggression: 0.6, fearfulness: 0.25, curiosity: 0.4 }, territory: { radius: 700, defends: true },
     activity: 'crepuscular', reproduction: { clutch: [1, 3], incubationDays: 4, maturityDays: 18, parentalCare: 0.8, season: [6, 16], live: true },
@@ -449,7 +449,7 @@ const S: Record<string, Def> = {
   dodo: {
     name: { 'pt-BR': 'Dodô', en: 'Dodo' }, scientificName: 'Raphus cucullatus', clade: 'avialan',
     period: 'Holoceno (extinto ~1681)', diet: 'herbivore', ecology: 'smallHerbivore',
-    lengthM: 0.75, hipHeightM: 0.32, massKg: 14, walkSpeed: 0.9, runSpeed: 3.2, stamina: 6, foodNeed: 1, waterNeed: 1,
+    lengthM: 0.75, hipHeightM: 0.22, massKg: 14, walkSpeed: 0.9, runSpeed: 3.2, stamina: 6, foodNeed: 1, waterNeed: 1,
     social: { type: 'flock', size: [3, 8] }, senses: { sight: 40, hearing: 40, smell: 30, fovDeg: 280 },
     temperament: { aggression: 0.05, fearfulness: 0.35, curiosity: 0.8 }, territory: { radius: 200, defends: false },
     activity: 'diurnal', reproduction: { clutch: [1, 1], incubationDays: 3, maturityDays: 8, parentalCare: 0.7, season: [6, 18] },
@@ -469,7 +469,7 @@ const S: Record<string, Def> = {
     threat: { response: 'defend', flightDistance: 3 }, attack: { damage: 30, range: 1.8, cooldown: 2 }, health: 260,
     taming: { possible: false, difficulty: 1, preferredFood: ['raw_meat'] }, habitat: ['swamp', 'jungle'], tempRange: [20, 40],
     locomotion: { plan: 'serpent', stride: 0.8, turnRate: 1.6, swims: true, flies: false },
-    audio: { pitch: 400, call: 'hiss' }, look: { base: 0x3e4a26, belly: 0xb8a84a, accent: 0x14160c, pattern: 'spots', features: ['scutes'] },
+    audio: { pitch: 400, call: 'hiss' }, look: { base: 0x3e4a26, belly: 0xb8a84a, accent: 0x14160c, pattern: 'spots', features: [] },
     huntsHumans: true,
   },
 };

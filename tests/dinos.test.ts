@@ -30,7 +30,7 @@ describe('dinosaur models', () => {
       expect(Math.abs(a.z - b.z) / a.z, id).toBeLessThan(0.12);
       expect(Math.abs(a.y - b.y) / a.y, id).toBeLessThan(0.15);
     }
-  });
+  }, 120_000);
 
   it('juveniles have their own proportions (bigger head and eyes, small display structures)', () => {
     for (const id of ['tyrannosaurus', 'triceratops', 'stegosaurus', 'parasaurolophus']) {

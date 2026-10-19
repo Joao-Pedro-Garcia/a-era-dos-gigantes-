@@ -55,7 +55,7 @@ export const BIOMES: Record<BiomeId, BiomeDef> = {
     id: 'beach', ground: [0xcdbb8a, 0xe0d2a6],
     vegetation: [{ kind: 'palm', density: 0.35 }, { kind: 'rock', density: 0.15 }, { kind: 'grass', density: 0.4 }],
     movement: 0.9, forage: 0.2, resources: ['stone', 'flint', 'fiber'], hazards: [],
-    fauna: { pteranodon: 3, compsognathus: 2, protoceratops: 1 },
+    fauna: { pteranodon: 3, compsognathus: 2, protoceratops: 1, dodo: 2.5 },
   },
   plains: {
     id: 'plains', ground: [0x6e7f3a, 0x96964f],
@@ -67,6 +67,7 @@ export const BIOMES: Record<BiomeId, BiomeDef> = {
     fauna: {
       triceratops: 4, parasaurolophus: 4, gallimimus: 3, tyrannosaurus: 0.7, ankylosaurus: 2,
       stegosaurus: 2, velociraptor: 1.2, compsognathus: 1.5, pachycephalosaurus: 2, iguanodon: 2, archaeopteryx: 1,
+      megatherium: 0.6, smilodon: 0.5,
     },
   },
   jungle: {
@@ -78,7 +79,7 @@ export const BIOMES: Record<BiomeId, BiomeDef> = {
     movement: 0.8, forage: 1, resources: ['wood', 'fiber', 'berries', 'herb', 'stone'], hazards: ['disease'],
     fauna: {
       brachiosaurus: 2, dilophosaurus: 2, velociraptor: 1.5, compsognathus: 3, microraptor: 2,
-      iguanodon: 2, parasaurolophus: 1.5, carnotaurus: 0.6, therizinosaurus: 1,
+      iguanodon: 2, parasaurolophus: 1.5, carnotaurus: 0.6, therizinosaurus: 1, dodo: 1, anaconda: 0.6, megatherium: 0.5,
     },
   },
   forest: {
@@ -90,7 +91,7 @@ export const BIOMES: Record<BiomeId, BiomeDef> = {
     movement: 0.9, forage: 0.85, resources: ['wood', 'fiber', 'berries', 'herb', 'stone'], hazards: ['wildfire'],
     fauna: {
       stegosaurus: 2, iguanodon: 2.5, therizinosaurus: 1, allosaurus: 0.6, velociraptor: 1, pachycephalosaurus: 1.5,
-      microraptor: 2, troodon: 1, archaeopteryx: 1.5, parasaurolophus: 1.5,
+      microraptor: 2, troodon: 1, archaeopteryx: 1.5, parasaurolophus: 1.5, megatherium: 1.2, smilodon: 0.8,
     },
   },
   swamp: {
@@ -100,13 +101,13 @@ export const BIOMES: Record<BiomeId, BiomeDef> = {
       { kind: 'fern', density: 1.2 },
     ],
     movement: 0.65, forage: 0.7, resources: ['fiber', 'clay', 'herb', 'wood'], hazards: ['flood', 'disease'],
-    fauna: { spinosaurus: 1, sarcosuchus: 1.2, parasaurolophus: 2, dilophosaurus: 1, compsognathus: 1.5, baryonyx: 1 },
+    fauna: { spinosaurus: 1, sarcosuchus: 1.2, parasaurolophus: 2, dilophosaurus: 1, compsognathus: 1.5, baryonyx: 1, deinosuchus: 0.9, anaconda: 1.3 },
   },
   mountain: {
     id: 'mountain', ground: [0x6b665c, 0x8a857a],
     vegetation: [{ kind: 'conifer', density: 0.6 }, { kind: 'rock', density: 0.6 }, { kind: 'boulder', density: 0.12 }],
     movement: 0.75, forage: 0.35, resources: ['stone', 'flint', 'metal_ore', 'wood'], hazards: ['fall', 'cold'],
-    fauna: { pachycephalosaurus: 2, quetzalcoatlus: 1, pteranodon: 1.5, allosaurus: 0.8, stegosaurus: 1 },
+    fauna: { pachycephalosaurus: 2, quetzalcoatlus: 1, pteranodon: 1.5, allosaurus: 0.8, stegosaurus: 1, smilodon: 0.5 },
   },
   snow: {
     id: 'snow', ground: [0xdfe4ea, 0xf4f6f8],
