@@ -388,7 +388,7 @@ const S: Record<string, Def> = {
     threat: { response: 'mob', flightDistance: 16 }, attack: { damage: 10, range: 1.3, cooldown: 1 }, health: 80,
     taming: { possible: true, difficulty: 0.65, preferredFood: ['raw_meat', 'berries'] }, habitat: ['snow', 'mountain', 'plains'], tempRange: [-10, 30],
     locomotion: { plan: 'theropod', stride: 1, turnRate: 4, swims: false, flies: false },
-    audio: { pitch: 800, call: 'chirp' }, look: { base: 0xa47a3a, belly: 0xd4b484, accent: 0x9a4a2a, pattern: 'countershade', features: ['feathers', 'longClaws'] },
+    audio: { pitch: 800, call: 'chirp' }, look: { base: 0xa47a3a, belly: 0xd4b484, accent: 0x9a4a2a, pattern: 'countershade', features: ['longClaws'] },
     huntsHumans: true,
   },
   mosasaurus: {

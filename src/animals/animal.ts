@@ -2,6 +2,7 @@ import { Rng } from '../core/rng';
 import { clamp } from '../core/math';
 import { ALPHA } from './alpha';
 import { SPECIES, type SpeciesDef } from './species';
+import type { Genes } from './genetics';
 
 export type AIState =
   | 'ridden'
@@ -106,6 +107,10 @@ export interface AnimalData {
   alarmPlayer?: boolean;
   /** Rare dominant male (see alpha.ts); decided once at creation. */
   alpha?: boolean;
+  /** Inherited traits (see genetics.ts); absent = average. */
+  genes?: Genes;
+  /** Father, when known (born in the world). */
+  fatherId?: string | null;
 }
 
 export type LifeStage = 'juvenile' | 'subadult' | 'adult';
@@ -131,12 +136,14 @@ export function growthScale(a: AnimalData, now: number): number {
 
 export function effectiveMass(a: AnimalData, now: number): number {
   const s = growthScale(a, now);
-  return SPECIES[a.speciesId].massKg * s * s * s;
+  const z = a.genes?.size ?? 1;
+  return SPECIES[a.speciesId].massKg * s * s * s * z * z * z;
 }
 
 export function maxHealth(a: AnimalData, now: number): number {
   const s = growthScale(a, now);
-  return SPECIES[a.speciesId].health * (0.25 + 0.75 * s) * (a.alpha ? ALPHA.health : 1);
+  const z = a.genes?.size ?? 1;
+  return SPECIES[a.speciesId].health * (0.25 + 0.75 * s) * (a.alpha ? ALPHA.health : 1) * z * z;
 }
 
 export function rollPersonality(rng: Rng, sp: SpeciesDef): Personality {
