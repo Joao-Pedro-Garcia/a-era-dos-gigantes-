@@ -27,6 +27,11 @@ export interface ModelEntry {
    * metres per model unit; the skeleton is fitted in `src/animals/rigFits.ts`.
    */
   rig?: Record<string, string>;
+  /**
+   * Alternative colourings of the same model (same skeleton and clips), each worn
+   * by a share of the individuals (`chance`, 0–1); the rest wear `url`.
+   */
+  variants?: { url: string; chance: number }[];
 }
 export interface ModelCredit {
   title: string;
@@ -43,6 +48,9 @@ export interface ModelManifest {
 
 const CLIPS: ClipName[] = ['idle', 'walk', 'run', 'eat', 'drink', 'rest', 'attack', 'roar', 'swim', 'fly', 'death'];
 
+/** A model file name next to the manifest (no paths out of the folder, no schemes). */
+const validUrl = (u: string) => /^[\w\-./]+\.(glb|gltf|gltf\.json)$/i.test(u) && !u.includes('..') && !/^[a-z]+:/i.test(u);
+
 /** Validates a manifest read from disk (unknown or malformed entries are dropped). */
 export function parseManifest(raw: unknown): ModelManifest {
   const out: ModelManifest = { version: 1, species: {}, player: null };
@@ -51,7 +59,7 @@ export function parseManifest(raw: unknown): ModelManifest {
   const entry = (e: unknown): ModelEntry | null => {
     if (!e || typeof e !== 'object') return null;
     const x = e as Record<string, unknown>;
-    if (typeof x.url !== 'string' || !/^[\w\-./]+\.(glb|gltf|gltf\.json)$/i.test(x.url) || x.url.includes('..') || /^[a-z]+:/i.test(x.url)) return null;
+    if (typeof x.url !== 'string' || !validUrl(x.url)) return null;
     const clips: Partial<Record<ClipName, string>> = {};
     if (x.clips && typeof x.clips === 'object') for (const c of CLIPS) if (typeof (x.clips as Record<string, unknown>)[c] === 'string') clips[c] = (x.clips as Record<string, string>)[c];
     const num = (v: unknown, d: number, lo: number, hi: number) => (typeof v === 'number' && Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : d);
@@ -71,7 +79,14 @@ export function parseManifest(raw: unknown): ModelManifest {
       rig = {};
       for (const [k, v] of Object.entries(x.rig as Record<string, unknown>)) if (typeof v === 'string' && /^[\w.]{1,64}$/.test(k) && /^[a-zA-Z]\w{0,31}$/.test(v)) rig[k] = v;
     }
-    return { url: x.url, scale: num(x.scale, 1, 0.001, 1000), strideM: num(x.strideM, 1, 0.05, 20), clips, clipSpeeds, credit, ...(rig ? { rig } : {}) };
+    let variants: { url: string; chance: number }[] | undefined;
+    if (Array.isArray(x.variants))
+      for (const v of x.variants as unknown[]) {
+        const o = v as Record<string, unknown>;
+        if (!o || typeof o.url !== 'string' || !validUrl(o.url) || typeof o.chance !== 'number' || !(o.chance > 0)) continue;
+        (variants ??= []).push({ url: o.url, chance: Math.min(1, o.chance) });
+      }
+    return { url: x.url, scale: num(x.scale, 1, 0.001, 1000), strideM: num(x.strideM, 1, 0.05, 20), clips, clipSpeeds, credit, ...(rig ? { rig } : {}), ...(variants ? { variants } : {}) };
   };
   if (r.species && typeof r.species === 'object')
     for (const [id, e] of Object.entries(r.species as Record<string, unknown>)) {
@@ -129,6 +144,32 @@ export function loadExternalModels(base = './models/'): Promise<{ loaded: string
   return p;
 }
 
+/** Bind-pose bounds once, so clones never skin every vertex on the CPU to get them. */
+function prepareBounds(scene: THREE.Object3D): void {
+  scene.traverse((o) => {
+    const m = o as THREE.SkinnedMesh;
+    if (!m.isSkinnedMesh) return;
+    if (!m.geometry.boundingSphere) m.geometry.computeBoundingSphere();
+    if (!m.geometry.boundingBox) m.geometry.computeBoundingBox();
+    m.boundingSphere = m.geometry.boundingSphere!.clone();
+    m.boundingSphere.radius *= 1.3;
+    m.boundingBox = m.geometry.boundingBox!.clone();
+  });
+}
+
+/** Which colouring an individual wears: index into `variants`, or -1 for the main file. */
+export function variantFor(entry: ModelEntry, individual: string): number {
+  if (!entry.variants?.length || !individual) return -1;
+  let h = 2166136261;
+  for (let i = 0; i < individual.length; i++) h = Math.imul(h ^ individual.charCodeAt(i), 16777619);
+  let u = ((h ^ (h >>> 15)) >>> 0) / 4294967296;
+  for (const [i, v] of entry.variants.entries()) {
+    if (u < v.chance) return i;
+    u -= v.chance;
+  }
+  return -1;
+}
+
 async function loadAll(base: string): Promise<{ loaded: string[]; failed: string[] }> {
   const result = { loaded: [] as string[], failed: [] as string[] };
   try {
@@ -148,18 +189,18 @@ async function loadAll(base: string): Promise<{ loaded: string[]; failed: string
     jobs.map(async ([id, e]) => {
       try {
         const gltf = await loader.loadAsync(`${base}${e.url}`);
-        // Bind-pose bounds once, so clones never skin every vertex on the CPU to get them.
-        gltf.scene.traverse((o) => {
-          const m = o as THREE.SkinnedMesh;
-          if (!m.isSkinnedMesh) return;
-          if (!m.geometry.boundingSphere) m.geometry.computeBoundingSphere();
-          if (!m.geometry.boundingBox) m.geometry.computeBoundingBox();
-          m.boundingSphere = m.geometry.boundingSphere!.clone();
-          m.boundingSphere.radius *= 1.3;
-          m.boundingBox = m.geometry.boundingBox!.clone();
-        });
+        prepareBounds(gltf.scene);
         loaded.set(id, { scene: gltf.scene, animations: gltf.animations, entry: e });
         result.loaded.push(id);
+        for (const [i, v] of (e.variants ?? []).entries()) {
+          try {
+            const g = await loader.loadAsync(`${base}${v.url}`);
+            prepareBounds(g.scene);
+            loaded.set(`${id}#${i}`, { scene: g.scene, animations: g.animations.length ? g.animations : gltf.animations, entry: e });
+          } catch {
+            result.failed.push(`${id}#${i}`);
+          }
+        }
       } catch {
         result.failed.push(id);
       }
@@ -187,10 +228,12 @@ export function setExternalShadows(inst: ExternalInstance, on: boolean): void {
 }
 
 /** A per-individual clone of an external model (null when none is registered). */
-export async function instantiate(id: string): Promise<ExternalInstance | null> {
+export async function instantiate(id: string, individual = ''): Promise<ExternalInstance | null> {
   if (ready) await ready.catch(() => undefined);
-  const src = loaded.get(id);
-  if (!src) return null;
+  const main = loaded.get(id);
+  if (!main) return null;
+  const vi = variantFor(main.entry, individual);
+  const src = (vi >= 0 && loaded.get(`${id}#${vi}`)) || main;
   const { clone } = await import('three/examples/jsm/utils/SkeletonUtils.js');
   const root = clone(src.scene);
   root.scale.setScalar(src.entry.scale);

@@ -292,4 +292,17 @@ describe('external model manifest', () => {
       expect(t.hipHeight).toBeCloseTo(hip.y, 5);
     }
   });
+
+  it('gives a rare share of individuals an alternative colouring, always the same one per individual', async () => {
+    const { parseManifest, variantFor } = await import('../src/graphics/externalModels');
+    const m = parseManifest({ version: 1, species: { tyrannosaurus: { url: 't.glb', variants: [{ url: 't-blue.glb', chance: 0.12 }, { url: '../x.glb', chance: 0.5 }, { url: 'y.glb', chance: 0 }] } } });
+    const e = m.species.tyrannosaurus;
+    expect(e.variants).toEqual([{ url: 't-blue.glb', chance: 0.12 }]);
+    let rare = 0;
+    for (let i = 0; i < 2000; i++) if (variantFor(e, `a${i}`) === 0) rare++;
+    expect(rare / 2000).toBeGreaterThan(0.08);
+    expect(rare / 2000).toBeLessThan(0.16);
+    expect(variantFor(e, 'a7')).toBe(variantFor(e, 'a7'));
+    expect(variantFor(e, '')).toBe(-1);
+  });
 });

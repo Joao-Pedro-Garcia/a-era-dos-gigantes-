@@ -339,7 +339,7 @@ export function createAnimalView(speciesId: string, individual = '', juvenile = 
   if (aura) root.add(aura.points);
   const view: AnimalView = { root, sp, tpl, meshHi, meshMid, meshLo, bones, rest, materials, shadow, size, posture: 0, flap: 0, jaw: 0, look: 0, pelvisDrop: 0, bodyPitch: 0, legInfo, ext: null, rig: null, jawRest: 0, juvenile, alpha, aura, extMats: [], deadT: 99, scan: 0, turn: 0, lastHeading: NaN, hitT: 99, hitLX: 0, hitLZ: 0, hitAmp: 0 };
   // Resolves after the optional models finish loading (null when the species has none).
-  void instantiate(speciesId).then((inst) => {
+  void instantiate(speciesId, individual).then((inst) => {
     if (!inst) return;
     if (!root.parent) {
       inst.dispose();

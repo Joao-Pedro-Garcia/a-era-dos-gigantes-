@@ -19,7 +19,13 @@
         "author": "LasquetiSpice",
         "url": "https://sketchfab.com/3d-models/animated-tyrannosaurus-rex-dinosaur-running-loop-38007d947ae74dea83988cb0b08ee053",
         "license": "CC BY 4.0"
-      }
+      },
+      "variants": [
+        {
+          "url": "tyrannosaurus-blue.glb",
+          "chance": 0.12
+        }
+      ]
     },
     "stegosaurus": {
       "url": "stegosaurus.glb",
