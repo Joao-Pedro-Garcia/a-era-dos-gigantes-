@@ -76,7 +76,7 @@ const S: Record<string, Def> = {
     threat: { response: 'charge', flightDistance: 0 }, attack: { damage: 85, range: 4.5, cooldown: 2.2 }, health: 1600,
     taming: { possible: false, difficulty: 1, preferredFood: ['raw_meat'] }, habitat: ['plains', 'jungle'], tempRange: [8, 34],
     locomotion: { plan: 'theropod', stride: 3.6, turnRate: 1.1, swims: true, flies: false },
-    audio: { pitch: 55, call: 'bellow' }, look: { base: 0x5b4a36, belly: 0x9a8668, accent: 0x3a2e22, pattern: 'countershade', features: [] },
+    audio: { pitch: 55, call: 'bellow' }, look: { base: 0x6a6955, belly: 0xb4ae94, accent: 0x44463a, pattern: 'countershade', features: [] },
     huntsHumans: true,
   },
   velociraptor: {

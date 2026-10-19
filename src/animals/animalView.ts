@@ -120,6 +120,12 @@ const baseMats = new Map<string, THREE.MeshStandardMaterial[]>();
 /** The game supplies the texture library and terrain height (both optional for tools/tests). */
 /** Multiple of the LOD distance up to which artist models are drawn. */
 const EXTERNAL_LOD = 1.2;
+/**
+ * Artist models stay up to at least this distance whatever the quality level:
+ * on phones (short LOD distance) the procedural stand-in otherwise replaced the
+ * film-style T. rex as soon as it was a few dozen metres away.
+ */
+const EXTERNAL_MIN_DIST = 120;
 
 export function setAnimalContext(lib: TextureLibrary | null, ground: ((x: number, z: number) => number) | null): void {
   library = lib;
@@ -437,7 +443,7 @@ export function poseAnimalView(v: AnimalView, a: AnimalData, stride: number, alt
   if (v.rig) {
     // Re-bound artist skin: same skeleton and procedural animation, so only the
     // visible mesh changes with distance.
-    const near = camDist < lodDistance * EXTERNAL_LOD;
+    const near = camDist < Math.max(lodDistance * EXTERNAL_LOD, EXTERNAL_MIN_DIST);
     v.rig.visible = near;
     if (near) {
       v.meshHi.visible = v.meshMid.visible = v.meshLo.visible = false;
@@ -446,7 +452,7 @@ export function poseAnimalView(v: AnimalView, a: AnimalData, stride: number, alt
   }
   if (v.ext) {
     // Far away the artist model gives way to the cheap procedural one (no mixer update).
-    const near = camDist < lodDistance * EXTERNAL_LOD;
+    const near = camDist < Math.max(lodDistance * EXTERNAL_LOD, EXTERNAL_MIN_DIST);
     v.ext.root.visible = near;
     if (near) {
       v.meshHi.visible = v.meshMid.visible = v.meshLo.visible = false;
