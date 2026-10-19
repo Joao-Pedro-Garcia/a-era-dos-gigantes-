@@ -160,3 +160,16 @@ Dominion / "ANKY-ANKY 2001"), reenvios do usuário slang107123456789 (mosassauro
 compsógnato, alossauro) de origem não comprovada. Sem modelo livre aceitável: alossauro,
 braquiossauro, iguanodonte, galimimo, dilofossauro, paquirrinossauro, protocerátops,
 troodonte, microraptor, smilodon, sucuri.
+
+## Parassaurolofo e anquilossauro de artista
+Pedido do usuário com fotos de referência. Busca ampla (12 termos, Sketchfab) e verificação
+de origem; integrados com pele automática (`autoSkin`) e esqueleto encaixado (`RIG_FITS`):
+- **Parassaurolofo**: "Parasaurolophus" de *htqj* (CC BY 4.0), modelo próprio do autor.
+  O arquivo vem deitado e com ossos de nomes corrompidos: `tools/model-flatten.mjs` assa as
+  transformações em pé (−90° em X) e remove o esqueleto; olhos e garras soltos (presos a
+  ossos fora do lugar) foram retirados; textura clareada (`tools/brighten-texture.mjs`).
+- **Anquilossauro**: "Dino - Ankylosaurus" de *pikabobalex* (CC BY 4.0), esculpido pelo autor
+  em ZBrush; material spec/gloss convertido; textura clareada para verde-oliva.
+Recusados na mesma busca: modelos tirados de Jurassic World Evolution/Dominion, ARK,
+Prehistoric Kingdom, LEGO, Turok, Carnivores, Dino Crisis, Dinosaur Hunting, "Amazing Dinoworld"
+(NHK) e reenvios de origem duvidosa.

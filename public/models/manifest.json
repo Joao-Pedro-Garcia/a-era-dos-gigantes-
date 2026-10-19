@@ -574,6 +574,40 @@
     "url": "https://sketchfab.com/3d-models/animated-megatherium-free-ec0cb6a41c2e498780136e3d89fa1516",
     "license": "CC BY 4.0"
    }
+  },
+  "parasaurolophus": {
+   "url": "parasaurolophus.glb",
+   "scale": 0.01508,
+   "strideM": 2,
+   "clipSpeeds": {},
+   "clips": {},
+   "rig": {},
+   "autoSkin": true,
+   "rigRotY": 3.141593,
+   "rigFloor": 0.86,
+   "rigShiftX": 11.27,
+   "credit": {
+    "title": "Parasaurolophus",
+    "author": "htqj",
+    "url": "https://sketchfab.com/3d-models/parasaurolophus-0f25fa4a55ba48c88adef066161f5e83",
+    "license": "CC BY 4.0"
+   }
+  },
+  "ankylosaurus": {
+   "url": "ankylosaurus.glb",
+   "scale": 0.00833,
+   "strideM": 1.4,
+   "clipSpeeds": {},
+   "clips": {},
+   "rig": {},
+   "autoSkin": true,
+   "rigFloor": -350.6,
+   "credit": {
+    "title": "Dino - Ankylosaurus",
+    "author": "pikabobalex",
+    "url": "https://sketchfab.com/3d-models/dino-ankylosaurus-55b9adcbcf7846e8a833bfc77eaf3d3f",
+    "license": "CC BY 4.0"
+   }
   }
  },
  "player": {
