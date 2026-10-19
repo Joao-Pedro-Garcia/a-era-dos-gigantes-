@@ -1,3 +1,4 @@
+import { matches } from './search';
 import { DEFAULT_SETTINGS, WORLD, type Settings } from '../core/config';
 import type { Game } from '../core/game';
 import { SPECIES, SPECIES_IDS } from '../animals/species';
@@ -84,6 +85,9 @@ export class Hud {
   tab: PanelTab = 'inventory';
   private picked: number | null = null;
   private filter = 'all';
+  /** Search text of the item and recipe lists (kept while the panel is open). */
+  private search = '';
+  private searchFocus = false;
   private journalTab: 'species' | 'docs' | 'discoveries' = 'species';
   private settingsTab: 'general' | 'graphics' | 'audio' | 'access' = 'general';
   private mapCanvas: HTMLCanvasElement | null = null;
@@ -381,6 +385,7 @@ export class Hud {
     this.tab = tab;
     this.panelOpen = true;
     this.picked = null;
+    this.search = '';
     this.panelEl.classList.remove('hidden');
     this.renderPanel();
   }
@@ -402,7 +407,10 @@ export class Hud {
     }
     const scrollY = this.panelEl.querySelector('.panel-body')?.scrollTop ?? 0;
     const p = this.panelEl;
+    // Clearing removes a focused search box, which fires blur: that is not the player leaving it.
+    const keep = this.searchFocus;
     p.innerHTML = '';
+    this.searchFocus = keep;
     const tabs = h('div', 'tabs');
     tabs.setAttribute('role', 'tablist');
     const tabList: PanelTab[] = ['inventory', 'crafting', 'skills', 'animals', 'journal', 'map'];
@@ -413,6 +421,7 @@ export class Hud {
       b.setAttribute('role', 'tab');
       b.onclick = () => {
         this.tab = tb;
+        this.search = '';
         this.renderPanel();
       };
       tabs.appendChild(b);
@@ -432,6 +441,53 @@ export class Hud {
     else if (this.tab === 'map') this.renderMap(body);
     else this.renderStorage(body);
     if (soft) body.scrollTop = scrollY;
+    this.restoreSearchFocus();
+  }
+
+  /** Search box: typing filters at once; focus and caret survive the re-render. */
+  private searchBox(placeholder: string): HTMLElement {
+    const wrap = h('label', 'searchbox');
+    wrap.appendChild(h('span', 'sb-ico', '🔍'));
+    const input = document.createElement('input');
+    input.type = 'search';
+    input.className = 'search';
+    input.placeholder = placeholder;
+    input.value = this.search;
+    input.setAttribute('aria-label', placeholder);
+    input.oninput = () => {
+      this.search = input.value;
+      this.searchFocus = true;
+      this.renderPanel();
+    };
+    input.onblur = () => (this.searchFocus = false);
+    input.onkeydown = (e) => {
+      e.stopPropagation();
+      if (e.key === 'Escape') {
+        this.search = '';
+        input.blur();
+        this.renderPanel();
+      }
+    };
+    wrap.appendChild(input);
+    if (this.search) {
+      const clr = h('button', 'sb-clear', '✕');
+      clr.setAttribute('aria-label', t('inv.clearSearch'));
+      clr.onclick = (e) => {
+        e.preventDefault();
+        this.search = '';
+        this.renderPanel();
+      };
+      wrap.appendChild(clr);
+    }
+    return wrap;
+  }
+
+  private restoreSearchFocus(): void {
+    if (!this.searchFocus) return;
+    const input = this.panelEl.querySelector('input.search') as HTMLInputElement | null;
+    if (!input) return;
+    input.focus();
+    input.setSelectionRange(input.value.length, input.value.length);
   }
 
   private renderInventory(body: HTMLElement): void {
@@ -439,9 +495,11 @@ export class Hud {
     const inv = g.inventory;
     const layout = h('div', 'inv-layout');
     const left = h('div');
+    left.appendChild(this.searchBox(t('inv.search')));
     const filters = h('div', 'filters');
+    const catIcon: Record<string, string> = { resource: '🪵', food: '🍖', tool: '🪓', weapon: '🗡', clothing: '🧥', medical: '🩹', special: '✦' };
     for (const f of ['all', 'resource', 'food', 'tool', 'weapon', 'clothing', 'medical', 'special']) {
-      const b = h('button', f === this.filter ? 'active' : '', f === 'all' ? t('inv.filter.all') : ({ resource: '🪵', food: '🍖', tool: '🪓', weapon: '🗡', clothing: '🧥', medical: '🩹', special: '✦' } as Record<string, string>)[f]);
+      const b = h('button', `fchip${f === this.filter ? ' active' : ''}`, f === 'all' ? t('inv.filter.all') : `${catIcon[f]} <span>${t(`inv.cat.${f}`)}</span>`);
       b.title = t(`inv.cat.${f}`);
       b.onclick = () => {
         this.filter = f;
@@ -456,10 +514,14 @@ export class Hud {
     };
     filters.appendChild(sort);
     left.appendChild(filters);
-    const grid = h('div', 'grid');
+    const grid = h('div', 'grid inv-grid');
+    let shown = 0;
     inv.data.slots.forEach((s, i) => {
       const el = this.slotEl(s);
-      if (s && this.filter !== 'all' && ITEMS[s.id].category !== this.filter) el.style.opacity = '0.25';
+      if (s) el.classList.add(`cat-${ITEMS[s.id].category}`);
+      const hide = (this.filter !== 'all' && (!s || ITEMS[s.id].category !== this.filter)) || (this.search && (!s || !matches(this.search, itemName(s.id), t(`desc.${s.id}`), t(`inv.cat.${ITEMS[s.id].category}`))));
+      if (hide) el.classList.add('hidden');
+      else if (s) shown++;
       if (i === this.picked) el.classList.add('picked');
       el.onclick = () => {
         if (this.picked !== null && this.picked !== i) {
@@ -471,6 +533,9 @@ export class Hud {
       grid.appendChild(el);
     });
     left.appendChild(grid);
+    if ((this.search || this.filter !== 'all') && !shown) left.appendChild(h('p', 'muted empty', t('inv.noMatch')));
+    const wfrac = Math.min(1, inv.weight() / Math.max(1, inv.capacity()));
+    left.appendChild(h('div', `weightbar${wfrac > 0.9 ? ' heavy' : ''}`, `<i style="width:${(wfrac * 100).toFixed(0)}%"></i>`));
     left.appendChild(h('p', 'muted', t('inv.weight', { w: inv.weight().toFixed(1), c: inv.capacity().toFixed(0) }) + (inv.extraCapacity ? ` (${t('inv.pack', { n: inv.extraCapacity })})` : '')));
     layout.appendChild(left);
 
@@ -480,8 +545,17 @@ export class Hud {
     if (sel && this.picked !== null) {
       const i = this.picked;
       const def = ITEMS[sel.id];
-      box.appendChild(h('h4', '', `${ICON[sel.id] ?? ''} ${esc(stackName(sel))} ×${sel.qty}`));
-      box.appendChild(h('div', 'muted', `${def.weight} kg${def.damage ? ` · ⚔ ${def.damage}` : ''}${def.insulation ? ` · 🌡 +${def.insulation}°` : ''}${def.capacity ? ` · +${def.capacity} kg` : ''}`));
+      box.classList.add('detail', `cat-${def.category}`);
+      box.appendChild(h('div', 'detail-head', `<span class="big-ico">${ICON[sel.id] ?? '◆'}</span><div><h4>${esc(stackName(sel))}</h4><span class="cat-chip">${t(`inv.cat.${def.category}`)}</span> <span class="muted">×${sel.qty}</span></div>`));
+      const chips: string[] = [`⚖ ${def.weight} kg`];
+      if (def.damage) chips.push(`⚔ ${def.damage}`);
+      if (def.armor) chips.push(`🛡 ${Math.round(def.armor * 100)}%`);
+      if (def.insulation) chips.push(`🌡 +${def.insulation}°`);
+      if (def.capacity) chips.push(`🎒 +${def.capacity} kg`);
+      if (def.food) chips.push(`🍖 ${Math.round(def.food.hunger * 100)}%`);
+      if (def.heal) chips.push(`❤ +${def.heal}`);
+      box.appendChild(h('div', 'stat-chips', chips.map((c) => `<span>${c}</span>`).join('')));
+      if (sel.dur !== undefined && def.durability) box.appendChild(h('div', 'durbar', `<i style="width:${(sel.dur / def.durability) * 100}%"></i><span>${t('inv.durability', { n: Math.round((sel.dur / def.durability) * 100) })}</span>`));
       const desc = t(`desc.${sel.id}`);
       if (desc !== `desc.${sel.id}`) box.appendChild(h('p', 'muted', esc(desc)));
       const row = h('div', 'row');
@@ -516,7 +590,7 @@ export class Hud {
         hot.appendChild(b);
       }
       box.appendChild(hot);
-    } else box.appendChild(h('div', 'muted', t('inv.pickHint')));
+    } else box.appendChild(h('div', 'muted pick-hint', `<span class="big-ico">🎒</span>${t('inv.pickHint')}`));
     side.appendChild(box);
     const eq = h('div', 'box', `<h4>${t('inv.equipment')}</h4>`);
     for (const slot of ['head', 'body', 'legs', 'back'] as EquipSlot[]) {
@@ -558,8 +632,12 @@ export class Hud {
       });
       body.appendChild(q);
     }
+    body.appendChild(this.searchBox(t('craft.search')));
     let lastCat = '';
+    let any = false;
     for (const r of RECIPES) {
+      if (this.search && !matches(this.search, itemName(r.output), t(`desc.${r.output}`), t(`cat.${r.category}`), ...Object.keys(r.inputs).map(itemName))) continue;
+      any = true;
       if (r.category !== lastCat) {
         body.appendChild(h('h4', '', t(`cat.${r.category}`)));
         lastCat = r.category;
@@ -586,35 +664,41 @@ export class Hud {
       row.appendChild(b);
       body.appendChild(row);
     }
+    if (!any) body.appendChild(h('p', 'muted empty', t('inv.noMatch')));
   }
 
   private renderSkills(body: HTMLElement): void {
     const g = this.game;
     const trees = g.skillTrees();
-    body.appendChild(h('p', 'muted', t('skill.intro', { n: g.progression.totalLevel(), d: g.progression.d.daysSurvived })));
+    const totalPts = trees.reduce((n, tr) => n + tr.points, 0);
+    body.appendChild(h('div', 'skills-head', `<div><b>${t('skill.totalLevel', { n: g.progression.totalLevel() })}</b><span class="muted">${t('skill.days', { d: g.progression.d.daysSurvived })}</span></div>${totalPts ? `<span class="pts-badge">${t('skill.points', { n: totalPts })}</span>` : ''}`));
+    const treeIcon: Record<string, string> = { survival: '🔥', exploration: '🧭', crafting: '🛠', building: '🏗', combat: '⚔', tracking: '👣', taming: '🦖', environment: '🌿' };
     const grid = h('div', 'skill-grid');
     for (const tr of trees) {
-      const card = h('div', 'box');
+      const card = h('div', `box skill-card${tr.points > 0 ? ' has-points' : ''}`);
       const pct = tr.next ? Math.min(100, (tr.xp / tr.next) * 100) : 100;
-      card.appendChild(h('h4', '', `${t(`tree.${tr.tree}`)} — ${t('skill.level', { n: tr.level })}${tr.points > 0 ? ` · <span class="good">${t('skill.points', { n: tr.points })}</span>` : ''}`));
+      card.appendChild(h('div', 'sk-head', `<span class="sk-ico">${treeIcon[tr.tree] ?? '✦'}</span><div class="sk-title"><b>${t(`tree.${tr.tree}`)}</b><span class="muted small">${t(`tree.${tr.tree}.how`)}</span></div><span class="lvl" title="${t('skill.level', { n: tr.level })}">${tr.level}</span>`));
       card.appendChild(h('div', 'xpbar', `<i style="width:${pct}%"></i>`));
-      card.appendChild(h('div', 'muted', tr.next ? `${Math.floor(tr.xp)} / ${tr.next} XP` : t('skill.max')));
-      card.appendChild(h('div', 'muted small', t(`tree.${tr.tree}.how`)));
-      for (const s of SKILLS.filter((x) => x.tree === tr.tree)) {
-        const learned = g.progression.has(s.id);
-        const row = h('div', 'skill');
-        row.appendChild(h('div', '', `<b>${learned ? '✓ ' : ''}${t(`skill.${s.id}.name`)}</b> <span class="muted">(${t('skill.req', { n: s.level })})</span><br><span class="muted">${t(`skill.${s.id}.desc`)}</span>`));
+      card.appendChild(h('div', 'muted small xp-line', `${tr.next ? `${Math.floor(tr.xp)} / ${tr.next} XP` : t('skill.max')}${tr.points > 0 ? ` · <span class="good">${t('skill.points', { n: tr.points })}</span>` : ''}`));
+      const nodes = h('div', 'sk-nodes');
+      for (const sk of SKILLS.filter((x) => x.tree === tr.tree)) {
+        const learned = g.progression.has(sk.id);
+        const can = !learned && g.progression.canLearn(sk.id);
+        const state = learned ? 'learned' : can ? 'available' : tr.level >= sk.level ? 'nopoints' : 'locked';
+        const node = h('div', `sk-node ${state}`);
+        node.appendChild(h('div', 'sk-text', `<b>${learned ? '✓ ' : state === 'locked' ? '🔒 ' : ''}${t(`skill.${sk.id}.name`)}</b><span class="muted">${t(`skill.${sk.id}.desc`)}</span><span class="req">${t('skill.req', { n: sk.level })}</span>`));
         if (!learned) {
-          const b = h('button', g.progression.canLearn(s.id) ? 'primary' : '', t('skill.learn'));
-          b.disabled = !g.progression.canLearn(s.id);
+          const b = h('button', can ? 'primary' : '', t('skill.learn'));
+          b.disabled = !can;
           b.onclick = () => {
-            g.learnSkill(s.id);
+            g.learnSkill(sk.id);
             this.renderPanel();
           };
-          row.appendChild(b);
+          node.appendChild(b);
         }
-        card.appendChild(row);
+        nodes.appendChild(node);
       }
+      card.appendChild(nodes);
       grid.appendChild(card);
     }
     body.appendChild(grid);
