@@ -753,8 +753,9 @@ export class Ecosystem {
     if (!mates || local > sp.social.size[1] * 2.5) return;
     if (!this.rng.chance(0.08)) return;
     a.lastBredAt = now;
-    if (sp.locomotion.aquatic) {
-      // Mosasaurs were viviparous (embryos are known inside mothers): live young, no nest.
+    if (sp.locomotion.aquatic || sp.reproduction.live) {
+      // Mosasaurs were viviparous (embryos are known inside mothers), and so are the
+      // mammals and the anaconda: live young, no nest.
       const n = this.rng.int(sp.reproduction.clutch[0], sp.reproduction.clutch[1]);
       for (let i = 0; i < n; i++) {
         const c = createAnimal({ id: this.newId('a'), speciesId: a.speciesId, x: a.x + this.rng.range(-3, 3), z: a.z + this.rng.range(-3, 3), bornAt: now, groupId: a.groupId, parentId: a.id, rng: this.rng });

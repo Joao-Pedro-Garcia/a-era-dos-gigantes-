@@ -241,11 +241,30 @@ function blueprint(sp: SpeciesDef, juvenile = false): Blueprint {
       cp(0.268 * L, Hh * (lean ? 1.34 : 1.28), 0.036 * L * b * ns, 0.044 * L * b * ns, 0, 'neck3');
       cp(0.285 * L, Hh * (lean ? 1.36 : 1.31), 0.034 * L * b * ns, 0.042 * L * b * ns, 0, null);
     }
+    if (f.has('plump')) {
+      // Dodo: a round, heavy body, a stubby tail tuft and a short, thick neck.
+      for (const c of cps) {
+        if (c.p.z < -0.1 * L) c.p.z = -0.1 * L + (c.p.z + 0.1 * L) * 0.35;
+        if (!c.bone || c.bone === 'pelvis' || c.bone === 'torso' || c.bone === 'chest' || c.bone.startsWith('tail')) {
+          c.rx *= 1.75;
+          c.ry *= 1.6;
+          c.drop *= 1.6;
+        }
+        if (c.bone?.startsWith('neck') || (!c.bone && c.p.z > 0)) {
+          c.p.z = 0.17 * L + (c.p.z - 0.17 * L) * 0.75;
+          c.rx *= 1.35;
+          c.ry *= 1.35;
+        }
+      }
+    }
     const end = cps[cps.length - 1].p;
     // Carnotaurus: short, deep, bulldog-like skull.
     const hl = f.has('longSnout') ? 0.16 * L : sp.id === 'carnotaurus' ? 0.075 * L : apex ? 0.125 * L : hadro ? 0.12 * L : f.has('beak') && longNeck ? 0.07 * L : 0.1 * L;
     const hh = apex ? 0.034 * L : hadro ? 0.027 * L : 0.024 * L;
-    head = { bone: 'head', at: end.clone(), len: hl, height: hh, width: apex ? hh * 1.05 : hh * 0.8, pitch: longNeck ? 0.25 : 0.12 };
+    head = f.has('hookBeak')
+      ? // Dodo: a big head with a long, heavy, hooked bill (about a third of the bird).
+        { bone: 'head', at: end.clone(), len: 0.3 * L, height: 0.1 * L, width: 0.075 * L, pitch: 0.25 }
+      : { bone: 'head', at: end.clone(), len: hl, height: hh, width: apex ? hh * 1.05 : hh * 0.8, pitch: longNeck ? 0.25 : 0.12 };
     // Hind legs (digitigrade).
     for (const side of [1, -1]) {
       // Hip socket on the flank; the knee sits forward under the belly (thigh slants forward),
@@ -387,6 +406,91 @@ function blueprint(sp: SpeciesDef, juvenile = false): Blueprint {
         clawLen: front ? 0.003 * L : 0.011 * L,
       });
     }
+  } else if (plan === 'mammal') {
+    // Mammals of the expanded fauna. A sabre-toothed cat: deep chest, robust forelimbs,
+    // digitigrade legs, short bobbed tail. A giant ground sloth: massive hindquarters
+    // and thick tail (a tripod when it rears), long arms with huge claws, walking on
+    // the sides of its feet and the knuckles of its hands, small long-snouted head.
+    const sloth = f.has('longClaws');
+    const Hh = H;
+    if (sloth) {
+      cp(-0.5 * L, Hh * 0.42, 0.018 * L, 0.02 * L, 0, null);
+      cp(-0.43 * L, Hh * 0.58, 0.045 * L, 0.05 * L, 0, 'tail4');
+      cp(-0.37 * L, Hh * 0.74, 0.068 * L, 0.074 * L, 0, 'tail3');
+      cp(-0.31 * L, Hh * 0.88, 0.09 * L, 0.098 * L, 0.008 * L, 'tail2');
+      cp(-0.23 * L, Hh * 1.0, 0.118 * L, 0.12 * L, 0.018 * L, 'tail1');
+      cp(-0.11 * L, Hh * 1.1, 0.15 * L, 0.148 * L, 0.04 * L, 'pelvis');
+      cp(0.03 * L, Hh * 1.1, 0.145 * L, 0.15 * L, 0.05 * L, 'torso');
+      cp(0.15 * L, Hh * 1.05, 0.118 * L, 0.13 * L, 0.035 * L, 'chest');
+      cp(0.24 * L, Hh * 1.04, 0.07 * L, 0.075 * L, 0.012 * L, 'neck1');
+      cp(0.29 * L, Hh * 1.04, 0.052 * L, 0.056 * L, 0, 'neck2');
+      cp(0.33 * L, Hh * 1.02, 0.043 * L, 0.047 * L, 0, 'neck3');
+      cp(0.36 * L, Hh * 1.0, 0.037 * L, 0.041 * L, 0, null);
+    } else {
+      cp(-0.5 * L, Hh * 0.78, 0.016 * L, 0.018 * L, 0, null);
+      cp(-0.45 * L, Hh * 0.9, 0.022 * L, 0.024 * L, 0, 'tail4');
+      cp(-0.4 * L, Hh * 0.99, 0.028 * L, 0.03 * L, 0, 'tail3');
+      cp(-0.34 * L, Hh * 1.04, 0.036 * L, 0.04 * L, 0, 'tail2');
+      cp(-0.28 * L, Hh * 1.07, 0.056 * L, 0.06 * L, 0.004 * L, 'tail1');
+      cp(-0.19 * L, Hh * 1.05, 0.08 * L, 0.095 * L, 0.01 * L, 'pelvis');
+      cp(-0.03 * L, Hh * 1.0, 0.088 * L, 0.112 * L, 0.024 * L, 'torso');
+      cp(0.11 * L, Hh * 1.08, 0.09 * L, 0.128 * L, 0.03 * L, 'chest');
+      cp(0.19 * L, Hh * 1.2, 0.06 * L, 0.074 * L, 0.012 * L, 'neck1');
+      cp(0.24 * L, Hh * 1.27, 0.05 * L, 0.06 * L, 0, 'neck2');
+      cp(0.28 * L, Hh * 1.29, 0.045 * L, 0.052 * L, 0, 'neck3');
+      cp(0.3 * L, Hh * 1.29, 0.04 * L, 0.046 * L, 0, null);
+    }
+    const end = cps[cps.length - 1].p;
+    head = sloth
+      ? { bone: 'head', at: end.clone(), len: 0.11 * L, height: 0.043 * L, width: 0.04 * L, pitch: 0.35 }
+      : { bone: 'head', at: end.clone(), len: 0.15 * L, height: 0.075 * L, width: 0.072 * L, pitch: 0.22 };
+    for (const [front, side] of [[false, 1], [false, -1], [true, 1], [true, -1]] as [boolean, number][]) {
+      const z = sloth ? (front ? 0.13 * L : -0.1 * L) : front ? 0.1 * L : -0.18 * L;
+      const x = side * (sloth ? 0.105 : 0.058) * L;
+      let joints: THREE.Vector3[];
+      if (sloth) {
+        const top = V(x, Hh * (front ? 1.0 : 1.02), z);
+        joints = front
+          ? [top, V(x * 1.12, Hh * 0.56, z - 0.05 * Hh), V(x * 1.15, Hh * 0.13, z + 0.02 * Hh), V(x * 1.2, 0.06 * Hh, z + 0.1 * Hh), V(x * 1.2, 0, z + 0.28 * Hh)]
+          : [top, V(x * 1.1, Hh * 0.56, z + 0.07 * Hh), V(x * 1.14, Hh * 0.1, z - 0.02 * Hh), V(x * 1.2, 0.05 * Hh, z + 0.1 * Hh), V(x * 1.2, 0, z + 0.24 * Hh)];
+      } else {
+        // Digitigrade: the cat walks on its toes, the hock and wrist well off the ground.
+        joints = front
+          ? [V(x, Hh * 1.06, z), V(x, Hh * 0.6, z - 0.1 * Hh), V(x, Hh * 0.14, z), V(x, 0.04 * Hh, z + 0.05 * Hh), V(x, 0, z + 0.14 * Hh)]
+          : [V(x, Hh * 1.0, z), V(x, Hh * 0.6, z + 0.14 * Hh), V(x, Hh * 0.27, z - 0.12 * Hh), V(x, 0.04 * Hh, z - 0.02 * Hh), V(x, 0, z + 0.1 * Hh)];
+      }
+      legs.push({
+        name: `${front ? 'front' : 'hind'}${side > 0 ? 'L' : 'R'}`,
+        joints,
+        radii: sloth
+          ? front ? [0.062 * L, 0.046 * L, 0.034 * L, 0.03 * L, 0.024 * L] : [0.09 * L, 0.062 * L, 0.042 * L, 0.04 * L, 0.034 * L]
+          : front ? [0.062 * L, 0.04 * L, 0.028 * L, 0.026 * L, 0.022 * L] : [0.07 * L, 0.042 * L, 0.024 * L, 0.022 * L, 0.02 * L],
+        parent: front ? 'chest' : 'pelvis',
+        front,
+        phase: (front ? 0.25 : 0) + (side > 0 ? 0 : 0.5),
+        claws: sloth ? 3 : 4,
+        clawLen: sloth ? (front ? 0.07 * L : 0.03 * L) : 0.012 * L,
+      });
+    }
+  } else if (plan === 'serpent') {
+    // Snake: no legs; a long body resting on the ground along its whole length, the
+    // tail tapering to a point, a flat, broad head on a short neck.
+    const r = 0.024 * L;
+    const y = r * 0.9;
+    cp(-0.5 * L, r * 0.3, 0.12 * r, 0.12 * r, 0, null);
+    cp(-0.42 * L, r * 0.48, 0.45 * r, 0.42 * r, 0, 'tail4');
+    cp(-0.32 * L, r * 0.7, 0.75 * r, 0.7 * r, 0, 'tail3');
+    cp(-0.2 * L, r * 0.85, 0.94 * r, 0.85 * r, 0, 'tail2');
+    cp(-0.08 * L, y, r, 0.9 * r, 0, 'tail1');
+    cp(0.04 * L, y, r, 0.9 * r, 0, 'pelvis');
+    cp(0.16 * L, y, 0.98 * r, 0.88 * r, 0, 'torso');
+    cp(0.28 * L, r * 0.86, 0.9 * r, 0.82 * r, 0, 'chest');
+    cp(0.37 * L, r * 0.78, 0.74 * r, 0.68 * r, 0, 'neck1');
+    cp(0.42 * L, r * 0.72, 0.6 * r, 0.55 * r, 0, 'neck2');
+    cp(0.455 * L, r * 0.7, 0.55 * r, 0.5 * r, 0, 'neck3');
+    cp(0.47 * L, r * 0.7, 0.5 * r, 0.45 * r, 0, null);
+    const end = cps[cps.length - 1].p;
+    head = { bone: 'head', at: end.clone(), len: 0.034 * L, height: 0.55 * r, width: 0.85 * r, pitch: 0.02 };
   } else if (plan === 'mosasaur') {
     // Marine squamate: long streamlined body, short neck, long lizard skull, four
     // paddles and a long laterally flattened tail that bends down into a crescent fluke.
@@ -862,7 +966,7 @@ function buildLeg(sp: SpeciesDef, leg: LegDef, parts: Part[], boneIndex: Map<str
     const r1 = leg.radii[seg + 1];
     // Muscle bulge in the upper third of the thigh/upper arm and calf (theropods: the
     // "drumstick"; big quadrupeds: thighs that flow into the flank).
-    const heavy = sp.locomotion.plan === 'quadruped';
+    const heavy = sp.locomotion.plan === 'quadruped' || sp.locomotion.plan === 'mammal';
     const bulge = seg === 0 ? 1 + (heavy ? 0.1 : 0.18) * Math.sin(Math.PI * Math.min(1, t * 1.6)) : seg === 1 ? 1 + 0.12 * Math.sin(Math.PI * t) : 1;
     // Skin folds bunched around the knee/elbow and ankle/wrist (close-up level).
     const wrinkle = detail && seg > 0 ? 1 + 0.045 * Math.sin(t * Math.PI * 9) * smooth(0.28, 0, t) : 1;
@@ -870,7 +974,7 @@ function buildLeg(sp: SpeciesDef, leg: LegDef, parts: Part[], boneIndex: Map<str
   });
   // The upper end starts deep inside the body and swells outward, so the
   // thigh/shoulder emerges from the flank instead of a capped cylinder.
-  const quad = sp.locomotion.plan === 'quadruped';
+  const quad = sp.locomotion.plan === 'quadruped' || sp.locomotion.plan === 'mammal';
   // (Ankylosaurs: the low, flat back leaves less room above the hip.)
   const inside = V(leg.joints[0].x * 0.35, leg.joints[0].y + leg.radii[0] * (quad ? (sp.look.features.includes('armor') ? 0.4 : 1.0) : 1.4), leg.joints[0].z);
   // Keep the root well inside the body, and round the shoulder of the thigh/upper
@@ -927,7 +1031,7 @@ function buildLeg(sp: SpeciesDef, leg: LegDef, parts: Part[], boneIndex: Map<str
 }
 
 /** Skull family: decides the shape of the head, jaws, teeth and eyes. */
-type SkullFamily = 'theropod' | 'apex' | 'longSnout' | 'croc' | 'duck' | 'beak' | 'cera' | 'anky' | 'sauropod' | 'ptero' | 'small' | 'mosa';
+type SkullFamily = 'theropod' | 'apex' | 'longSnout' | 'croc' | 'duck' | 'beak' | 'cera' | 'anky' | 'sauropod' | 'ptero' | 'small' | 'mosa' | 'felid' | 'sloth' | 'snake' | 'dodo';
 
 function skullFamily(sp: SpeciesDef): SkullFamily {
   const f = new Set(sp.look.features);
@@ -935,6 +1039,9 @@ function skullFamily(sp: SpeciesDef): SkullFamily {
   if (plan === 'pterosaur') return 'ptero';
   if (plan === 'mosasaur') return 'mosa';
   if (plan === 'crocodyliform') return 'croc';
+  if (plan === 'mammal') return f.has('longClaws') ? 'sloth' : 'felid';
+  if (plan === 'serpent') return 'snake';
+  if (f.has('hookBeak')) return 'dodo';
   if (f.has('longSnout')) return 'longSnout';
   if (plan === 'hadrosaur') return 'duck';
   if (plan === 'sauropod') return 'sauropod';
@@ -994,6 +1101,19 @@ function skullProfile(fam: SkullFamily, t: number): { top: number; hw: number; l
       // Brachiosaurid: the bony nostrils form a tall arch over and in front of the
       // eyes; long, broad, blunt snout (spatulate teeth), shallow lower jaw.
       return { top: 1.0 + 0.7 * bump(0.42, 0.13) - 0.5 * smooth(0.45, 1, t), hw: 0.95 - 0.12 * t + 0.08 * bump(0.85, 0.1), lip: -0.3, jaw: 0.38 - 0.16 * t };
+    case 'felid':
+      // Big cat: short, rounded skull, high forehead, broad cheeks, short muzzle with a
+      // deep upper lip (the sabre-tooth's "flange" chin below).
+      return { top: 1.05 - 0.1 * smooth(0.2, 0.5, t) - 0.45 * smooth(0.55, 1, t), hw: 1.0 + 0.08 * bump(0.35, 0.15) - 0.45 * smooth(0.45, 1, t), lip: -0.32 - 0.06 * smooth(0.6, 1, t), jaw: 0.38 - 0.12 * t + 0.1 * bump(0.85, 0.08) };
+    case 'sloth':
+      // Ground sloth: small braincase, long, deep, tubular snout, deep lower jaw.
+      return { top: 0.9 - 0.25 * smooth(0.25, 1, t), hw: 0.85 - 0.3 * smooth(0.2, 1, t), lip: -0.3, jaw: 0.45 - 0.15 * t };
+    case 'snake':
+      // Boa: flat, broad, triangular head narrowing to a rounded snout.
+      return { top: 0.62 - 0.22 * smooth(0.3, 1, t), hw: 1.05 - 0.45 * smooth(0.25, 1, t), lip: -0.24, jaw: 0.24 - 0.08 * t };
+    case 'dodo':
+      // Dodo: rounded head and a huge, deep bill ending in a strong hook.
+      return { top: 1.0 - 0.3 * smooth(0.2, 0.5, t) - 0.25 * smooth(0.8, 1, t) + 0.1 * bump(0.92, 0.05), hw: 0.95 - 0.45 * smooth(0.2, 0.55, t) - 0.25 * smooth(0.85, 1, t), lip: -0.28 - 0.25 * smooth(0.88, 1, t), jaw: 0.42 - 0.18 * t };
     case 'mosa':
       // Monitor-like skull: long, fairly narrow, pointed snout, deep lower jaw.
       return { top: 0.9 - 0.55 * Math.pow(t, 0.9), hw: 0.95 - 0.62 * Math.pow(t, 0.85), lip: -0.3 + 0.05 * t, jaw: 0.5 - 0.32 * t };
@@ -1058,7 +1178,7 @@ function buildHead(sp: SpeciesDef, bp: Blueprint, parts: Part[], boneIndex: Map<
   const segs = hi ? 34 : detail === 1 ? 14 : 8;
   const rings = hi ? 32 : detail === 1 ? 12 : 6;
   const mat = bp.feathered && plan !== 'bird' && sp.lengthM < 3 ? DMAT.feathers : DMAT.scales;
-  const beaked = fam === 'beak' || fam === 'cera' || fam === 'anky' || fam === 'duck' || fam === 'ptero';
+  const beaked = fam === 'beak' || fam === 'cera' || fam === 'anky' || fam === 'dodo' || fam === 'duck' || fam === 'ptero';
   const H = height;
   const Wd = width;
   // Point on the head: t along the skull, x across (m), y up (m, from the head axis).
@@ -1146,7 +1266,7 @@ function buildHead(sp: SpeciesDef, bp: Blueprint, parts: Part[], boneIndex: Map<
   ringLoft(parts[mat], jaw, [jb], [1], 2, true, true);
 
   // ---- Teeth along the margins (carnivores and piscivores; toothless beaks have none).
-  const toothed = (sp.diet === 'carnivore' || sp.diet === 'piscivore' || sp.diet === 'omnivore') && fam !== 'ptero' && fam !== 'beak' && fam !== 'cera' && fam !== 'anky' && fam !== 'duck';
+  const toothed = (sp.diet === 'carnivore' || sp.diet === 'piscivore' || sp.diet === 'omnivore') && fam !== 'ptero' && fam !== 'beak' && fam !== 'cera' && fam !== 'anky' && fam !== 'duck' && fam !== 'dodo';
   if (toothed && detail < 2) {
     const n = hi ? (fam === 'croc' || fam === 'longSnout' ? 18 : 13) : 7;
     const toothLen = H * (fam === 'apex' ? 0.2 : fam === 'small' ? 0.12 : fam === 'croc' || fam === 'longSnout' ? 0.14 : 0.16);
@@ -1176,7 +1296,7 @@ function buildHead(sp: SpeciesDef, bp: Blueprint, parts: Part[], boneIndex: Map<
   }
 
   // ---- Eyes: eyeball (sclera hidden in the socket, coloured iris, dark pupil), lids, brow.
-  const eyeT = fam === 'ptero' ? 0.14 : fam === 'croc' ? 0.2 : fam === 'longSnout' ? 0.16 : fam === 'sauropod' ? 0.3 : fam === 'duck' || fam === 'beak' || fam === 'cera' || fam === 'anky' ? 0.24 : 0.27;
+  const eyeT = fam === 'ptero' ? 0.14 : fam === 'croc' ? 0.2 : fam === 'longSnout' ? 0.16 : fam === 'sauropod' ? 0.3 : fam === 'duck' || fam === 'beak' || fam === 'cera' || fam === 'anky' ? 0.24 : fam === 'dodo' ? 0.16 : fam === 'snake' ? 0.24 : fam === 'felid' ? 0.42 : 0.27;
   const prE = skullProfile(fam, eyeT);
   const big = (fam === 'small' ? 1.4 : fam === 'ptero' ? 1.1 : 1) * (bp.juvenile ? 1.3 : 1);
   const r = Math.max(0.006, H * 0.13 * big);

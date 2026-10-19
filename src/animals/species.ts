@@ -6,25 +6,29 @@ import type { BiomeId } from '../world/biomes';
  *
  * Paleontological note: the game is a fictional "synthesis" of the Mesozoic.
  * Species from different periods coexist on purpose; each entry records its
- * real period. Anatomy follows current evidence (e.g. feathered dromaeosaurs,
- * Dilophosaurus without frill or venom, pterosaurs and Sarcosuchus are not
- * dinosaurs).
+ * real period. The look of the film species follows the Jurassic Park/World
+ * films where the player asked for it (featherless Velociraptor at film size,
+ * Dilophosaurus with its neck frill); pterosaurs and Sarcosuchus are still not
+ * dinosaurs. The expanded fauna adds animals from much later times (giant
+ * ground sloth, sabre-toothed cat, dodo, anaconda) and Deinosuchus.
  */
 export type Diet = 'herbivore' | 'carnivore' | 'piscivore' | 'omnivore';
-export type BodyPlan = 'theropod' | 'quadruped' | 'sauropod' | 'hadrosaur' | 'pterosaur' | 'bird' | 'crocodyliform' | 'mosasaur';
+export type BodyPlan = 'theropod' | 'quadruped' | 'sauropod' | 'hadrosaur' | 'pterosaur' | 'bird' | 'crocodyliform' | 'mosasaur' | 'mammal' | 'serpent';
 export type SocialType = 'solitary' | 'pair' | 'family' | 'herd' | 'pack' | 'flock';
 export type ThreatResponse = 'flee' | 'defend' | 'charge' | 'mob' | 'freeze';
 export type Activity = 'diurnal' | 'nocturnal' | 'crepuscular' | 'cathemeral';
 export type Feature =
   | 'horns3' | 'frill' | 'neckFrill' | 'frillSpikes' | 'nasalBoss' | 'crestTube' | 'sail' | 'plates' | 'tailSpikes'
   | 'club' | 'armor' | 'longNeck' | 'feathers' | 'dualCrest' | 'dome' | 'longClaws' | 'longSnout'
-  | 'wings' | 'beak' | 'thumbSpike' | 'browHorns' | 'headCrest' | 'scutes' | 'fluke';
+  | 'wings' | 'beak' | 'thumbSpike' | 'browHorns' | 'headCrest' | 'scutes' | 'fluke'
+  // Mammals and others of the expanded fauna.
+  | 'fur' | 'shaggy' | 'sabers' | 'plump' | 'hookBeak';
 
 export interface SpeciesDef {
   id: string;
   name: { 'pt-BR': string; en: string };
   scientificName: string;
-  clade: 'dinosaur' | 'pterosaur' | 'crocodyliform' | 'avialan' | 'squamate';
+  clade: 'dinosaur' | 'pterosaur' | 'crocodyliform' | 'avialan' | 'squamate' | 'mammal';
   period: string;
   diet: Diet;
   ecology: 'apexPredator' | 'mesoPredator' | 'smallPredator' | 'megaHerbivore' | 'largeHerbivore' | 'mediumHerbivore' | 'smallHerbivore' | 'flyer';
@@ -43,7 +47,8 @@ export interface SpeciesDef {
   temperament: { aggression: number; fearfulness: number; curiosity: number };
   territory: { radius: number; defends: boolean };
   activity: Activity;
-  reproduction: { clutch: [number, number]; incubationDays: number; maturityDays: number; parentalCare: number; season: [number, number] };
+  /** live: gives birth to live young (no nest); incubationDays is then the gestation. */
+  reproduction: { clutch: [number, number]; incubationDays: number; maturityDays: number; parentalCare: number; season: [number, number]; live?: boolean };
   threat: { response: ThreatResponse; flightDistance: number };
   attack: { damage: number; range: number; cooldown: number };
   health: number;
@@ -400,6 +405,71 @@ const S: Record<string, Def> = {
     taming: { possible: false, difficulty: 1, preferredFood: ['raw_fish'] }, habitat: ['ocean'], tempRange: [12, 34],
     locomotion: { plan: 'mosasaur', stride: 3, turnRate: 0.8, swims: true, flies: false, aquatic: true },
     audio: { pitch: 50, call: 'grunt' }, look: { base: 0x2c3438, belly: 0xc8c8be, accent: 0x1c2226, pattern: 'countershade', features: ['fluke'] },
+    huntsHumans: true,
+  },
+  deinosuchus: {
+    name: { 'pt-BR': 'Deinosuco', en: 'Deinosuchus' }, scientificName: 'Deinosuchus riograndensis', clade: 'crocodyliform',
+    period: 'Cretáceo Superior (~82–73 Ma)', diet: 'carnivore', ecology: 'apexPredator',
+    lengthM: 10.5, hipHeightM: 0.95, massKg: 4000, walkSpeed: 0.9, runSpeed: 4.2, stamina: 4, foodNeed: 0.4, waterNeed: 0.2,
+    social: { type: 'solitary', size: [1, 1] }, senses: { sight: 70, hearing: 80, smell: 90, fovDeg: 200 },
+    temperament: { aggression: 0.65, fearfulness: 0.05, curiosity: 0.1 }, territory: { radius: 350, defends: true },
+    activity: 'cathemeral', reproduction: { clutch: [20, 40], incubationDays: 7, maturityDays: 40, parentalCare: 0.4, season: [10, 18] },
+    threat: { response: 'charge', flightDistance: 0 }, attack: { damage: 75, range: 3.2, cooldown: 2.6 }, health: 1600,
+    taming: { possible: false, difficulty: 1, preferredFood: ['raw_meat'] }, habitat: ['swamp', 'beach'], tempRange: [18, 40],
+    locomotion: { plan: 'crocodyliform', stride: 1.3, turnRate: 0.8, swims: true, flies: false },
+    audio: { pitch: 45, call: 'hiss' }, look: { base: 0x34382a, belly: 0x8c8a66, accent: 0x20231a, pattern: 'spots', features: ['scutes'] },
+    huntsHumans: true,
+  },
+  megatherium: {
+    name: { 'pt-BR': 'Megatério', en: 'Megatherium' }, scientificName: 'Megatherium americanum', clade: 'mammal',
+    period: 'Pleistoceno (~2 Ma–12 mil anos)', diet: 'herbivore', ecology: 'megaHerbivore',
+    lengthM: 6, hipHeightM: 1.9, massKg: 4000, walkSpeed: 1, runSpeed: 3, stamina: 8, foodNeed: 1.2, waterNeed: 1,
+    social: { type: 'solitary', size: [1, 2] }, senses: { sight: 50, hearing: 90, smell: 130, fovDeg: 200 },
+    temperament: { aggression: 0.25, fearfulness: 0.2, curiosity: 0.2 }, territory: { radius: 600, defends: false },
+    activity: 'diurnal', reproduction: { clutch: [1, 1], incubationDays: 12, maturityDays: 40, parentalCare: 0.9, season: [8, 20], live: true },
+    threat: { response: 'defend', flightDistance: 8 }, attack: { damage: 55, range: 3, cooldown: 2.2 }, health: 1500,
+    taming: { possible: true, difficulty: 0.6, preferredFood: ['berries', 'fern_fronds'] }, habitat: ['forest', 'plains', 'jungle'], tempRange: [0, 32],
+    locomotion: { plan: 'mammal', stride: 1.6, turnRate: 0.7, swims: false, flies: false },
+    audio: { pitch: 70, call: 'grunt' }, look: { base: 0x6a5236, belly: 0x8f7552, accent: 0x4a3824, pattern: 'plain', features: ['fur', 'shaggy', 'longClaws'] },
+    huntsHumans: false,
+  },
+  smilodon: {
+    name: { 'pt-BR': 'Smilodonte', en: 'Smilodon' }, scientificName: 'Smilodon populator', clade: 'mammal',
+    period: 'Pleistoceno (~1 Ma–10 mil anos)', diet: 'carnivore', ecology: 'mesoPredator',
+    lengthM: 2.1, hipHeightM: 0.95, massKg: 300, walkSpeed: 1.4, runSpeed: 11, stamina: 6, foodNeed: 1, waterNeed: 1,
+    social: { type: 'pair', size: [1, 3] }, senses: { sight: 130, hearing: 140, smell: 130, fovDeg: 200 },
+    temperament: { aggression: 0.6, fearfulness: 0.25, curiosity: 0.4 }, territory: { radius: 700, defends: true },
+    activity: 'crepuscular', reproduction: { clutch: [1, 3], incubationDays: 4, maturityDays: 18, parentalCare: 0.8, season: [6, 16], live: true },
+    threat: { response: 'charge', flightDistance: 6 }, attack: { damage: 42, range: 2, cooldown: 1.4 }, health: 380,
+    taming: { possible: true, difficulty: 0.75, preferredFood: ['raw_meat'] }, habitat: ['plains', 'forest', 'mountain'], tempRange: [-4, 32],
+    locomotion: { plan: 'mammal', stride: 1.4, turnRate: 2.4, swims: true, flies: false },
+    audio: { pitch: 160, call: 'roar' }, look: { base: 0xa07a4a, belly: 0xdcc8a2, accent: 0x6b4b2a, pattern: 'spots', features: ['fur', 'sabers'] },
+    huntsHumans: true,
+  },
+  dodo: {
+    name: { 'pt-BR': 'Dodô', en: 'Dodo' }, scientificName: 'Raphus cucullatus', clade: 'avialan',
+    period: 'Holoceno (extinto ~1681)', diet: 'herbivore', ecology: 'smallHerbivore',
+    lengthM: 0.75, hipHeightM: 0.32, massKg: 14, walkSpeed: 0.9, runSpeed: 3.2, stamina: 6, foodNeed: 1, waterNeed: 1,
+    social: { type: 'flock', size: [3, 8] }, senses: { sight: 40, hearing: 40, smell: 30, fovDeg: 280 },
+    temperament: { aggression: 0.05, fearfulness: 0.35, curiosity: 0.8 }, territory: { radius: 200, defends: false },
+    activity: 'diurnal', reproduction: { clutch: [1, 1], incubationDays: 3, maturityDays: 8, parentalCare: 0.7, season: [6, 18] },
+    threat: { response: 'flee', flightDistance: 5 }, attack: { damage: 2, range: 0.6, cooldown: 1.2 }, health: 30,
+    taming: { possible: true, difficulty: 0.1, preferredFood: ['berries'] }, habitat: ['beach', 'jungle', 'forest'], tempRange: [16, 36],
+    locomotion: { plan: 'bird', stride: 0.35, turnRate: 4, swims: false, flies: false },
+    audio: { pitch: 700, call: 'honk' }, look: { base: 0x7d7a74, belly: 0xb2aca0, accent: 0xe8e2d2, pattern: 'countershade', features: ['feathers', 'beak', 'hookBeak', 'plump'] },
+    huntsHumans: false,
+  },
+  anaconda: {
+    name: { 'pt-BR': 'Sucuri', en: 'Green anaconda' }, scientificName: 'Eunectes murinus', clade: 'squamate',
+    period: 'Atual (Holoceno)', diet: 'carnivore', ecology: 'mesoPredator',
+    lengthM: 6.5, hipHeightM: 0.17, massKg: 100, walkSpeed: 0.6, runSpeed: 2.2, stamina: 6, foodNeed: 0.3, waterNeed: 0.4,
+    social: { type: 'solitary', size: [1, 1] }, senses: { sight: 30, hearing: 40, smell: 140, fovDeg: 220 },
+    temperament: { aggression: 0.45, fearfulness: 0.2, curiosity: 0.1 }, territory: { radius: 200, defends: false },
+    activity: 'nocturnal', reproduction: { clutch: [10, 30], incubationDays: 8, maturityDays: 20, parentalCare: 0, season: [8, 16], live: true },
+    threat: { response: 'defend', flightDistance: 3 }, attack: { damage: 30, range: 1.8, cooldown: 2 }, health: 260,
+    taming: { possible: false, difficulty: 1, preferredFood: ['raw_meat'] }, habitat: ['swamp', 'jungle'], tempRange: [20, 40],
+    locomotion: { plan: 'serpent', stride: 0.8, turnRate: 1.6, swims: true, flies: false },
+    audio: { pitch: 400, call: 'hiss' }, look: { base: 0x3e4a26, belly: 0xb8a84a, accent: 0x14160c, pattern: 'spots', features: ['scutes'] },
     huntsHumans: true,
   },
 };

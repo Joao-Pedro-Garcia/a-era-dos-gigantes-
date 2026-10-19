@@ -45,6 +45,12 @@ export const TAME_PROFILES: Record<string, TameProfile> = {
   pachyrhinosaurus: { method: 'feeding', uses: ['mount', 'guard'], mountSpeed: 0.85 },
   troodon: { method: 'observation', uses: ['companion'] },
   mosasaurus: { method: 'none', uses: [] },
+  // Expanded fauna.
+  deinosuchus: { method: 'none', uses: [] },
+  megatherium: { method: 'feeding', uses: ['mount', 'pack', 'guard'], mountSpeed: 0.7 },
+  smilodon: { method: 'imprint', uses: ['companion', 'guard'] },
+  dodo: { method: 'feeding', uses: ['companion'] },
+  anaconda: { method: 'none', uses: [] },
 };
 
 export const canUse = (speciesId: string, use: TameUse): boolean => TAME_PROFILES[speciesId]?.uses.includes(use) ?? false;

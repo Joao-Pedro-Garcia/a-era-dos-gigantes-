@@ -23,9 +23,9 @@ function spawn(eco: ReturnType<typeof makeWorld>['eco'], speciesId: string, x: n
 }
 
 describe('species catalogue', () => {
-  it('has 20–30 species with distinct, complete data', () => {
+  it('has 20–40 species with distinct, complete data', () => {
     expect(SPECIES_IDS.length).toBeGreaterThanOrEqual(20);
-    expect(SPECIES_IDS.length).toBeLessThanOrEqual(30);
+    expect(SPECIES_IDS.length).toBeLessThanOrEqual(40);
     const sigs = new Set(SPECIES_IDS.map((id) => JSON.stringify([SPECIES[id].diet, SPECIES[id].social.type, SPECIES[id].threat.response, SPECIES[id].locomotion.plan, SPECIES[id].massKg])));
     expect(sigs.size).toBe(SPECIES_IDS.length);
     for (const id of SPECIES_IDS) {

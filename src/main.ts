@@ -31,6 +31,15 @@ else {
     if (d?.type !== 'offline-status') return;
     setStatus(d.cached >= d.total ? t('offline.ready') : t('offline.caching', { n: d.cached, m: d.total }));
   });
+  // An updated version took over (new models, new code): reload once so this visit
+  // already shows them instead of what the previous version had cached.
+  const hadController = !!navigator.serviceWorker.controller;
+  let reloading = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController || reloading) return;
+    reloading = true;
+    location.reload();
+  });
   navigator.serviceWorker
     .register('./sw.js')
     .then(async () => {
