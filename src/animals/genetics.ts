@@ -3,8 +3,8 @@ import type { Rng } from '../core/rng';
 import type { AnimalData, Personality } from './animal';
 
 /**
- * Heredity: each animal carries a few genes (body size, speed, a colour
- * shade) and a personality. Young born in the wild take the average of their
+ * Heredity: each animal carries a few genes (body size, top speed) and a
+ * personality. Young born in the wild take the average of their
  * mother and father with some variation, and now and then a mutation; the
  * generation count grows by one. Animals created by the world (seeding) get
  * random genes around 1.
@@ -14,26 +14,23 @@ export interface Genes {
   size: number;
   /** Top speed multiplier (0.9..1.1). */
   speed: number;
-  /** Colour shade: −1 darker … +1 lighter. */
-  shade: number;
   /** Generations since the world began (seeded animals are 0). */
   generation: number;
 }
 
-export const GENE_RANGE = { size: [0.85, 1.18], speed: [0.9, 1.1], shade: [-1, 1] } as const;
+export const GENE_RANGE = { size: [0.85, 1.18], speed: [0.9, 1.1] } as const;
 export const MUTATION_CHANCE = 0.03;
 
 export function randomGenes(rng: Rng): Genes {
   return {
     size: clamp(rng.gauss(1, 0.04), GENE_RANGE.size[0], GENE_RANGE.size[1]),
     speed: clamp(rng.gauss(1, 0.025), GENE_RANGE.speed[0], GENE_RANGE.speed[1]),
-    shade: clamp(rng.gauss(0, 0.35), -1, 1),
     generation: 0,
   };
 }
 
 export function genesOf(a: AnimalData): Genes {
-  return a.genes ?? { size: 1, speed: 1, shade: 0, generation: 0 };
+  return a.genes ?? { size: 1, speed: 1, generation: 0 };
 }
 
 /** Child genes from both parents (father optional: unknown father = mother's line only). */
@@ -44,8 +41,7 @@ export function inherit(mother: AnimalData, father: AnimalData | null, rng: Rng)
   const mutated = rng.chance(MUTATION_CHANCE);
   const genes: Genes = {
     size: clamp(mix(m.size, f.size, 0.02) + (mutated ? (rng.chance(0.5) ? 0.08 : -0.06) : 0), GENE_RANGE.size[0], GENE_RANGE.size[1]),
-    speed: clamp(mix(m.speed, f.speed, 0.015), GENE_RANGE.speed[0], GENE_RANGE.speed[1]),
-    shade: clamp(mix(m.shade, f.shade, 0.15) + (mutated ? rng.range(-0.6, 0.6) : 0), -1, 1),
+    speed: clamp(mix(m.speed, f.speed, 0.015) + (mutated ? rng.range(-0.04, 0.05) : 0), GENE_RANGE.speed[0], GENE_RANGE.speed[1]),
     generation: Math.max(m.generation, f.generation) + 1,
   };
   const pm = mother.personality;
@@ -78,4 +74,17 @@ export function applyInheritance(child: AnimalData, mother: AnimalData, father: 
 export function rankScore(a: AnimalData, adult: boolean): number {
   const g = genesOf(a);
   return (adult ? 100 : 0) + (a.alpha ? 50 : 0) + (a.sex === 'm' ? 3 : 0) + g.size * 10 + a.personality.courage * 5 + a.personality.aggression * 4 - a.bornAt * 1e-7;
+}
+
+/** Old age: the last fifth of the lifespan (slower, the body tires). */
+export function isElder(a: AnimalData, lifespanSeconds: number, now: number): boolean {
+  return now - a.bornAt > lifespanSeconds * 0.8;
+}
+
+/** Sanitises loaded genes (old saves have none; bad values fall back to average). */
+export function sanitizeGenes(g: unknown): Genes | undefined {
+  if (!g || typeof g !== 'object') return undefined;
+  const o = g as Record<string, unknown>;
+  const n = (v: unknown, lo: number, hi: number, d: number) => (typeof v === 'number' && Number.isFinite(v) ? clamp(v, lo, hi) : d);
+  return { size: n(o.size, GENE_RANGE.size[0], GENE_RANGE.size[1], 1), speed: n(o.speed, GENE_RANGE.speed[0], GENE_RANGE.speed[1], 1), generation: Math.round(n(o.generation, 0, 1e6, 0)) };
 }

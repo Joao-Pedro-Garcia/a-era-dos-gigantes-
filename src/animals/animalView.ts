@@ -427,7 +427,7 @@ export interface AttackPose {
 
 export function poseAnimalView(v: AnimalView, a: AnimalData, stride: number, altitude: number, now: number, dt: number, camDist: number, lodDistance = 70, atk: AttackPose | null = null): void {
   const sp = v.sp;
-  const g = growthScale(a, now) * v.size;
+  const g = growthScale(a, now) * v.size * (a.genes?.size ?? 1);
   v.root.position.set(a.x, a.y, a.z);
   v.root.rotation.set(0, a.heading, 0);
   v.root.scale.setScalar(g);

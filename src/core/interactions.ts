@@ -424,9 +424,16 @@ export class Interactions {
     const name = a.tame ? `${a.tame.name} (${spName})` : `${spName}${lifeStage(a, now) === 'juvenile' ? ` ${t('ui.juvenile')}` : ''}`;
     let text = t('prompt.observe', { what: name, state: a.alive ? t(`ai.${a.state}`) : t('ai.dead') });
     if (a.alpha && a.alive) text += ` · ${t('obs.alpha')}`;
+    if (a.alive && !a.tame) {
+      // Place in the group's hierarchy, and old age.
+      const r = g.eco!.rankOf(a);
+      if (r.of > 1) text += ` · ${r.rank === 1 ? t('obs.leader') : t('obs.rank', { n: r.rank, m: r.of })}`;
+      if (now - a.bornAt > sp.reproduction.maturityDays * 1200 * 6 * 0.8) text += ` · ${t('obs.elder')}`;
+    }
     if (detailed && a.alive) {
       const pct = (v: number) => `${Math.round(v * 100)}%`;
       text += ` · ${t('obs.detail', { hp: pct(a.health / maxHealth(a, now)), hunger: pct(a.hunger), thirst: pct(a.thirst), trust: pct((a.trustPlayer + 1) / 2) })}`;
+      if (a.genes) text += ` · ${t('obs.genes', { size: pct(a.genes.size), speed: pct(a.genes.speed), gen: a.genes.generation })}`;
       if (!a.tame && TAME_PROFILES[a.speciesId]?.method !== 'none') text += ` · ${t('obs.tame', { n: pct(a.tameProgress), m: t(`tame.method.${TAME_PROFILES[a.speciesId].method}`) })}`;
       if (!this.analyzed.has(a.id)) {
         this.analyzed.add(a.id);

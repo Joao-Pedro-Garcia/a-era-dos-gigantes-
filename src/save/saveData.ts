@@ -1,3 +1,4 @@
+import { sanitizeGenes } from '../animals/genetics';
 import type { EcosystemState } from '../animals/ecosystem';
 import type { BuildingState } from '../building/building';
 import type { CraftJob } from '../crafting/crafting';
@@ -183,6 +184,9 @@ export function sanitize(save: SaveData): string[] {
     a.trustPlayer = Number.isFinite(a.trustPlayer) ? clamp(a.trustPlayer, -1, 1) : 0;
     a.tameProgress = Number.isFinite(a.tameProgress) ? clamp(a.tameProgress, 0, 1) : 0;
     a.alpha = a.alpha === true;
+    const genes = sanitizeGenes(a.genes);
+    if (genes) a.genes = genes;
+    else delete a.genes;
     if (!Array.isArray(a.memory)) a.memory = [];
     a.memory = a.memory.slice(0, 12);
     if (a.tame) {

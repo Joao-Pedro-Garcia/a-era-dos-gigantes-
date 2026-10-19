@@ -51,6 +51,10 @@ export interface AIWorld {
   neighbors(a: AnimalData, radius: number): AnimalData[];
   get(id: string): AnimalData | undefined;
   groupLeader(groupId: string): AnimalData | undefined;
+  /** Rank in its group (1 = leader); higher-ranked animals eat first. */
+  rankOf?(a: AnimalData): number;
+  /** In the last fifth of its lifespan. */
+  elder?(a: AnimalData): boolean;
   forageAt(x: number, z: number): number;
   eatForage(x: number, z: number, amount: number): number;
   blocked(x: number, z: number, r: number): boolean;
@@ -1011,7 +1015,8 @@ export class AnimalBrain {
     const now = w.now;
     const g = growthScale(a, now);
     const injured = a.health / maxHealth(a, now) < 0.35 ? 0.6 : 1;
-    const fast = alphaMul(a, 'speed');
+    // Inherited speed, alphas a little faster, the old a little slower.
+    const fast = alphaMul(a, 'speed') * (a.genes?.speed ?? 1) * (w.elder?.(a) ? 0.85 : 1);
     const walk = sp.walkSpeed * (0.55 + 0.45 * g) * injured * fast;
     const run = sp.runSpeed * (0.55 + 0.45 * g) * injured * (a.stamina > 0.08 ? 1 : 0.45) * fast;
     let tx = a.tx;
@@ -1164,6 +1169,14 @@ export class AnimalBrain {
         tx = c.x;
         tz = c.z;
         const d = Math.hypot(tx - a.x, tz - a.z);
+        // Pecking order: while a higher-ranked member of the group feeds on the
+        // carcass, the others wait their turn a few metres off.
+        const myRank = w.rankOf?.(a) ?? 1;
+        const boss = myRank > 1 && !a.tame ? w.neighbors(a, 6 + sp.lengthM).find((o) => o.groupId === a.groupId && o.state === 'eat' && o.targetId === c.id && (w.rankOf?.(o) ?? 1) < myRank && Math.hypot(o.x - c.x, o.z - c.z) < 2 + sp.lengthM * 0.5) : undefined;
+        if (boss) {
+          targetSpeed = d < 3 + sp.lengthM ? 0 : walk;
+          break;
+        }
         if (d > 1.5 + sp.lengthM * 0.4) targetSpeed = walk;
         else {
           const bite = Math.min(c.meat, dt * effectiveMass(a, now) * 0.004 + dt * 0.2);

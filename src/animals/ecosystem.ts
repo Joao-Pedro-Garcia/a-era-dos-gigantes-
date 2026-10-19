@@ -1,3 +1,4 @@
+import { applyInheritance, isElder, randomGenes, rankScore } from './genetics';
 import { WORLD } from '../core/config';
 import { clamp } from '../core/math';
 import { Rng, hash2 } from '../core/rng';
@@ -38,6 +39,8 @@ export interface Nest {
   hatchAt: number;
   parentId: string;
   groupId: string;
+  /** The mate (for the young's inherited traits). */
+  fatherId?: string | null;
 }
 
 export interface EcosystemState {
@@ -101,6 +104,8 @@ export class Ecosystem {
   private nextId: number;
   private abstractAcc = 0;
   private leaders = new Map<string, AnimalData>();
+  /** Rank of each animal in its group (1 = leader), refreshed with the leaders. */
+  private ranks = new Map<string, { rank: number; of: number }>();
   private sectorIndex = new Map<string, AnimalData[]>();
   private hazards: Hazard[] = [];
   /** Accumulated time for animals updated at a reduced rate (far from the player). */
@@ -233,6 +238,7 @@ export class Ecosystem {
       if (sp.locomotion.aquatic && this.terrain.height(ax, az) > AQUATIC_MIN_DEPTH) continue;
       const parent = juvenile ? members.find((m) => m.sex === 'f' && lifeStage(m, now) === 'adult') : undefined;
       const a = createAnimal({ id: this.newId('a'), speciesId, x: ax, z: az, bornAt, groupId, parentId: parent?.id ?? null, rng });
+      a.genes = randomGenes(rng);
       if (rollAlpha(a, !juvenile, rng, this.animals.values(), alphaChance)) a.health = maxHealth(a, now);
       a.homeX = x;
       a.homeZ = z;
@@ -279,16 +285,33 @@ export class Ecosystem {
       const cur = this.leaders.get(a.groupId);
       if (!cur) this.leaders.set(a.groupId, a);
       else {
-        // Prefer adults; among equals the oldest leads.
-        const aAdult = lifeStage(a, now) === 'adult';
-        const cAdult = lifeStage(cur, now) === 'adult';
-        if ((aAdult && !cAdult) || (aAdult === cAdult && a.bornAt < cur.bornAt)) this.leaders.set(a.groupId, a);
+        // The group's hierarchy: alphas, then adults by strength and boldness, then age.
+        if (rankScore(a, lifeStage(a, now) === 'adult') > rankScore(cur, lifeStage(cur, now) === 'adult')) this.leaders.set(a.groupId, a);
       }
       const key = sectorKey(sectorOf(a.x), sectorOf(a.z));
       let list = this.sectorIndex.get(key);
       if (!list) this.sectorIndex.set(key, (list = []));
       list.push(a);
     }
+    // Full ranking inside each group.
+    this.ranks.clear();
+    const groups = new Map<string, AnimalData[]>();
+    for (const a of this.animals.values()) {
+      if (!a.alive || a.tame) continue;
+      let g = groups.get(a.groupId);
+      if (!g) groups.set(a.groupId, (g = []));
+      g.push(a);
+    }
+    for (const g of groups.values()) {
+      const sc = new Map(g.map((a) => [a, rankScore(a, lifeStage(a, now) === 'adult')] as const));
+      g.sort((x, y) => sc.get(y)! - sc.get(x)!);
+      g.forEach((a, i) => this.ranks.set(a.id, { rank: i + 1, of: g.length }));
+    }
+  }
+
+  /** Position of an animal in its group's hierarchy (1 = leader). */
+  rankOf(a: AnimalData): { rank: number; of: number } {
+    return this.ranks.get(a.id) ?? { rank: 1, of: 1 };
   }
 
   // ------------------------------------------------------------------ player interaction
@@ -397,6 +420,8 @@ export class Ecosystem {
       neighbors: (a, r) => this.neighbors(a, r),
       get: (id) => this.animals.get(id),
       groupLeader: (g) => this.leaders.get(g),
+      rankOf: (a) => this.rankOf(a).rank,
+      elder: (a) => isElder(a, SPECIES[a.speciesId].reproduction.maturityDays * DAY * 6, now),
       forageAt: (x, z) => this.forageAt(x, z),
       eatForage: (x, z, amount) => {
         const e = this.sectorEco(x, z);
@@ -598,6 +623,8 @@ export class Ecosystem {
           bornAt: now, groupId, parentId: parent?.alive ? parent.id : null, rng: this.rng,
         });
         a.y = this.terrain.height(a.x, a.z);
+        const mother = this.animals.get(n.parentId);
+        if (mother) applyInheritance(a, mother, (n.fatherId && this.animals.get(n.fatherId)) || null, this.rng);
         this.animals.set(a.id, a);
       }
     }
@@ -762,10 +789,15 @@ export class Ecosystem {
     // Needs a mate of the same species nearby and local population below carrying capacity.
     let mates = 0;
     let local = 0;
+    // The father: the highest-ranking adult male around (alphas first).
+    let father: AnimalData | null = null;
     for (const o of this.sectorIndex.get(sectorKey(sectorOf(a.x), sectorOf(a.z))) ?? []) {
       if (o.speciesId !== a.speciesId || !o.alive) continue;
       local++;
-      if (o.sex === 'm' && lifeStage(o, now) === 'adult') mates++;
+      if (o.sex === 'm' && lifeStage(o, now) === 'adult') {
+        mates++;
+        if (!father || rankScore(o, true) > rankScore(father, true)) father = o;
+      }
     }
     if (!mates || local > sp.social.size[1] * 2.5) return;
     if (!this.rng.chance(0.08)) return;
@@ -776,6 +808,7 @@ export class Ecosystem {
       const n = this.rng.int(sp.reproduction.clutch[0], sp.reproduction.clutch[1]);
       for (let i = 0; i < n; i++) {
         const c = createAnimal({ id: this.newId('a'), speciesId: a.speciesId, x: a.x + this.rng.range(-3, 3), z: a.z + this.rng.range(-3, 3), bornAt: now, groupId: a.groupId, parentId: a.id, rng: this.rng });
+        applyInheritance(c, a, father, this.rng);
         c.homeX = a.homeX;
         c.homeZ = a.homeZ;
         c.y = a.y;
@@ -786,7 +819,7 @@ export class Ecosystem {
     const n: Nest = {
       id: this.newId('n'), speciesId: a.speciesId, x: a.x, z: a.z,
       eggs: this.rng.int(sp.reproduction.clutch[0], sp.reproduction.clutch[1]),
-      laidAt: now, hatchAt: now + sp.reproduction.incubationDays * DAY, parentId: a.id, groupId: a.groupId,
+      laidAt: now, hatchAt: now + sp.reproduction.incubationDays * DAY, parentId: a.id, groupId: a.groupId, fatherId: father?.id ?? null,
     };
     this.nests.set(n.id, n);
     a.homeX = n.x;
