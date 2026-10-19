@@ -54,3 +54,20 @@
   articulação do braço; em levantamentos extremos o ombro da jaqueta deforma um pouco.
 - Não medi FPS em aparelho real com o modelo novo (44,7 mil triângulos, 1 malha com
   8 materiais); precisa ser testado no seu celular.
+
+## Animações de captura de movimento (atualização)
+- O corpo agora é animado por **captura de movimento real**: *Universal Animation Library*
+  de **Quaternius** (licença **CC0**, domínio público). 16 animações foram convertidas para o
+  esqueleto do jogo por `tools/human-retarget.mjs` (rotação de cada osso transferida em
+  espaço de mundo, com correção da pose de repouso T → braços para baixo), gravadas em
+  `public/anim/human.json` (460 KB; 30 quadros/s).
+- Usadas: parado, andar, trote e corrida (misturadas pela velocidade real e sincronizadas
+  com a distância percorrida), agachado parado e andando, salto no ar, aterrissagem, soco
+  jab (mão esquerda) e cruzado (mão direita) com o quadro de impacto alinhado ao dano.
+- Continuam por cima: giro no lugar com pés plantados, inclinação nas curvas, cabeça
+  seguindo a mira, ajuste do quadril ao terreno, golpes com ferramentas/armas (IK dos
+  braços), reação a golpes, esquiva. Nado e montaria continuam procedurais.
+- `?showcase&seq=stop|jump|punch|crouch` com `&proc` mostra o antigo para comparar.
+  Tiras: `docs/visual/humano-mocap-*.jpg`.
+- Limitação: em subidas íngremes um pé pode afundar um pouco (o ajuste ao terreno baixa o
+  quadril pelo pé mais baixo, sem IK por perna sobre as animações capturadas).

@@ -5,6 +5,7 @@ import type { PlayerController } from './player';
 import { createContactShadow } from '../graphics/contactShadow';
 import { driveExternal, externalEntry, instantiate, whenModel, type ExternalInstance } from '../graphics/externalModels';
 import { artistBody } from './artistBody';
+import { blendPose, clipDuration, clipImpact, clipsReady, newPose, sampleClip, type ClipId, type Pose } from './humanClips';
 import { actionKindFor, type CombatController } from '../combat/actions';
 import { actionPose, lowerPose, pitchKey, solveArm, type ArmPose, type HandKey } from './armPose';
 import { attachToHand, buildItemModel, disposeItemModel, type ItemModel } from './itemModels';
@@ -30,6 +31,9 @@ const SHIN = JOINTS['shin.L'][1] - JOINTS['foot.L'][1];
 const LEG = THIGH + SHIN;
 const HIP_Y = JOINTS['thigh.L'][1];
 const wrapAngle = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
+const X_AXIS = new THREE.Vector3(1, 0, 0);
+const Y_AXIS = new THREE.Vector3(0, 1, 0);
+const Z_AXIS = new THREE.Vector3(0, 0, 1);
 const ANKLE_Y = JOINTS['foot.L'][1];
 
 export class PlayerView {
@@ -54,6 +58,7 @@ export class PlayerView {
   private shadow: THREE.Mesh;
   private materials: THREE.MeshStandardMaterial[];
   private tmp = new THREE.Vector3();
+  private tmpQ = new THREE.Quaternion();
   /** Dodge and hit reactions: time since, direction in the body frame (x right, z forward), strength. */
   private dodgeT = 9;
   private dodgeX = 0;
@@ -73,6 +78,11 @@ export class PlayerView {
   private landT = 9;
   private landAmp = 0;
   private fallVy = 0;
+  /** Motion-captured clips (humanClips.ts) drive the body when loaded; false forces the procedural gait. */
+  useClips = true;
+  private poses: { idle: Pose; walk: Pose; jog: Pose; sprint: Pose; crouch: Pose; crouchMove: Pose; air: Pose; land: Pose; punch: Pose; out: Pose } | null = null;
+  /** A motion-captured punch is playing (the procedural arm IK stays off). */
+  private clipPunch = false;
   /** Set by the game while mounted on an animal. */
   riding = false;
   /** Artist model replacing the procedural survivor (see externalModels.ts). */
@@ -258,6 +268,12 @@ export class PlayerView {
       this.finish(dt);
       return;
     }
+    if (this.useClips && clipsReady()) {
+      this.poseClips(p, ground, off, landDip, speed, mv);
+      this.poseAction(dt, s.pitch);
+      this.finish(dt);
+      return;
+    }
 
     // ---- Legs (IK on terrain) --------------------------------------------
     // Duty-factor gait: during stance the foot moves back at exactly the body's
@@ -375,6 +391,95 @@ export class PlayerView {
   }
 
   /**
+   * Whole-body pose from the motion-captured clips: idle / walk / jog / sprint
+   * blended by the real speed (all locomotion clips share the controller's
+   * stride phase, so the feet stay in step with the distance travelled),
+   * crouching, the airborne loop, the landing, and punches timed so the
+   * clip's hit frame lands on the game's impact. Turning on the spot, banking,
+   * aim pitch and the terrain offset are added on top.
+   */
+  private poseClips(p: PlayerController, ground: ((x: number, z: number) => number) | undefined, off: number, landDip: number, speed: number, mv: number): void {
+    const P = (this.poses ??= { idle: newPose(), walk: newPose(), jog: newPose(), sprint: newPose(), crouch: newPose(), crouchMove: newPose(), air: newPose(), land: newPose(), punch: newPose(), out: newPose() });
+    const B = this.rig.bones;
+    const t = this.time;
+    const cyc = p.stride / 2;
+    const loopT = (id: ClipId) => t / Math.max(0.1, clipDuration(id));
+    sampleClip('Idle_Loop', loopT('Idle_Loop'), true, P.idle);
+    sampleClip('Walk_Loop', cyc, true, P.walk);
+    sampleClip('Jog_Fwd_Loop', cyc, true, P.jog);
+    sampleClip('Sprint_Loop', cyc, true, P.sprint);
+    const out = P.out;
+    // Walk → jog → sprint by speed, then idle ↔ moving by the move blend.
+    const wJog = Math.min(1, Math.max(0, (speed - 1.9) / 1.3));
+    const wSprint = Math.min(1, Math.max(0, (speed - 3.8) / 2.2));
+    blendPose(P.walk, P.jog, wJog, out);
+    blendPose(out, P.sprint, wSprint, out);
+    blendPose(out, P.idle, 1 - mv, out);
+    if (this.crouch > 0.01) {
+      sampleClip('Crouch_Idle_Loop', loopT('Crouch_Idle_Loop'), true, P.crouch);
+      sampleClip('Crouch_Fwd_Loop', cyc, true, P.crouchMove);
+      blendPose(P.crouch, P.crouchMove, mv, P.crouch);
+      blendPose(out, P.crouch, this.crouch, out);
+    }
+    if (this.air > 0.01) {
+      sampleClip('Jump_Loop', loopT('Jump_Loop'), true, P.air);
+      blendPose(out, P.air, this.air, out);
+    }
+    // Landing: the clip's knee bend and recovery, scaled by how hard the fall was.
+    const landDur = clipDuration('Jump_Land');
+    if (this.landT < landDur && this.landAmp > 0 && landDur > 0) {
+      const u = this.landT / landDur;
+      sampleClip('Jump_Land', u, false, P.land);
+      blendPose(out, P.land, Math.min(1, this.landAmp * 1.4) * (1 - u * u), out);
+    }
+    // Punches: the motion-captured jab (left) or cross (right).
+    const c = this.combat;
+    this.clipPunch = false;
+    if (c && c.def.kind === 'punch' && (c.phase === 'windup' || c.phase === 'strike' || c.phase === 'recover')) {
+      const d = c.def;
+      const total = d.windup + d.strike + d.recover;
+      const el = c.phase === 'windup' ? c.progress * d.windup : c.phase === 'strike' ? d.windup + c.progress * d.strike : d.windup + d.strike + c.progress * d.recover;
+      const hitAt = (d.windup + d.strike * d.impactAt) / total;
+      const tn = el / total;
+      const id: ClipId = c.hand === 'L' ? 'Punch_Jab' : 'Punch_Cross';
+      const imp = clipImpact(id);
+      const u = tn < hitAt ? (tn / hitAt) * imp : imp + ((tn - hitAt) / (1 - hitAt)) * (1 - imp);
+      sampleClip(id, u, false, P.punch);
+      // The legs keep walking when moving; standing still, the whole body punches.
+      const ease = Math.min(1, Math.min(tn, 1 - tn) * 8);
+      for (const [b, q] of out.rot) if (mv < 0.3 || !(b.startsWith('thigh') || b.startsWith('shin') || b.startsWith('foot') || b.startsWith('toe') || b === 'hips')) q.slerp(P.punch.rot.get(b)!, ease);
+      if (mv < 0.3) out.hips.lerp(P.punch.hips, ease);
+      this.clipPunch = true;
+    }
+    for (const [b, q] of out.rot) B[b].quaternion.copy(q);
+    // Pelvis: the clip's offset, the terrain under the lower foot, and the landing dip.
+    let g = 0;
+    if (ground && p.onGround) {
+      const cy = Math.cos(p.bodyYaw);
+      const sy = Math.sin(p.bodyYaw);
+      g = Infinity;
+      for (const side of [1, -1]) {
+        const lx = JOINTS[side > 0 ? 'foot.L' : 'foot.R'][0];
+        g = Math.min(g, ground(p.s.x + lx * cy, p.s.z - lx * sy) - p.visualY);
+      }
+      g = Math.max(-0.35, Math.min(0.2, g));
+    }
+    B.hips.position.copy(this.rig.rest.hips).add(out.hips);
+    B.hips.position.y += g - landDip * 0.05;
+    this.pelvis = HIP_Y + out.hips.y + g;
+    // Turning on the spot keeps the feet planted (pelvis turned back, torso with the body);
+    // banking into turns when moving; the head follows the aim.
+    const yawQ = (a: number) => this.tmpQ.setFromAxisAngle(Y_AXIS, a);
+    B.hips.quaternion.premultiply(yawQ(-off * 0.85));
+    B.spine.quaternion.premultiply(yawQ(off * 0.85));
+    B.hips.quaternion.premultiply(this.tmpQ.setFromAxisAngle(Z_AXIS, Math.max(-0.12, Math.min(0.12, -this.yawRate * speed * 0.012))));
+    const lead = Math.max(-0.35, Math.min(0.35, this.yawRate * 0.09));
+    B.head.quaternion.premultiply(this.tmpQ.setFromAxisAngle(Y_AXIS, lead));
+    B.neck.quaternion.multiply(this.tmpQ.setFromAxisAngle(X_AXIS, -p.s.pitch * 0.2));
+    B.head.quaternion.multiply(this.tmpQ.setFromAxisAngle(X_AXIS, -p.s.pitch * 0.3));
+  }
+
+  /**
    * Upper body for actions (layered over the gait, so the survivor can
    * strike while walking or running): the same hand keys as the
    * first-person arms, reached with IK, plus the chest twist of the swing.
@@ -391,6 +496,8 @@ export class PlayerView {
       const aim = c.def.kind === 'bow' && c.busy ? 0.9 : c.busy ? 0.4 : 0;
       pose = { ...pose, R: pitchKey(pose.R, pitch * aim), L: pitchKey(pose.L, pitch * aim) };
     }
+    // The motion-captured punch already moves the arms, chest and hips.
+    if (this.clipPunch) pose = { R: null, L: null, twist: 0, lean: 0 };
     this.twist += (pose.twist - this.twist) * k;
     // The swing starts in the hips: the pelvis turns with it while the legs stay planted,
     // then the spine and chest add the rest.

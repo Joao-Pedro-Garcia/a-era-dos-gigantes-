@@ -1,3 +1,4 @@
+import { loadHumanClips } from '../player/humanClips';
 import { createRareEvents, rollRareEvent, sanitizeRareEvents, type RareEventKind, type RareEventState } from '../world/rareEvents';
 import { MeteorShower } from '../graphics/meteors';
 import { makeAlpha } from '../animals/alpha';
@@ -271,6 +272,7 @@ export class Game {
 
   async boot(): Promise<void> {
     // Optional artist models (empty manifest by default; failures fall back to procedural models).
+    void loadHumanClips();
     void loadExternalModels().then((r) => {
       if (r.failed.length) console.warn('Modelos externos não carregados:', r.failed.join(', '));
     });

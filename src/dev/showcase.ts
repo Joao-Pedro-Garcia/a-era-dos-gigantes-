@@ -1,3 +1,4 @@
+import { loadHumanClips } from '../player/humanClips';
 import * as THREE from 'three';
 import { createAnimal } from '../animals/animal';
 import { type AttackPose, createAnimalView, poseAnimalView, setAnimalContext } from '../animals/animalView';
@@ -20,6 +21,8 @@ import type { PlayerController } from '../player/player';
  */
 export function runShowcase(canvas: HTMLCanvasElement): void {
   const params = new URLSearchParams(location.search);
+  // Motion-captured human clips (?proc keeps the procedural gait for comparison).
+  if (!params.has('proc')) void loadHumanClips();
   if (params.has('ext'))
     void loadExternalModels().then((r) => {
       (window as unknown as { __extReady: unknown }).__extReady = r;
@@ -137,7 +140,7 @@ export function runShowcase(canvas: HTMLCanvasElement): void {
  * side by side (optionally ?side for a profile view, ?close for a close-up).
  */
 /**
- * Animation review (?showcase&seq=turn|stop|jump|punch|walk): one survivor driven by a
+ * Animation review (?showcase&seq=turn|stop|jump|punch|crouch|walk): one survivor driven by a
  * scripted controller, advanced deterministically at 60 Hz by `window.__seqStep(frames)`
  * (no real-time loop), so frame strips can be captured before/after a change.
  * &side / &front choose the camera; &ext loads the artist body.
@@ -204,6 +207,9 @@ function runHumanSequence(canvas: HTMLCanvasElement, params: URLSearchParams): v
       p.visualY = p.s.y;
     } else if (seq === 'punch') {
       p.horizontalSpeed = 0;
+    } else if (seq === 'crouch') {
+      p.crouching = true;
+      p.horizontalSpeed = time < 0.6 ? 0 : 1.6;
     } else {
       p.horizontalSpeed = 1.6;
     }
