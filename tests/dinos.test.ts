@@ -141,7 +141,9 @@ describe('realism pilot: triceratops and skin regions', () => {
   });
 
   it('the parasaurolophus has a long tubular crest past the back of the skull and a deep, flat-sided tail', () => {
-    const sp = SPECIES.parasaurolophus;
+    // The procedural body (juveniles, or when the artist file is missing): adults of this
+    // species are re-fitted to the artist model, so measure it under another id.
+    const sp = { ...SPECIES.parasaurolophus, id: 'parasaurolophus_procedural' };
     const t = buildDinoTemplate(sp);
     const { at, len, height } = t.bp.head;
     const pos = t.geometry.attributes.position;
@@ -188,7 +190,8 @@ describe('realism pilot: triceratops and skin regions', () => {
   });
 
   it('the ankylosaurus is low and broad, with a wide club, skull horns and banded armour', () => {
-    const sp = SPECIES.ankylosaurus;
+    // Procedural body (see the parasaurolophus test).
+    const sp = { ...SPECIES.ankylosaurus, id: 'ankylosaurus_procedural' };
     const t = buildDinoTemplate(sp);
     const torso = t.bp.cps.find((c) => c.bone === 'torso')!;
     expect(torso.rx).toBeGreaterThan(torso.ry * 1.5);
