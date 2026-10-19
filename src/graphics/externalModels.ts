@@ -41,6 +41,7 @@ export interface ModelEntry {
   closeMouth?: number;
   /** Rigged files: model-unit sideways offset of the body's midline (moved to x = 0, before rigRotY). */
   rigShiftX?: number;
+  rigShiftZ?: number;
   /**
    * Alternative colourings of the same model (same skeleton and clips), each worn
    * by a share of the individuals (`chance`, 0–1); the rest wear `url`.
@@ -103,9 +104,10 @@ export function parseManifest(raw: unknown): ModelManifest {
     const rigRotY = typeof x.rigRotY === 'number' && Number.isFinite(x.rigRotY) ? x.rigRotY : undefined;
     const rigFloor = typeof x.rigFloor === 'number' && Number.isFinite(x.rigFloor) ? x.rigFloor : undefined;
     const rigShiftX = typeof x.rigShiftX === 'number' && Number.isFinite(x.rigShiftX) ? x.rigShiftX : undefined;
+    const rigShiftZ = typeof x.rigShiftZ === 'number' && Number.isFinite(x.rigShiftZ) ? x.rigShiftZ : undefined;
     const autoSkin = x.autoSkin === true;
     const closeMouth = typeof x.closeMouth === 'number' && Number.isFinite(x.closeMouth) ? x.closeMouth : undefined;
-    return { url: x.url, scale: num(x.scale, 1, 0.001, 1000), strideM: num(x.strideM, 1, 0.05, 20), clips, clipSpeeds, credit, ...(rig ? { rig } : {}), ...(rigRotY !== undefined ? { rigRotY } : {}), ...(rigFloor !== undefined ? { rigFloor } : {}), ...(rigShiftX !== undefined ? { rigShiftX } : {}), ...(autoSkin ? { autoSkin } : {}), ...(closeMouth !== undefined ? { closeMouth } : {}), ...(variants ? { variants } : {}) };
+    return { url: x.url, scale: num(x.scale, 1, 0.001, 1000), strideM: num(x.strideM, 1, 0.05, 20), clips, clipSpeeds, credit, ...(rig ? { rig } : {}), ...(rigRotY !== undefined ? { rigRotY } : {}), ...(rigFloor !== undefined ? { rigFloor } : {}), ...(rigShiftX !== undefined ? { rigShiftX } : {}), ...(rigShiftZ !== undefined ? { rigShiftZ } : {}), ...(autoSkin ? { autoSkin } : {}), ...(closeMouth !== undefined ? { closeMouth } : {}), ...(variants ? { variants } : {}) };
   };
   if (r.species && typeof r.species === 'object')
     for (const [id, e] of Object.entries(r.species as Record<string, unknown>)) {
@@ -382,10 +384,11 @@ export function riggedMesh(id: string, boneIndex: Map<string, number>, bones?: A
   const sy = Math.sin(ry);
   const fl = src.entry.rigFloor ?? 0;
   const sx = src.entry.rigShiftX ?? 0;
+  const sz = src.entry.rigShiftZ ?? 0;
   const nrm = g.attributes.normal;
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i) - sx;
-    const z = pos.getZ(i);
+    const z = pos.getZ(i) - sz;
     pos.setXYZ(i, (x * cy + z * sy) * s, (pos.getY(i) - fl) * s, (-x * sy + z * cy) * s);
     if (nrm && ry) {
       const nx = nrm.getX(i);

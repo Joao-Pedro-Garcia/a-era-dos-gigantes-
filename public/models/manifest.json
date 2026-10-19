@@ -501,6 +501,25 @@
         "url": "https://sketchfab.com/3d-models/sarcosuchus-5bcc802472444070991c13a2781023db",
         "license": "CC BY 4.0"
       }
+    },
+    "baryonyx": {
+      "url": "baryonyx.glb",
+      "scale": 1.02041,
+      "strideM": 2.6,
+      "clipSpeeds": {},
+      "clips": {},
+      "rig": {},
+      "autoSkin": true,
+      "rigRotY": -1.740796,
+      "rigFloor": -3.33,
+      "rigShiftX": 2.2602,
+      "rigShiftZ": -5.1567,
+      "credit": {
+        "title": "Baryonix- Walkeri",
+        "author": "add4d",
+        "url": "https://sketchfab.com/3d-models/baryonix-walkeri-3e97de2fef8240edac9244c55ed6fcb3",
+        "license": "CC BY 4.0"
+      }
     }
   },
   "player": null
