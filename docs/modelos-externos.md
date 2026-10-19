@@ -143,3 +143,20 @@ Alguns modelos bons vêm **sem esqueleto**. Para eles o jogo calcula os pesos da
 | Mosassauro (tilossauro de FreddyFoxFreddy) | O modelo está curvado em S (pose de nado); com esqueleto reto ficaria torto. |
 | Tricerátops (aumakua) | É o escaneamento de uma miniatura de plástico: o desenho é do fabricante do brinquedo. |
 | Braquiossauro, anquilossauro, parassaurolofo, dilofossauro, compsognato, microraptor, galimimo, iguanodonte, alossauro, protocerátops, paquirrinossauro, troodonte, smilodonte, sucuri e pteranodonte | Nenhum modelo gratuito de origem limpa e boa qualidade. Os bons do AneesAnimates são pagos. |
+
+## Rodada de busca (outubro): pterossauros e megatério
+Integrados (CC BY 4.0, com crédito no jogo), usando as animações do próprio arquivo:
+- **Pteranodonte**: "pteranodon dinosaur" de *victory_* (voo, pousado, grito). Escala 0,042.
+- **Quetzalcoatlo**: "Pterosaur_Quetzalcoatlus" de *seirogan* (batida de asas); girado 180°,
+  simplificado para ~140 mil triângulos (o mais pesado; longe ele troca para o procedural).
+- **Megatério**: "Animated Megatherium (Free)" de *AneesAnimates* (caminhada em pé). ~3,7 m.
+
+Limitações: os pterossauros só têm animação de voo/pouso — no chão o quetzalcoatlo
+fica com as asas abertas; o megatério anda sempre em pé (sem caminhada em 4 patas).
+
+Recusados nesta busca (direitos): tricerátops/anquilossauro "Amazing Dinoworld" (tirados
+do site da NHK), parassaurolofo/anquilossauro do kenchoo (derivados de Jurassic World
+Dominion / "ANKY-ANKY 2001"), reenvios do usuário slang107123456789 (mosassauro,
+compsógnato, alossauro) de origem não comprovada. Sem modelo livre aceitável: alossauro,
+braquiossauro, iguanodonte, galimimo, dilofossauro, paquirrinossauro, protocerátops,
+troodonte, microraptor, smilodon, sucuri.

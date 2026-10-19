@@ -520,6 +520,60 @@
     "url": "https://sketchfab.com/3d-models/baryonix-walkeri-3e97de2fef8240edac9244c55ed6fcb3",
     "license": "CC BY 4.0"
    }
+  },
+  "pteranodon": {
+   "url": "pteranodon.glb",
+   "scale": 1,
+   "strideM": 0.8,
+   "clipSpeeds": {},
+   "clips": {
+    "fly": "fly",
+    "idle": "sit",
+    "rest": "sit",
+    "eat": "sit",
+    "drink": "sit",
+    "walk": "sit",
+    "roar": "roar",
+    "attack": "roar"
+   },
+   "credit": {
+    "title": "pteranodon dinosaur",
+    "author": "victory_",
+    "url": "https://sketchfab.com/3d-models/pteranodon-dinosaur-4784638c08f045e3b92de2819e823984",
+    "license": "CC BY 4.0"
+   }
+  },
+  "quetzalcoatlus": {
+   "url": "quetzalcoatlus.glb",
+   "scale": 1,
+   "strideM": 2,
+   "clipSpeeds": {},
+   "clips": {
+    "fly": "fly"
+   },
+   "credit": {
+    "title": "Pterosaur_Quetzalcoatlus",
+    "author": "seirogan",
+    "url": "https://sketchfab.com/3d-models/pterosaur-quetzalcoatlus-5ef112b3208d4444a51e480beca56277",
+    "license": "CC BY 4.0"
+   }
+  },
+  "megatherium": {
+   "url": "megatherium.glb",
+   "scale": 1,
+   "strideM": 1.2,
+   "clipSpeeds": {},
+   "clips": {
+    "walk": "walk",
+    "idle": "walk",
+    "run": "walk"
+   },
+   "credit": {
+    "title": "Animated Megatherium (Free)",
+    "author": "AneesAnimates",
+    "url": "https://sketchfab.com/3d-models/animated-megatherium-free-ec0cb6a41c2e498780136e3d89fa1516",
+    "license": "CC BY 4.0"
+   }
   }
  },
  "player": {
