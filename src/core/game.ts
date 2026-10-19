@@ -1,7 +1,10 @@
+import { createRareEvents, rollRareEvent, sanitizeRareEvents, type RareEventKind, type RareEventState } from '../world/rareEvents';
+import { MeteorShower } from '../graphics/meteors';
+import { makeAlpha } from '../animals/alpha';
 import { DinoCombatFx } from '../combat/dinoCombatFx';
 import * as THREE from 'three';
 import { AudioSystem, type Surface } from '../audio/audio';
-import { growthScale, lifeStage, type AIState, type AnimalData, type TameCommand } from '../animals/animal';
+import { growthScale, lifeStage, maxHealth, type AIState, type AnimalData, type TameCommand } from '../animals/animal';
 import { alphaMul } from '../animals/alpha';
 import { updateAlphaAura } from '../animals/alphaAura';
 import { LandmarkViews } from '../world/landmarks';
@@ -12,7 +15,7 @@ import { ImpactFx } from '../graphics/impactFx';
 import { Viewmodel } from '../player/viewmodel';
 import { prewarmPlants } from '../world/plants';
 import { Ecosystem, createEcosystemState, type EcoContext, type EcoEvent } from '../animals/ecosystem';
-import { SPECIES } from '../animals/species';
+import { SPECIES, SPECIES_IDS, isPredator } from '../animals/species';
 import { Building, PIECES, type Piece, type PieceType, type Placement } from '../building/building';
 import { applyBuildingTextures, createGhost, createPieceObject, disposeObject, syncPieceObject } from '../building/pieceViews';
 import { materialOf } from '../building/durability';
@@ -152,6 +155,14 @@ export class Game {
   private ghostType: PieceType | null = null;
   private storageOpen: Piece | null = null;
   hostileUntil = 0;
+  /** Rare world events (stampede, alpha migration, meteor shower). */
+  rare: RareEventState = createRareEvents();
+  readonly meteors = new MeteorShower();
+  /** Places marked on the compass: the player's own waypoints and meteor impacts. */
+  markers: { x: number; z: number; kind: 'waypoint' | 'meteor'; until?: number }[] = [];
+  /** Game time of the next meteor impact during a shower. */
+  private meteorImpactAt = 0;
+  private meteorImpactsLeft = 0;
   /** Game time until which the player's blows count as counter-attacks (after a dodge). */
   counterUntil = 0;
   readonly dinoCombat = new DinoCombatFx(this);
@@ -225,6 +236,7 @@ export class Game {
     this.viewmodel = new Viewmodel(this.textures);
     this.combat.clock = () => performance.now() / 1000;
     this.scene.add(this.fx.root);
+    this.scene.add(this.meteors.group);
     applyBuildingTextures(this.textures);
     this.scene.add(this.worldRoot);
     this.rig = new CameraRig(this.camera);
@@ -526,6 +538,8 @@ export class Game {
     this.nextBagId = save.world.nextBagId;
     this.discovered = new Set(save.world.discovered);
     this.seenSpecies = new Set(save.world.seen ?? []);
+    this.rare = sanitizeRareEvents(save.world.rare, save.env.time);
+    this.markers = (save.world.markers ?? []).filter((m) => Number.isFinite(m.x) && Number.isFinite(m.z)).slice(0, 8).map((m) => ({ x: m.x, z: m.z, kind: 'waypoint' as const }));
     this.inCave = save.world.inCave ?? null;
     this.envView.indoor = !!this.inCave;
     for (const p of this.buildingSys.pieces.values()) this.addPieceView(p);
@@ -559,6 +573,8 @@ export class Game {
         flags: [...this.sectors!.flags],
         inCave: this.inCave,
         terrainVersion: this.terrain!.version,
+        rare: this.rare,
+        markers: this.markers.filter((m) => m.kind === 'waypoint'),
       },
       progression: this.progression.d,
       exploration: this.exploration.serialize(),
@@ -1007,6 +1023,10 @@ export class Game {
     if (!panel && input.consume('eat')) this.useHeld();
     this.actions.updateProjectiles(realDt);
     this.dinoCombat.update(realDt);
+    this.meteors.update(realDt, env.state.time, this.camera.position, () => this.rng.next());
+    this.meteorImpacts(env.state.time);
+    if (this.markers.length) this.markers = this.markers.filter((m) => m.until === undefined || m.until > env.state.time);
+    if (!panel && input.consume('marker')) this.toggleWaypoint();
 
     // --- Ecosystem (sub-stepped while sleeping).
     this.profiler.begin('ai');
@@ -1498,6 +1518,153 @@ export class Game {
     }
   }
 
+  /** Compass word (N, NE…) for the direction from the player to a point. */
+  private bearingWord(x: number, z: number): string {
+    const p = this.player!.s;
+    const dirs = t('dir.compass').split(',');
+    // North is −z, east +x.
+    const deg = ((Math.atan2(x - p.x, -(z - p.z)) * 180) / Math.PI + 360) % 360;
+    return dirs[Math.round(deg / 45) % 8];
+  }
+
+  /**
+   * Starts a rare event near the player, with a warning that says what and
+   * from which direction.
+   */
+  startRareEvent(kind: RareEventKind): boolean {
+    const p = this.player!.s;
+    const eco = this.eco!;
+    const now = this.env!.state.time;
+    if (kind === 'stampede') {
+      // The nearest big herd within 350 m bolts, running past the player.
+      let herd: AnimalData[] = [];
+      let best = 1e9;
+      const groups = new Map<string, AnimalData[]>();
+      for (const a of eco.active) {
+        const sp = SPECIES[a.speciesId];
+        if (!a.alive || a.tame || isPredator(sp) || sp.massKg < 200 || sp.locomotion.flies || sp.locomotion.aquatic) continue;
+        let g = groups.get(a.groupId);
+        if (!g) groups.set(a.groupId, (g = []));
+        g.push(a);
+      }
+      for (const g of groups.values()) {
+        if (g.length < 3) continue;
+        const d = Math.hypot(g[0].x - p.x, g[0].z - p.z);
+        if (d < best && d < 350) {
+          best = d;
+          herd = g;
+        }
+      }
+      if (!herd.length) return false;
+      const cx = herd.reduce((s, a) => s + a.x, 0) / herd.length;
+      const cz = herd.reduce((s, a) => s + a.z, 0) / herd.length;
+      // The scare comes from behind the herd, as seen from the player: they run toward and past them.
+      const ang = Math.atan2(cx - p.x, cz - p.z);
+      for (const a of herd) eco.brain.onScare(a, cx + Math.sin(ang) * 40, cz + Math.cos(ang) * 40, now);
+      this.notify('event.stampede', { what: SPECIES[herd[0].speciesId].name[language()], dir: this.bearingWord(cx, cz) }, 'warn');
+      this.audio.call(SPECIES[herd[0].speciesId], cx, this.terrain!.height(cx, cz) + 2, cz, 1.2, 1, false, '');
+      return true;
+    }
+    if (kind === 'alphaMigration') {
+      const pred = SPECIES_IDS.filter((id) => {
+        const sp = SPECIES[id];
+        return isPredator(sp) && sp.massKg >= 500 && !sp.locomotion.aquatic && !sp.locomotion.flies;
+      });
+      const id = pred[Math.floor(this.rng.next() * pred.length)];
+      for (let i = 0; i < 8; i++) {
+        const ang = this.rng.next() * Math.PI * 2;
+        const x = p.x + Math.sin(ang) * 220;
+        const z = p.z + Math.cos(ang) * 220;
+        if (this.terrain!.height(x, z) < 0.5) continue;
+        const group = eco.spawnGroup(id, x, z, this.rng, 0);
+        const lead = group.find((a) => a.sex === 'm' && lifeStage(a, now) === 'adult') ?? group[0];
+        if (!lead) return false;
+        for (const o of group) if (o !== lead) eco.animals.delete(o.id);
+        lead.sex = 'm';
+        makeAlpha(lead);
+        lead.health = maxHealth(lead, now);
+        // Its new territory is the player's area.
+        lead.homeX = p.x + (x - p.x) * 0.3;
+        lead.homeZ = p.z + (z - p.z) * 0.3;
+        this.notify('event.alpha', { what: SPECIES[id].name[language()], dir: this.bearingWord(x, z) }, 'warn');
+        return true;
+      }
+      return false;
+    }
+    // Meteor shower: a minute of streaks; three fragments fall around the player.
+    this.meteors.start(now, 70);
+    this.meteorImpactsLeft = 3;
+    this.meteorImpactAt = now + 15;
+    this.notify('event.meteors', {}, 'warn');
+    return true;
+  }
+
+  /** Meteor fragments land a few at a time during a shower (marked on the compass). */
+  private meteorImpacts(now: number): void {
+    if (this.meteorImpactsLeft <= 0 || now < this.meteorImpactAt) return;
+    this.meteorImpactsLeft--;
+    this.meteorImpactAt = now + 18;
+    const p = this.player!.s;
+    const ang = this.rng.next() * Math.PI * 2;
+    const d = 60 + this.rng.next() * 110;
+    const x = p.x + Math.sin(ang) * d;
+    const z = p.z + Math.cos(ang) * d;
+    const y = this.terrain!.height(x, z);
+    if (y < this.env!.waterLevel) return;
+    this.createBagAt([{ id: 'metal_ore', qty: 3 }, { id: 'crystal', qty: 1 }], x, y, z);
+    this.markers.push({ x, z, kind: 'meteor', until: now + 1200 });
+    this.fx.spawn('stone', new THREE.Vector3(x, y + 0.5, z), new THREE.Vector3(0, 1, 0), 1.5);
+    this.hitStop(Math.max(0, 0.06 - d / 4000));
+    this.notify('event.meteorImpact', { dir: this.bearingWord(x, z) }, 'good');
+  }
+
+  /** Markers for the compass strip (cheap: a handful of points). */
+  private updateCompassBar(exact: boolean): void {
+    if (this.inCave) return this.hud.updateCompass(0, false, []);
+    const p = this.player!.s;
+    const marks: { bearing: number; icon: string; cls: string; dist: number; label: string }[] = [];
+    const add = (x: number, z: number, icon: string, cls: string, label: string) => marks.push({ bearing: Math.atan2(x - p.x, z - p.z), icon, cls, dist: Math.hypot(x - p.x, z - p.z), label });
+    for (const m of this.markers) add(m.x, m.z, m.kind === 'meteor' ? '☄' : '◆', m.kind, t(m.kind === 'meteor' ? 'marker.meteor' : 'marker.waypoint'));
+    if (this.respawnPoint) add(this.respawnPoint.x, this.respawnPoint.z, '🏠', 'home', t('marker.home'));
+    const tamed = this.eco!.active.filter((a) => a.alive && a.tame).sort((a, b) => Math.hypot(a.x - p.x, a.z - p.z) - Math.hypot(b.x - p.x, b.z - p.z)).slice(0, 3);
+    for (const a of tamed) if (Math.hypot(a.x - p.x, a.z - p.z) > 12) add(a.x, a.z, '🦖', 'tame', a.tame!.name);
+    for (const site of PLANNED_SITES) {
+      if (!this.discovered.has(site.id)) continue;
+      const d = Math.hypot(site.x - p.x, site.z - p.z);
+      if (d < 700 && d > site.radius) add(site.x, site.z, '★', 'place', t(`site.${site.id}`));
+    }
+    this.hud.updateCompass(p.yaw, exact, marks);
+  }
+
+  /** Puts a waypoint where the player is looking (up to 300 m), or removes the nearest one. */
+  toggleWaypoint(): void {
+    const p = this.player!.s;
+    const dir = new THREE.Vector3();
+    this.camera.getWorldDirection(dir);
+    let hx = p.x + dir.x * 300;
+    let hz = p.z + dir.z * 300;
+    for (let d = 4; d < 300; d += 2) {
+      const x = this.camera.position.x + dir.x * d;
+      const y = this.camera.position.y + dir.y * d;
+      const z = this.camera.position.z + dir.z * d;
+      if (y <= this.terrain!.height(x, z)) {
+        hx = x;
+        hz = z;
+        break;
+      }
+    }
+    const near = this.markers.findIndex((m) => m.kind === 'waypoint' && Math.hypot(m.x - hx, m.z - hz) < 25);
+    if (near >= 0) {
+      this.markers.splice(near, 1);
+      this.notify('marker.removed');
+      return;
+    }
+    const mine = this.markers.filter((m) => m.kind === 'waypoint');
+    if (mine.length >= 5) this.markers.splice(this.markers.indexOf(mine[0]), 1);
+    this.markers.push({ x: hx, z: hz, kind: 'waypoint' });
+    this.notify('marker.placed', { m: Math.round(Math.hypot(hx - p.x, hz - p.z)) }, 'good');
+  }
+
   /** Damage from an animal's attack that does not come through the AI step (spit). */
   animalDamagesPlayer(amount: number, a: AnimalData): void {
     this.onAnimalHitsPlayer(amount, a);
@@ -1524,6 +1691,8 @@ export class Game {
   private slowChecks(biome: BiomeId): void {
     const p = this.player!;
     const prog = this.progression;
+    const ev = rollRareEvent(this.rare, this.env!.state.time, this.rng, this.env!.isNight, !!this.inCave);
+    if (ev) this.startRareEvent(ev);
     if (!this.inCave) {
       if (biome !== this.lastBiome) {
         if (this.lastBiome) this.notify('notify.biome', { biome: t(`biome.${biome}`) });
@@ -1602,6 +1771,7 @@ export class Game {
     const dirMode = this.inventory.count('compass') > 0 ? 'exact' : !this.inCave && !env.isNight && env.state.intensity < 0.6 ? 'sun' : 'none';
     const forecast = this.progression.has('weather_sense') ? env.forecast() : null;
     this.hud.updateTop(env.day, env.dayFraction, env.state.weather, this.inCave ? 'cave' : biome, p.s.yaw, dirMode, forecast);
+    this.updateCompassBar(dirMode === 'exact');
     this.hud.renderHotbar();
     this.interaction = this.building || this.hud.panelOpen ? null : this.actions.find();
     this.hud.prompt(this.interaction?.label ?? this.actions.observePrompt());

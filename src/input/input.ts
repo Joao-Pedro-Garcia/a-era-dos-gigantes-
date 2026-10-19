@@ -8,7 +8,7 @@ export type InputMode = 'keyboard' | 'touch' | 'gamepad';
 export type Action =
   | 'jump' | 'sprint' | 'crouch' | 'interact' | 'attack' | 'inventory' | 'build' | 'camera' | 'pause'
   | 'rotateLeft' | 'rotateRight' | 'snapToggle' | 'map' | 'hot1' | 'hot2' | 'hot3' | 'hot4' | 'hot5' | 'hot6' | 'demolish' | 'eat'
-  | 'buildForward' | 'buildBack' | 'buildLeft' | 'buildRight' | 'buildRaise' | 'buildLower' | 'buildRotReset' | 'buildStep' | 'graphics' | 'dodge';
+  | 'buildForward' | 'buildBack' | 'buildLeft' | 'buildRight' | 'buildRaise' | 'buildLower' | 'buildRotReset' | 'buildStep' | 'graphics' | 'dodge' | 'marker';
 
 export const DEFAULT_KEYS: Record<Action, string[]> = {
   jump: ['Space'],
@@ -33,6 +33,7 @@ export const DEFAULT_KEYS: Record<Action, string[]> = {
   hot6: ['Digit6'],
   demolish: ['KeyX'],
   dodge: ['KeyT', 'AltLeft'],
+  marker: ['KeyY'],
   eat: ['KeyF'],
   // Placement adjustments in the build screen (arrows/WASD keep moving the player).
   buildForward: ['KeyU'],

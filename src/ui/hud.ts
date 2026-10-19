@@ -77,6 +77,8 @@ export class Hud {
   private touchEl: HTMLElement;
   private flashEl: HTMLElement;
   private blindEl: HTMLElement | null = null;
+  private compassEl: HTMLElement | null = null;
+  private compassHtml = '';
   private blindTimer = 0;
   private crosshair: HTMLElement;
   tab: PanelTab = 'inventory';
@@ -101,6 +103,8 @@ export class Hud {
     this.root.innerHTML = '';
     this.flashEl = this.add(h('div', 'damage-flash'));
     this.blindEl = null;
+    this.compassEl = null;
+    this.compassHtml = '';
     this.crosshair = this.add(h('div', 'crosshair'));
     const bars = this.add(h('div', 'bars'));
     const defs: [string, string, string][] = [
@@ -216,6 +220,40 @@ export class Hud {
     if (overweight) chips.push(t('status.overweight'));
     const html = tempChip + chips.map((c) => `<span class="chip">${c}</span>`).join('');
     if (this.statusEl.innerHTML !== html) this.statusEl.innerHTML = html;
+  }
+
+  /**
+   * Compass strip under the top bar: cardinal points (only with a compass) and
+   * markers (waypoints, home, tamed animals, meteor falls, nearby places) placed
+   * by their bearing relative to where the camera looks; ±100° visible.
+   */
+  updateCompass(yaw: number, exact: boolean, marks: { bearing: number; icon: string; cls: string; dist: number; label: string }[]): void {
+    if (!this.compassEl) this.compassEl = this.add(h('div', 'compass-bar'));
+    const span = (100 * Math.PI) / 180;
+    const rel = (b: number) => Math.atan2(Math.sin(b - yaw), Math.cos(b - yaw));
+    // A larger bearing is further to the left (the world's +x is the player's left).
+    const at = (r: number) => `${(50 - (r / span) * 50).toFixed(1)}%`;
+    let html = '<div class="cb-center"></div>';
+    if (exact) {
+      const dirs = t('dir.compass').split(',');
+      // Bearing of each cardinal point: north is −z (π), east +x (π/2).
+      for (let i = 0; i < 8; i++) {
+        const b = Math.PI - (i * Math.PI) / 4;
+        const r = rel(b);
+        if (Math.abs(r) > span) continue;
+        html += `<span class="cb-dir${i % 2 ? ' minor' : ''}" style="left:${at(r)}">${dirs[i]}</span>`;
+      }
+    }
+    for (const m of marks) {
+      const r = rel(m.bearing);
+      if (Math.abs(r) > span) continue;
+      const d = m.dist >= 1000 ? `${(m.dist / 1000).toFixed(1)} km` : `${Math.round(m.dist)} m`;
+      html += `<span class="cb-mark ${m.cls}" style="left:${at(r)}" title="${m.label}">${m.icon}<small>${d}</small></span>`;
+    }
+    if (this.compassHtml !== html) {
+      this.compassEl.innerHTML = html;
+      this.compassHtml = html;
+    }
   }
 
   updateTop(day: number, frac: number, weather: WeatherKind, biome: BiomeId | 'cave', yaw: number, dirMode: 'exact' | 'sun' | 'none', forecast: { next: WeatherKind; inSeconds: number } | null): void {

@@ -1,3 +1,4 @@
+import type { RareEventState } from '../world/rareEvents';
 import { sanitizeGenes } from '../animals/genetics';
 import type { EcosystemState } from '../animals/ecosystem';
 import type { BuildingState } from '../building/building';
@@ -56,6 +57,10 @@ export interface SaveData {
     inCave?: string | null;
     /** World generator version (see TERRAIN_VERSION); missing in older saves = 1. */
     terrainVersion?: number;
+    /** Rare events schedule (missing in older saves). */
+    rare?: RareEventState;
+    /** The player's compass waypoints. */
+    markers?: { x: number; z: number }[];
   };
   progression: ProgressionData;
   exploration: ExplorationData;
