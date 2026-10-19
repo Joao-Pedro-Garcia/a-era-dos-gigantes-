@@ -361,7 +361,14 @@ export function createAnimalView(speciesId: string, individual = '', juvenile = 
       inst.dispose();
       if (juvenile) return;
       const boneIdx = new Map(tpl.bones.map((b, i) => [b.name, i] as [string, number]));
-      const rg = riggedMesh(speciesId, boneIdx);
+      const fit = RIG_FITS[speciesId];
+      const rg = riggedMesh(speciesId, boneIdx, {
+        names: tpl.bones.map((b) => b.name),
+        pos: tpl.bones.map((b) => b.pos),
+        parent: tpl.bones.map((b) => (b.parent ? boneIdx.get(b.parent) ?? -1 : -1)),
+        snout: fit?.snout ? new THREE.Vector3(...fit.snout) : undefined,
+        chin: fit?.chin ? new THREE.Vector3(...fit.chin) : undefined,
+      });
       if (!rg) return;
       let mat = rg.material;
       if (alpha) {

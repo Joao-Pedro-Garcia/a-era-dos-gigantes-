@@ -32,6 +32,13 @@ export interface ModelEntry {
   rigRotY?: number;
   /** Rigged files: model-unit height of the ground under the feet (moved to y = 0). */
   rigFloor?: number;
+  /**
+   * The file has no skeleton: skin weights are computed from the distance of
+   * each vertex to the game's (fitted) bones.
+   */
+  autoSkin?: boolean;
+  /** Auto-skinned files modelled with the mouth open: closes the upper jaw by this angle (rad) about the jaw hinge. */
+  closeMouth?: number;
   /** Rigged files: model-unit sideways offset of the body's midline (moved to x = 0, before rigRotY). */
   rigShiftX?: number;
   /**
@@ -96,7 +103,9 @@ export function parseManifest(raw: unknown): ModelManifest {
     const rigRotY = typeof x.rigRotY === 'number' && Number.isFinite(x.rigRotY) ? x.rigRotY : undefined;
     const rigFloor = typeof x.rigFloor === 'number' && Number.isFinite(x.rigFloor) ? x.rigFloor : undefined;
     const rigShiftX = typeof x.rigShiftX === 'number' && Number.isFinite(x.rigShiftX) ? x.rigShiftX : undefined;
-    return { url: x.url, scale: num(x.scale, 1, 0.001, 1000), strideM: num(x.strideM, 1, 0.05, 20), clips, clipSpeeds, credit, ...(rig ? { rig } : {}), ...(rigRotY !== undefined ? { rigRotY } : {}), ...(rigFloor !== undefined ? { rigFloor } : {}), ...(rigShiftX !== undefined ? { rigShiftX } : {}), ...(variants ? { variants } : {}) };
+    const autoSkin = x.autoSkin === true;
+    const closeMouth = typeof x.closeMouth === 'number' && Number.isFinite(x.closeMouth) ? x.closeMouth : undefined;
+    return { url: x.url, scale: num(x.scale, 1, 0.001, 1000), strideM: num(x.strideM, 1, 0.05, 20), clips, clipSpeeds, credit, ...(rig ? { rig } : {}), ...(rigRotY !== undefined ? { rigRotY } : {}), ...(rigFloor !== undefined ? { rigFloor } : {}), ...(rigShiftX !== undefined ? { rigShiftX } : {}), ...(autoSkin ? { autoSkin } : {}), ...(closeMouth !== undefined ? { closeMouth } : {}), ...(variants ? { variants } : {}) };
   };
   if (r.species && typeof r.species === 'object')
     for (const [id, e] of Object.entries(r.species as Record<string, unknown>)) {
@@ -310,21 +319,27 @@ const rigged = new Map<string, { geometry: THREE.BufferGeometry; material: THREE
  * Built once per species; null when the species has no rig entry, the file has
  * no skinned mesh, or it is not loaded (yet).
  */
-export function riggedMesh(id: string, boneIndex: Map<string, number>): { geometry: THREE.BufferGeometry; material: THREE.Material | THREE.Material[] } | null {
+export function riggedMesh(id: string, boneIndex: Map<string, number>, bones?: AutoSkinBones): { geometry: THREE.BufferGeometry; material: THREE.Material | THREE.Material[] } | null {
   if (rigged.has(id)) return rigged.get(id)!;
   const src = loaded.get(id);
   if (!src?.entry.rig) return null;
   // Every skinned mesh of the file (bodies split in parts, eyes, teeth) is merged
   // into one geometry with a material group per part.
-  const parts: THREE.SkinnedMesh[] = [];
+  const auto = !!src.entry.autoSkin;
+  const parts: THREE.Mesh[] = [];
+  src.scene.updateMatrixWorld(true);
   src.scene.traverse((o) => {
-    if ((o as THREE.SkinnedMesh).isSkinnedMesh) parts.push(o as THREE.SkinnedMesh);
+    if (auto ? (o as THREE.Mesh).isMesh : (o as THREE.SkinnedMesh).isSkinnedMesh) parts.push(o as THREE.Mesh);
   });
+  if (auto && !bones) {
+    rigged.set(id, null);
+    return null;
+  }
   if (!parts.length) {
     rigged.set(id, null);
     return null;
   }
-  const sm = parts[0];
+  const sm = parts[0] as THREE.SkinnedMesh;
   // Artist bone (as GLTFLoader names it) → game bone index; unmapped bones follow the pelvis.
   const map = new Map<string, number>();
   for (const [k, v] of Object.entries(src.entry.rig)) {
@@ -332,13 +347,14 @@ export function riggedMesh(id: string, boneIndex: Map<string, number>): { geomet
     if (i !== undefined) map.set(THREE.PropertyBinding.sanitizeNodeName(k), i);
   }
   const fallback = boneIndex.get('pelvis') ?? 0;
-  const target = sm.skeleton.bones.map((b) => map.get(b.name) ?? fallback);
+  const target = auto ? [] : sm.skeleton.bones.map((b) => map.get(b.name) ?? fallback);
   const geos: THREE.BufferGeometry[] = [];
   const mats: THREE.Material[] = [];
   for (const m of parts) {
-    const pg = m.geometry.index ? m.geometry : m.geometry.clone();
+    // Without a skeleton the parts sit where their nodes put them.
+    const pg = auto ? m.geometry.clone().applyMatrix4(m.matrixWorld) : m.geometry.index ? m.geometry : m.geometry.clone();
     const c = new THREE.BufferGeometry();
-    for (const name of ['position', 'normal', 'uv', 'skinIndex', 'skinWeight']) {
+    for (const name of auto ? ['position', 'normal', 'uv'] : ['position', 'normal', 'uv', 'skinIndex', 'skinWeight']) {
       const a = pg.getAttribute(name);
       if (!a) continue;
       // Plain float copies (quantized or interleaved inputs merge badly).
@@ -377,6 +393,15 @@ export function riggedMesh(id: string, boneIndex: Map<string, number>): { geomet
       nrm.setXYZ(i, nx * cy + nz * sy, nrm.getY(i), -nx * sy + nz * cy);
     }
   }
+  if (auto) {
+    autoSkinWeights(g, bones!);
+    if (src.entry.closeMouth) closeUpperJaw(g, bones!, src.entry.closeMouth);
+    g.computeBoundingSphere();
+    g.computeBoundingBox();
+    const out = { geometry: g, material: geos.length > 1 ? mats : mats[0] };
+    rigged.set(id, out);
+    return out;
+  }
   const si = g.attributes.skinIndex;
   const sw = g.attributes.skinWeight;
   const idx = new Uint16Array(si.count * 4);
@@ -408,6 +433,117 @@ export function riggedMesh(id: string, boneIndex: Map<string, number>): { geomet
   const out = { geometry: g, material: geos.length > 1 ? mats : mats[0] };
   rigged.set(id, out);
   return out;
+}
+
+/**
+ * Closes a mouth modelled open: vertices bound mostly to the head and lying in
+ * front of the jaw hinge (the upper jaw) are turned down about the hinge.
+ */
+function closeUpperJaw(g: THREE.BufferGeometry, b: AutoSkinBones, angle: number): void {
+  const head = b.names.indexOf('head');
+  const jaw = b.names.indexOf('jaw');
+  if (head < 0 || jaw < 0) return;
+  const hinge = b.pos[jaw];
+  const pos = g.attributes.position;
+  const nrm = g.attributes.normal;
+  const si = g.attributes.skinIndex;
+  const sw = g.attributes.skinWeight;
+  const c = Math.cos(angle);
+  const s = Math.sin(angle);
+  for (let i = 0; i < pos.count; i++) {
+    let wh = 0;
+    for (let k = 0; k < 4; k++) if (si.getComponent(i, k) === head) wh += sw.getComponent(i, k);
+    const z = pos.getZ(i) - hinge.z;
+    if (wh < 0.5 || z <= 0) continue;
+    // Fade in over the first part of the snout so the skull does not tear.
+    const f = Math.min(1, z / Math.max(1e-3, (b.snout ? b.snout.z - hinge.z : 1) * 0.25)) * wh;
+    const a = angle * f;
+    const ca = f === 1 ? c : Math.cos(a);
+    const sa = f === 1 ? s : Math.sin(a);
+    const y = pos.getY(i) - hinge.y;
+    pos.setY(i, hinge.y + y * ca - z * sa);
+    pos.setZ(i, hinge.z + y * sa + z * ca);
+    if (nrm) {
+      const ny = nrm.getY(i);
+      const nz = nrm.getZ(i);
+      nrm.setY(i, ny * ca - nz * sa);
+      nrm.setZ(i, ny * sa + nz * ca);
+    }
+  }
+}
+
+/** Game skeleton for automatic skinning: rest positions, parents and the jaw tips. */
+export interface AutoSkinBones {
+  names: string[];
+  pos: THREE.Vector3[];
+  parent: number[];
+  snout?: THREE.Vector3;
+  chin?: THREE.Vector3;
+}
+
+/**
+ * Skin weights from distances: each bone is a segment from its joint to its
+ * child's joint (or, for end bones, extended along its parent's direction; the
+ * head and jaw end at the snout and chin tips). A vertex is bound to the two or
+ * three nearest segments with weights falling off with the 4th power of the
+ * distance, so joints bend smoothly and limbs do not drag the body.
+ */
+export function autoSkinWeights(g: THREE.BufferGeometry, b: AutoSkinBones): void {
+  const n = b.names.length;
+  const ends: THREE.Vector3[] = [];
+  for (let i = 0; i < n; i++) {
+    const kids = b.parent.map((p, k) => (p === i ? k : -1)).filter((k) => k >= 0 && b.names[k] !== 'jaw');
+    // Legs and spine: the chain's next joint; ends extend the parent's direction.
+    let e: THREE.Vector3 | null = null;
+    if (b.names[i] === 'head' && b.snout) e = b.snout;
+    else if (b.names[i] === 'jaw' && b.chin) e = b.chin;
+    else if (kids.length) {
+      // Pelvis: toward the torso (not toward a leg or the tail).
+      const pick = kids.find((k) => /^(torso|chest|neck)/.test(b.names[k])) ?? kids.find((k) => !/^(front|hind|arm|wing)/.test(b.names[k]) || /\d$/.test(b.names[i])) ?? kids[0];
+      e = b.pos[pick];
+    }
+    if (!e) {
+      const p = b.parent[i] >= 0 ? b.pos[b.parent[i]] : b.pos[i];
+      e = b.pos[i].clone().add(b.pos[i].clone().sub(p).multiplyScalar(0.6));
+    }
+    ends.push(e.clone());
+  }
+  // The root bone carries nothing.
+  const usable = b.names.map((nm) => nm !== 'root');
+  const pos = g.attributes.position;
+  const idx = new Uint16Array(pos.count * 4);
+  const wts = new Float32Array(pos.count * 4);
+  const v = new THREE.Vector3();
+  const seg = new THREE.Line3();
+  const q = new THREE.Vector3();
+  const best: [number, number][] = [];
+  for (let i = 0; i < pos.count; i++) {
+    v.fromBufferAttribute(pos, i);
+    best.length = 0;
+    for (let k = 0; k < n; k++) {
+      if (!usable[k]) continue;
+      seg.set(b.pos[k], ends[k]);
+      seg.closestPointToPoint(v, true, q);
+      const d = Math.max(1e-3, q.distanceTo(v));
+      best.push([k, d]);
+    }
+    best.sort((x, y) => x[1] - y[1]);
+    const top = best.slice(0, 3);
+    const d0 = top[0][1];
+    let sum = 0;
+    const ws = top.map(([, d]) => {
+      // Ignore bones much farther than the nearest one (no cross-limb bleeding).
+      const w = d > d0 * 1.8 ? 0 : 1 / Math.pow(d, 4);
+      sum += w;
+      return w;
+    });
+    for (let k = 0; k < 4; k++) {
+      idx[i * 4 + k] = k < top.length ? top[k][0] : 0;
+      wts[i * 4 + k] = k < top.length ? ws[k] / sum : 0;
+    }
+  }
+  g.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(idx, 4));
+  g.setAttribute('skinWeight', new THREE.Float32BufferAttribute(wts, 4));
 }
 
 export function hasExternal(id: string): boolean {

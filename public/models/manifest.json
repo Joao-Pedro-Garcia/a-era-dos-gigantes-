@@ -485,6 +485,22 @@
         "Bone.025.R_070": "hindR3",
         "Bone.030.R_072": "hindR3"
       }
+    },
+    "sarcosuchus": {
+      "url": "sarcosuchus.glb",
+      "scale": 15.07937,
+      "strideM": 2,
+      "clipSpeeds": {},
+      "clips": {},
+      "rig": {},
+      "autoSkin": true,
+      "closeMouth": 0.45,
+      "credit": {
+        "title": "sarcosuchus",
+        "author": "pjmedranog",
+        "url": "https://sketchfab.com/3d-models/sarcosuchus-5bcc802472444070991c13a2781023db",
+        "license": "CC BY 4.0"
+      }
     }
   },
   "player": null
