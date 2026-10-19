@@ -8,7 +8,7 @@ export type InputMode = 'keyboard' | 'touch' | 'gamepad';
 export type Action =
   | 'jump' | 'sprint' | 'crouch' | 'interact' | 'attack' | 'inventory' | 'build' | 'camera' | 'pause'
   | 'rotateLeft' | 'rotateRight' | 'snapToggle' | 'map' | 'hot1' | 'hot2' | 'hot3' | 'hot4' | 'hot5' | 'hot6' | 'demolish' | 'eat'
-  | 'buildForward' | 'buildBack' | 'buildLeft' | 'buildRight' | 'buildRaise' | 'buildLower' | 'buildRotReset' | 'buildStep' | 'graphics';
+  | 'buildForward' | 'buildBack' | 'buildLeft' | 'buildRight' | 'buildRaise' | 'buildLower' | 'buildRotReset' | 'buildStep' | 'graphics' | 'dodge';
 
 export const DEFAULT_KEYS: Record<Action, string[]> = {
   jump: ['Space'],
@@ -32,6 +32,7 @@ export const DEFAULT_KEYS: Record<Action, string[]> = {
   hot5: ['Digit5'],
   hot6: ['Digit6'],
   demolish: ['KeyX'],
+  dodge: ['KeyT', 'AltLeft'],
   eat: ['KeyF'],
   // Placement adjustments in the build screen (arrows/WASD keep moving the player).
   buildForward: ['KeyU'],
@@ -155,7 +156,7 @@ export class Input {
   private onKey(e: KeyboardEvent, isDown: boolean): void {
     if ((e.target as HTMLElement)?.tagName === 'INPUT') return;
     this.setMode('keyboard');
-    if (e.code === 'Tab' || e.code === 'Space' || e.code === 'PageUp' || e.code === 'PageDown') e.preventDefault();
+    if (e.code === 'Tab' || e.code === 'Space' || e.code === 'AltLeft' || e.code === 'PageUp' || e.code === 'PageDown') e.preventDefault();
     if (!e.repeat || !isDown) this.code(e.code, isDown);
   }
 
@@ -234,7 +235,7 @@ export class Input {
       this.move.y = -ly;
       this.look.x += rx * 900 * dt;
       this.look.y += ry * 600 * dt;
-      const map: [number, Action][] = [[0, 'jump'], [1, 'crouch'], [2, 'interact'], [3, 'inventory'], [7, 'attack'], [6, 'build'], [9, 'pause'], [8, 'camera'], [4, 'rotateLeft'], [5, 'rotateRight']];
+      const map: [number, Action][] = [[0, 'jump'], [1, 'crouch'], [2, 'interact'], [3, 'inventory'], [7, 'attack'], [6, 'build'], [9, 'pause'], [8, 'camera'], [4, 'rotateLeft'], [5, 'rotateRight'], [11, 'dodge']];
       for (const [i, a] of map) {
         const pressed = gp.buttons[i]?.pressed ?? false;
         const key = `Pad${i}`;

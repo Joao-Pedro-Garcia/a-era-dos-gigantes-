@@ -1,3 +1,4 @@
+import { hitRegion, regionMultiplier } from '../combat/dinoAttacks';
 import * as THREE from 'three';
 import { growthScale, lifeStage, maxHealth, type AnimalData } from '../animals/animal';
 import { SPECIES, SPECIES_IDS } from '../animals/species';
@@ -505,7 +506,17 @@ export class Interactions {
       const cy = THREE.MathUtils.clamp(p.s.y + 1.25 + dir.y * Math.min(d, def.reach), target.y + 0.15 * gs, target.y + sp.hipHeightM * gs * 1.4);
       if (!this.obstructed(cx, cy, cz)) {
         const def2 = item ? ITEMS[item] : null;
-        const raw = (def2?.damage ?? 4) * g.progression.meleeDamage();
+        // Where the blow lands matters (head > neck > body > leg > tail), and a blow
+        // into a wind-up, or right after dodging one, is a counter-attack.
+        const region = hitRegion(target.speciesId, target.x, target.z, target.heading, gs, cx, cz, cy - target.y);
+        const interrupted = g.eco!.brain.interruptAttack(target, now, def.heavy ? 1 : 0.55);
+        const counter = interrupted || now < g.counterUntil;
+        if (counter) {
+          g.counterUntil = 0;
+          g.notify('combat.counter', {}, 'good');
+        }
+        if (region === 'leg') g.eco!.brain.limp(target, now, 6);
+        const raw = (def2?.damage ?? 4) * g.progression.meleeDamage() * regionMultiplier(target.speciesId, region) * (counter ? 1.5 : 1);
         const dmg = resolveDamage(target, raw, item ? weaponKind(item) : 'blunt');
         this.damageAnimal(target, dmg, def.kind === 'punch' ? 'punch' : 'hit');
         this.react(target, dir.x, dir.z, dmg);
@@ -674,7 +685,9 @@ export class Interactions {
         seg.set(prev, pr.pos);
         seg.closestPointToPoint(center, true, closest);
         if (closest.distanceTo(center) < Math.max(0.4, sp.lengthM * 0.22 * gs)) {
-          const dmg = resolveDamage(a, pr.damage, 'arrow');
+          const region = hitRegion(a.speciesId, a.x, a.z, a.heading, gs, closest.x, closest.z, closest.y - a.y);
+          if (region === 'leg') g.eco!.brain.limp(a, now, 6);
+          const dmg = resolveDamage(a, pr.damage * regionMultiplier(a.speciesId, region), 'arrow');
           this.damageAnimal(a, dmg);
           this.react(a, pr.vel.x, pr.vel.z, dmg);
           g.fx.spawn('flesh', closest, pr.vel, 0.7);

@@ -52,6 +52,15 @@ export class PlayerView {
   private shadow: THREE.Mesh;
   private materials: THREE.MeshStandardMaterial[];
   private tmp = new THREE.Vector3();
+  /** Dodge and hit reactions: time since, direction in the body frame (x right, z forward), strength. */
+  private dodgeT = 9;
+  private dodgeX = 0;
+  private dodgeZ = 0;
+  private hitT = 9;
+  private hitX = 0;
+  private hitZ = 0;
+  private hitAmp = 0;
+  private yaw = 0;
   /** Set by the game while mounted on an animal. */
   riding = false;
   /** Artist model replacing the procedural survivor (see externalModels.ts). */
@@ -85,6 +94,28 @@ export class PlayerView {
       });
   }
   private textures: TextureLibrary | null;
+
+  /** Starts the dodge animation toward a world direction. */
+  dodge(dx: number, dz: number): void {
+    const l = Math.hypot(dx, dz) || 1;
+    const c = Math.cos(this.yaw);
+    const sn = Math.sin(this.yaw);
+    // World → body frame (x to the body's right… sign as the rig's +x, z forward).
+    this.dodgeX = (dx * c - dz * sn) / l;
+    this.dodgeZ = (dx * sn + dz * c) / l;
+    this.dodgeT = 0;
+  }
+
+  /** Flinch from a blow coming along a world direction. */
+  hitReact(dx: number, dz: number, strength: number): void {
+    const l = Math.hypot(dx, dz) || 1;
+    const c = Math.cos(this.yaw);
+    const sn = Math.sin(this.yaw);
+    this.hitX = (dx * c - dz * sn) / l;
+    this.hitZ = (dx * sn + dz * c) / l;
+    this.hitAmp = Math.min(1.2, strength);
+    this.hitT = 0;
+  }
 
   /** Shows the item that the combat state says is in the hands. */
   private setHeld(itemId: string): void {
@@ -123,6 +154,7 @@ export class PlayerView {
     this.time += dt;
     this.root.position.set(s.x, p.visualY, s.z);
     this.root.rotation.y = p.bodyYaw;
+    this.yaw = p.bodyYaw;
     this.rig.mesh.visible = !firstPerson && !this.ext;
     this.shadow.visible = !firstPerson && !p.swimming;
     if (this.ext) {
@@ -330,7 +362,39 @@ export class PlayerView {
     B.spine.rotation.x = 0.12 + Math.sin(t * 3) * 0.02;
   }
 
-  private finish(_dt: number): void {
+  private finish(dt: number): void {
+    const B = this.rig.bones;
+    // Dodge: a quick, low sidestep — the body drops and leans into the direction,
+    // the head stays level with the horizon, arms swing out for balance.
+    if (this.dodgeT < 0.5) {
+      this.dodgeT += dt;
+      const u = Math.min(1, this.dodgeT / 0.45);
+      const f = Math.sin(u * Math.PI) * (1 - u * 0.3);
+      B.hips.position.y -= 0.16 * f;
+      B.hips.rotation.z += -this.dodgeX * 0.28 * f;
+      B.hips.rotation.x += this.dodgeZ * 0.25 * f;
+      B.spine.rotation.z += -this.dodgeX * 0.22 * f;
+      B.spine.rotation.x += (0.18 + this.dodgeZ * 0.2) * f;
+      B.chest.rotation.z += -this.dodgeX * 0.12 * f;
+      B.head.rotation.z += this.dodgeX * 0.3 * f;
+      B.head.rotation.x -= 0.15 * f;
+      B['upperArm.L'].rotation.z += 0.5 * f;
+      B['upperArm.R'].rotation.z -= 0.5 * f;
+    }
+    // Hit reaction: a sharp jolt away from the blow, then recovery.
+    if (this.hitT < 0.8) {
+      this.hitT += dt;
+      const t = this.hitT;
+      const f = Math.sin(Math.min(1, t / 0.07) * Math.PI * 0.5) * Math.exp(-t * 6) * this.hitAmp;
+      B.spine.rotation.x += -this.hitZ * 0.35 * f;
+      B.spine.rotation.z += this.hitX * 0.3 * f;
+      B.chest.rotation.y += this.hitX * 0.25 * f;
+      B.neck.rotation.x += -this.hitZ * 0.3 * f;
+      B.head.rotation.z += this.hitX * 0.25 * f;
+      B['upperArm.L'].rotation.x -= 0.6 * f;
+      B['upperArm.R'].rotation.x -= 0.6 * f;
+      B.hips.position.y -= 0.05 * f;
+    }
     const it = this.item;
     if (it?.setDraw && this.combat) {
       it.setDraw(this.combat.draw);

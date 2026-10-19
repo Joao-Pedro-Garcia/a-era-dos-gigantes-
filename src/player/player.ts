@@ -64,6 +64,13 @@ export class PlayerController {
    * eases over small steps (foundations, rocks), so neither pops.
    */
   visualY: number;
+  /** Seconds left of a dodge roll (invulnerable while > 0.05) and of its cooldown. */
+  dodgeT = 0;
+  dodgeCooldown = 0;
+  /** Seconds left with reduced control after being thrown by a blow. */
+  staggerT = 0;
+  /** Seconds left held in place (coils, jaws). */
+  heldT = 0;
 
   constructor(public s: PlayerState) {
     this.bodyYaw = s.yaw;
@@ -73,6 +80,42 @@ export class PlayerController {
   /** Step length for the current speed: continuous from walking to sprinting, so the gait never jumps. */
   stepLength(): number {
     return clamp(1.1 + ((this.horizontalSpeed - 3.3) / (6.4 - 3.3)) * 0.5, 1.1, 1.6);
+  }
+
+  /** Mid-dodge: a blow landing now misses. */
+  get dodging(): boolean {
+    return this.dodgeT > 0.05;
+  }
+
+  /**
+   * Quick sidestep/roll in a direction (world space). Returns false while on
+   * cooldown, in the air, swimming or held.
+   */
+  dodge(dx: number, dz: number): boolean {
+    if (this.dodgeCooldown > 0 || !this.onGround || this.swimming || this.heldT > 0) return false;
+    const l = Math.hypot(dx, dz) || 1;
+    this.vx = (dx / l) * 8.5;
+    this.vz = (dz / l) * 8.5;
+    this.dodgeT = 0.38;
+    this.dodgeCooldown = 0.85;
+    return true;
+  }
+
+  /** Thrown by a blow: velocity kick, a small hop for big pushes, and a moment of lost control. */
+  knock(dx: number, dz: number, speed: number): void {
+    if (this.heldT > 0) return;
+    this.vx += dx * speed;
+    this.vz += dz * speed;
+    if (speed > 4 && this.onGround) {
+      this.vy = Math.min(5, speed * 0.4);
+      this.onGround = false;
+    }
+    this.staggerT = Math.max(this.staggerT, Math.min(0.9, 0.15 + speed * 0.06));
+  }
+
+  hold(seconds: number): void {
+    this.heldT = Math.max(this.heldT, seconds);
+    this.vx = this.vz = 0;
   }
 
   forward(): [number, number] {
@@ -98,14 +141,28 @@ export class PlayerController {
       dx /= l;
       dz /= l;
     }
-    const tvx = dx * speed;
-    const tvz = dz * speed;
+    this.dodgeCooldown = Math.max(0, this.dodgeCooldown - dt);
+    this.staggerT = Math.max(0, this.staggerT - dt);
+    this.heldT = Math.max(0, this.heldT - dt);
+    const held = this.heldT > 0;
+    const tvx = held ? 0 : dx * speed;
+    const tvz = held ? 0 : dz * speed;
     // Speeding up takes a little longer than slowing down; in the air there is little control.
     const grounded = this.onGround || this.swimming;
     const speeding = tvx * tvx + tvz * tvz > this.vx * this.vx + this.vz * this.vz;
-    const k = damp(grounded ? (speeding ? 7 : 9) : 1.5, dt);
-    this.vx += (tvx - this.vx) * k;
-    this.vz += (tvz - this.vz) * k;
+    if (this.dodgeT > 0) {
+      // The dodge carries its own momentum; it fades over its last part.
+      this.dodgeT = Math.max(0, this.dodgeT - dt);
+      if (this.dodgeT < 0.12) {
+        const k = damp(10, dt);
+        this.vx += (tvx - this.vx) * k;
+        this.vz += (tvz - this.vz) * k;
+      }
+    } else {
+      const k = damp(held ? 20 : this.staggerT > 0 ? 1.2 : grounded ? (speeding ? 7 : 9) : 1.5, dt);
+      this.vx += (tvx - this.vx) * k;
+      this.vz += (tvz - this.vz) * k;
+    }
 
     // Slope limit: steep uphill movement is slowed and you slide back.
     const t = env.terrain;
@@ -152,7 +209,7 @@ export class PlayerController {
       s.y += (swimY - s.y) * damp(4, dt);
       this.onGround = false;
     } else {
-      if (inp.jump && this.onGround && !this.crouching) {
+      if (inp.jump && this.onGround && !this.crouching && !held) {
         this.vy = 6.2;
         this.onGround = false;
       }

@@ -76,6 +76,8 @@ export class Hud {
   private menuEl: HTMLElement;
   private touchEl: HTMLElement;
   private flashEl: HTMLElement;
+  private blindEl: HTMLElement | null = null;
+  private blindTimer = 0;
   private crosshair: HTMLElement;
   tab: PanelTab = 'inventory';
   private picked: number | null = null;
@@ -98,6 +100,7 @@ export class Hud {
     this.root = document.getElementById('ui')!;
     this.root.innerHTML = '';
     this.flashEl = this.add(h('div', 'damage-flash'));
+    this.blindEl = null;
     this.crosshair = this.add(h('div', 'crosshair'));
     const bars = this.add(h('div', 'bars'));
     const defs: [string, string, string][] = [
@@ -270,6 +273,19 @@ export class Hud {
   prompt(text: string | null): void {
     this.promptEl.classList.toggle('hidden', !text);
     if (text && this.promptEl.textContent !== text) this.promptEl.textContent = text;
+  }
+
+  /** Venom in the eyes: the view blurs and greens over, then clears. */
+  blind(seconds: number): void {
+    if (!this.blindEl) this.blindEl = this.add(h('div', 'blind-fx'));
+    const el = this.blindEl;
+    el.style.transition = 'none';
+    el.style.opacity = '1';
+    clearTimeout(this.blindTimer);
+    this.blindTimer = window.setTimeout(() => {
+      el.style.transition = `opacity ${Math.max(0.5, seconds * 0.6)}s ease-out`;
+      el.style.opacity = '0';
+    }, seconds * 400);
   }
 
   damageFlash(): void {
@@ -1325,6 +1341,7 @@ export class Hud {
     mk(btns, t('touch.eat'), 'eat');
     mk(btns, t('touch.sprint'), 'sprint');
     mk(btns, t('touch.jump'), 'jump');
+    mk(btns, t('touch.dodge'), 'dodge');
     mk(btns, t('touch.attack'), 'attack', 'big', true);
     const top = h('div', 'ttop');
     mk(top, t('touch.inv'), 'inventory');

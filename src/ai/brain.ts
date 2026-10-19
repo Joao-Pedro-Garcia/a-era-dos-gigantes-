@@ -6,6 +6,7 @@ import { HUMAN_MASS, SPECIES, type SpeciesDef, isPredator } from '../animals/spe
 import { AQUATIC_MIN_DEPTH, swimDepth } from '../animals/aquatic';
 import { dangerAt, nearestMemory, recallSubject, remember } from './memory';
 import { canUse } from '../taming/profiles';
+import { type ActiveAttack, type AttackMove, type MoveKind, chooseMove, knockback, movesFor, phaseOf, strikeHits, timeScale } from '../combat/dinoAttacks';
 
 /**
  * Animal decision making: utility scoring over needs, perception and memory,
@@ -23,6 +24,8 @@ export interface PlayerPercept {
   /** 0..1 how visible the player is (crouching, night, cover). */
   visibility: number;
   running: boolean;
+  /** Mid-dodge (invulnerable to a strike that lands now). */
+  dodging?: boolean;
   /** Torch/campfire in hand or adjacent: deters many animals. */
   hasFire: boolean;
 }
@@ -60,6 +63,16 @@ export interface AIWorld {
   companionTarget?: string | null;
   /** Food available in a feeding trough for this tamed animal. */
   troughFood?(a: AnimalData): TroughAccess | null;
+  /** Pushes the player (m/s along dx, dz) after a heavy blow. */
+  knockPlayer?(dx: number, dz: number, speed: number): void;
+  /** Holds the player (constrictor coils, death roll) for some seconds. */
+  holdPlayer?(seconds: number, a: AnimalData): void;
+  /** Launches a spit projectile at a point (resolved by the game when it arrives). */
+  spit?(a: AnimalData, tx: number, tz: number): void;
+  /** A blow connected (effects, sound, hit reaction). Target null = the player. */
+  strikeLanded?(a: AnimalData, target: AnimalData | null, move: AttackMove, damage: number): void;
+  /** The player dodged a blow at the last moment (opens a counter-attack window). */
+  playerEvaded?(a: AnimalData, move: AttackMove): void;
 }
 
 export interface TroughAccess {
@@ -100,6 +113,15 @@ interface Runtime {
   /** Obstacle avoidance: steer to this side (±1) until the given time. */
   avoidSide: number;
   avoidUntil: number;
+  /** Attack in progress (wind-up → strike → recover). */
+  atk: ActiveAttack | null;
+  lastMove: MoveKind | null;
+  /** Interrupted (counter-attacked during a wind-up): no new attack until then. */
+  staggerUntil: number;
+  /** Hurt mid-fight: the next attack comes sooner (counter-attack) until then. */
+  counterUntil: number;
+  /** Wounded leg: slower until then. */
+  limpUntil: number;
 }
 
 const PLAYER_ID = '__player__';
@@ -111,7 +133,7 @@ export class AnimalBrain {
   runtime(a: AnimalData): Runtime {
     let r = this.rt.get(a.id);
     if (!r) {
-      r = { thinkIn: Math.random() * 0.5, threatX: 0, threatZ: 0, threatIsPlayer: false, chaseStart: 0, altitude: 0, stride: 0, peacefulAcc: 0, trough: null, ride: null, lastHurtAt: -1e9, displayWith: null, displayUntil: 0, displayWins: false, lastDisplayAt: -1e9, yieldFrom: null, yieldUntil: 0, turnVel: 0, avoidSide: 0, avoidUntil: 0 };
+      r = { thinkIn: Math.random() * 0.5, threatX: 0, threatZ: 0, threatIsPlayer: false, chaseStart: 0, altitude: 0, stride: 0, peacefulAcc: 0, trough: null, ride: null, lastHurtAt: -1e9, displayWith: null, displayUntil: 0, displayWins: false, lastDisplayAt: -1e9, yieldFrom: null, yieldUntil: 0, turnVel: 0, avoidSide: 0, avoidUntil: 0, atk: null, lastMove: null, staggerUntil: 0, counterUntil: 0, limpUntil: 0 };
       this.rt.set(a.id, r);
     }
     return r;
@@ -147,6 +169,7 @@ export class AnimalBrain {
     r.threatZ = fromZ;
     r.threatIsPlayer = byPlayer;
     r.lastHurtAt = now;
+    if (!r.atk && (a.state === 'hunt' || a.state === 'defend')) r.counterUntil = now + 2.5;
     // Stagger: a small animal is stopped by a blow, a giant barely slows.
     a.speed *= sp.massKg > 3000 ? 0.85 : sp.massKg > 500 ? 0.6 : 0.35;
     if (a.tame) return;
@@ -175,6 +198,8 @@ export class AnimalBrain {
 
   setState(a: AnimalData, s: AIState): void {
     if (a.state !== s) {
+      const r = this.rt.get(a.id);
+      if (r && s !== 'hunt' && s !== 'defend') r.atk = null;
       a.state = s;
       a.stateTime = 0;
     }
@@ -239,7 +264,7 @@ export class AnimalBrain {
     }
 
     r.thinkIn -= dt;
-    if (r.thinkIn <= 0) {
+    if (r.thinkIn <= 0 && !r.atk) {
       r.thinkIn = 0.25 + w.random() * 0.45;
       this.think(a, sp, r, w);
     }
@@ -1032,20 +1057,35 @@ export class AnimalBrain {
         tz = isPlayer ? w.player.z : t!.z;
         const d = Math.hypot(tx - a.x, tz - a.z);
         const tsp = t ? SPECIES[t.speciesId] : null;
-        const reach = sp.attack.range * (0.5 + 0.5 * g) + (tsp ? tsp.lengthM * 0.3 * growthScale(t!, now) : 0.4) + sp.lengthM * 0.25 * g;
+        const tr = tsp ? tsp.lengthM * 0.3 * growthScale(t!, now) : 0.4;
+        const reach = sp.attack.range * (0.5 + 0.5 * g) + tr + sp.lengthM * 0.25 * g;
         const stalking = a.state === 'hunt' && d > 30 && a.stamina > 0.3;
         targetSpeed = d <= reach * 0.8 ? 0 : stalking ? walk : run;
-        if (d <= reach && now - a.lastAttackAt > sp.attack.cooldown) {
-          a.lastAttackAt = now;
-          const dmg = sp.attack.damage * (0.4 + 0.6 * g) * (0.75 + a.personality.aggression * 0.5) * alphaMul(a, 'damage');
-          if (isPlayer) w.damagePlayer(dmg, a);
-          else {
-            w.damageAnimal(t!, dmg, a);
-            if (!t!.alive) {
-              remember(a, { kind: 'chaseWon', x: a.x, z: a.z, strength: 1, subject: t!.speciesId }, now);
-              a.targetId = t!.id;
-              this.setState(a, 'eat');
-            }
+        if (r.atk) {
+          const res = this.runAttack(a, sp, r, w, dt, g, isPlayer, t ?? null, tx, tz, tr);
+          tx = res.tx;
+          tz = res.tz;
+          targetSpeed = res.speed;
+          if (res.killed) {
+            remember(a, { kind: 'chaseWon', x: a.x, z: a.z, strength: 1, subject: t!.speciesId }, now);
+            a.targetId = t!.id;
+            this.setState(a, 'eat');
+          }
+          break;
+        }
+        // Tail fighters turn their back on a close enemy to bring the weapon round.
+        const moves = movesFor(sp);
+        if (moves.every((m) => m.from === 'tail') && d < reach * 1.3) {
+          tx = a.x - (tx - a.x);
+          tz = a.z - (tz - a.z);
+          targetSpeed = 0;
+        }
+        const rest = Math.max(0.25, sp.attack.cooldown - 1.1) * (now < r.counterUntil ? 0.35 : 1);
+        if (now - a.lastAttackAt > rest && now >= r.staggerUntil) {
+          const m = chooseMove(sp, g, a.x, a.z, a.heading, isPlayer ? w.player.x : t!.x, isPlayer ? w.player.z : t!.z, tr, w.random, r.lastMove ?? undefined);
+          if (m) {
+            r.atk = { move: m, t: 0, ts: timeScale(effectiveMass(a, now)) * (now < r.counterUntil ? 0.75 : 1), resolved: false, landed: false, aim: a.heading };
+            r.counterUntil = 0;
           }
         }
         break;
@@ -1077,6 +1117,115 @@ export class AnimalBrain {
     }
 
     this.locomote(a, sp, r, w, dt, tx, tz, targetSpeed, wantAlt);
+  }
+
+  /** Attack in progress for the renderer: move, phase and progress (null when not attacking). */
+  attackState(a: AnimalData): { kind: MoveKind; phase: 'windup' | 'strike' | 'recover'; u: number } | null {
+    const at = this.rt.get(a.id)?.atk;
+    if (!at) return null;
+    const p = phaseOf(at);
+    return p.phase === 'done' ? null : { kind: at.move.kind, phase: p.phase, u: p.u };
+  }
+
+  /** A wounded leg: the animal runs slower for a while. */
+  limp(a: AnimalData, now: number, seconds: number): void {
+    const r = this.runtime(a);
+    r.limpUntil = Math.max(r.limpUntil, now + seconds);
+  }
+
+  /**
+   * A blow taken during the wind-up breaks the attack (counter-attack): the
+   * animal staggers and cannot attack again for a moment. Returns true when
+   * an attack was interrupted. Giants shrug off small blows.
+   */
+  interruptAttack(a: AnimalData, now: number, force: number): boolean {
+    const r = this.rt.get(a.id);
+    if (!r?.atk || phaseOf(r.atk).phase !== 'windup') return false;
+    if (force < Math.min(1, SPECIES[a.speciesId].massKg / 4000)) return false;
+    r.atk = null;
+    r.staggerUntil = now + 0.9;
+    a.lastAttackAt = now;
+    return true;
+  }
+
+  /**
+   * Advances an attack: faces the target during the wind-up, resolves the hit
+   * once at the start of the strike (the target may have moved or dodged by
+   * then), lunges during the strike and recovers.
+   */
+  private runAttack(a: AnimalData, sp: SpeciesDef, r: Runtime, w: AIWorld, dt: number, g: number, isPlayer: boolean, t: AnimalData | null, tx: number, tz: number, tr: number): { tx: number; tz: number; speed: number; killed: boolean } {
+    const at = r.atk!;
+    const now = w.now;
+    at.t += dt;
+    const { phase } = phaseOf(at);
+    const m = at.move;
+    let speed = 0;
+    let killed = false;
+    // Wind-up: keep tracking the target (tail swings track it with the rear).
+    if (phase === 'windup' && m.from === 'tail') {
+      tx = a.x - (tx - a.x);
+      tz = a.z - (tz - a.z);
+    } else if (phase !== 'windup') {
+      // Committed: no more steering during the strike and recovery.
+      tx = a.x + Math.sin(a.heading) * 10;
+      tz = a.z + Math.cos(a.heading) * 10;
+    }
+    if (phase === 'strike' && m.lunge) {
+      // The lunge is instant (no acceleration ramp): the body is thrown forward.
+      speed = (m.lunge * sp.lengthM * g) / Math.max(0.05, m.strike * at.ts);
+      a.speed = speed;
+    }
+    if ((phase === 'strike' || phase === 'recover' || phase === 'done') && !at.resolved) {
+      at.resolved = true;
+      const px = isPlayer ? w.player.x : t!.x;
+      const pz = isPlayer ? w.player.z : t!.z;
+      if (m.range) {
+        w.spit?.(a, px, pz);
+        at.landed = true;
+      } else if (strikeHits(a.x, a.z, a.heading, sp, m, g, px, pz, tr)) {
+        const dmg = sp.attack.damage * m.dmg * (0.4 + 0.6 * g) * (0.75 + a.personality.aggression * 0.5) * alphaMul(a, 'damage');
+        const ang = m.from === 'tail' ? a.heading + Math.PI * 0.5 * (w.random() < 0.5 ? 1 : -1) : Math.atan2(px - a.x, pz - a.z);
+        if (isPlayer) {
+          if (w.player.dodging) w.playerEvaded?.(a, m);
+          else {
+            at.landed = true;
+            w.damagePlayer(dmg, a);
+            const kb = knockback(m, effectiveMass(a, now), HUMAN_MASS);
+            if (kb > 0) w.knockPlayer?.(Math.sin(ang), Math.cos(ang), kb);
+            if (m.hold) w.holdPlayer?.(m.hold, a);
+            w.strikeLanded?.(a, null, m, dmg);
+          }
+        } else {
+          // Small, nimble prey sometimes sidesteps a big predator's lunge.
+          const tm = effectiveMass(t!, now);
+          const am = effectiveMass(a, now);
+          const sidestep = tm < am * 0.3 && t!.state === 'flee' && w.random() < 0.2;
+          if (!sidestep) {
+            at.landed = true;
+            w.damageAnimal(t!, dmg, a);
+            const kb = knockback(m, am, tm);
+            if (kb > 0 && t!.alive) {
+              const push = Math.min(kb * 0.25, 2);
+              const nx = t!.x + Math.sin(ang) * push;
+              const nz = t!.z + Math.cos(ang) * push;
+              if (!w.blocked(nx, nz, 0.3)) {
+                t!.x = nx;
+                t!.z = nz;
+              }
+            }
+            if (m.hold && t!.alive) t!.heldUntil = Math.max(t!.heldUntil ?? 0, now + m.hold);
+            w.strikeLanded?.(a, t!, m, dmg);
+            if (!t!.alive) killed = true;
+          }
+        }
+      }
+    }
+    if (phaseOf(at).phase === 'done') {
+      r.lastMove = m.kind;
+      r.atk = null;
+      a.lastAttackAt = now;
+    }
+    return { tx, tz, speed, killed };
   }
 
   private locomote(a: AnimalData, sp: SpeciesDef, r: Runtime, w: AIWorld, dt: number, tx: number, tz: number, targetSpeed: number, wantAlt: number, manual = false): void {
@@ -1114,6 +1263,7 @@ export class AnimalBrain {
       }
     }
 
+    if (w.now < r.limpUntil) targetSpeed *= 0.6;
     a.speed += (targetSpeed - a.speed) * damp(targetSpeed > a.speed ? 2.2 : 3.5, dt);
     if (a.speed < 0.02) a.speed = 0;
     const nx = a.x + Math.sin(a.heading) * a.speed * dt;

@@ -59,6 +59,12 @@ export interface EcoContext {
   playerCalm?: number;
   companionTarget?: string | null;
   troughFood?(a: AnimalData): TroughAccess | null;
+  /** Combat hooks (see AIWorld). */
+  knockPlayer?: AIWorld['knockPlayer'];
+  holdPlayer?: AIWorld['holdPlayer'];
+  spit?: AIWorld['spit'];
+  strikeLanded?: AIWorld['strikeLanded'];
+  playerEvaded?: AIWorld['playerEvaded'];
 }
 
 export type EcoEvent =
@@ -410,6 +416,11 @@ export class Ecosystem {
       playerCalm: ctx.playerCalm,
       companionTarget: ctx.companionTarget,
       troughFood: ctx.troughFood,
+      knockPlayer: ctx.knockPlayer,
+      holdPlayer: ctx.holdPlayer,
+      spit: ctx.spit,
+      strikeLanded: ctx.strikeLanded,
+      playerEvaded: ctx.playerEvaded,
     };
 
     // Distant active animals think and move at a reduced rate (accumulated time keeps them consistent).

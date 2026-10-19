@@ -1,3 +1,4 @@
+import { DinoCombatFx } from '../combat/dinoCombatFx';
 import * as THREE from 'three';
 import { AudioSystem, type Surface } from '../audio/audio';
 import { growthScale, lifeStage, type AIState, type AnimalData, type TameCommand } from '../animals/animal';
@@ -149,6 +150,9 @@ export class Game {
   private ghostType: PieceType | null = null;
   private storageOpen: Piece | null = null;
   hostileUntil = 0;
+  /** Game time until which the player's blows count as counter-attacks (after a dodge). */
+  counterUntil = 0;
+  readonly dinoCombat = new DinoCombatFx(this);
   attackCooldown = 0;
   /** Combat/tool action state (shared by every input device and both camera modes). */
   readonly combat = new CombatController();
@@ -1000,6 +1004,7 @@ export class Game {
     this.actions.updateCombat(realDt, !panel && !this.building && !mount && !this.sleeping);
     if (!panel && input.consume('eat')) this.useHeld();
     this.actions.updateProjectiles(realDt);
+    this.dinoCombat.update(realDt);
 
     // --- Ecosystem (sub-stepped while sleeping).
     this.profiler.begin('ai');
@@ -1015,6 +1020,7 @@ export class Game {
         hostileUntil: this.hostileUntil,
         visibility,
         running: p.sprinting,
+        dodging: p.dodging,
         hasFire: held?.id === 'torch' || nearCampfire,
       },
       predatorBoldness: DIFFICULTY[this.settings.difficulty].predatorBoldness,
@@ -1025,6 +1031,21 @@ export class Game {
       playerCalm: prog.has('naturalist') ? 0.8 : 1,
       companionTarget: companion,
       troughFood: (a) => this.taming.troughFor(this.buildingSys!, a),
+      knockPlayer: (dx, dz, speed) => {
+        if (!this.mountedId) p.knock(dx, dz, speed);
+        this.hitStop(Math.min(0.12, 0.03 + speed * 0.01));
+      },
+      holdPlayer: (sec) => {
+        if (this.mountedId) return;
+        p.hold(sec);
+        this.notify('combat.held', {}, 'warn');
+      },
+      spit: (a, tx, tz) => this.dinoCombat.spit(a, tx, tz),
+      strikeLanded: (a, target, move) => this.dinoCombat.landed(a, target, move),
+      playerEvaded: () => {
+        this.counterUntil = env.state.time + 1.2;
+        this.notify('combat.dodged', {}, 'good');
+      },
     };
     const steps = this.sleeping ? 6 : 1;
     for (let i = 0; i < steps; i++) this.eco!.update(Math.min(dt / steps, 0.5), ecoCtx);
@@ -1147,6 +1168,22 @@ export class Game {
     const moveEnabled = !panel && !this.sleeping;
     const sprintHeld = this.settings.toggleSprint && input.mode === 'keyboard' ? this.sprintToggled(input.consume('sprint')) : input.held('sprint');
     const site = this.inCave ? PLANNED_SITES.find((s) => s.id === this.inCave) : undefined;
+    if (moveEnabled && input.consume('dodge') && surv.d.stamina > 15) {
+      // Dodge toward the movement input, or straight back when standing still.
+      const fx = Math.sin(p.s.yaw);
+      const fz = Math.cos(p.s.yaw);
+      let dx = fx * input.move.y - Math.cos(p.s.yaw) * input.move.x;
+      let dz = fz * input.move.y + Math.sin(p.s.yaw) * input.move.x;
+      if (Math.hypot(dx, dz) < 0.2) {
+        dx = -fx;
+        dz = -fz;
+      }
+      if (p.dodge(dx, dz)) {
+        surv.d.stamina = Math.max(0, surv.d.stamina - 15);
+        this.audio.sfx('swingLight');
+        this.playerView?.dodge(dx, dz);
+      }
+    }
     p.update(
       realDt,
       {
@@ -1411,6 +1448,11 @@ export class Game {
       this.notify('tame.died', { name: e.name }, 'warn');
       if (this.mountedId === e.id) this.dismount(true);
     }
+  }
+
+  /** Damage from an animal's attack that does not come through the AI step (spit). */
+  animalDamagesPlayer(amount: number, a: AnimalData): void {
+    this.onAnimalHitsPlayer(amount, a);
   }
 
   private onAnimalHitsPlayer(amount: number, a: AnimalData): void {
@@ -2043,7 +2085,7 @@ export class Game {
       }
       const camDist = Math.hypot(a.x - cam.x, a.z - cam.z);
       v.root.visible = !this.inCave;
-      poseAnimalView(v, a, eco.brain.stridePhase(a), eco.brain.altitude(a), now, dt, camDist, this.quality().animalLod);
+      poseAnimalView(v, a, eco.brain.stridePhase(a), eco.brain.altitude(a), now, dt, camDist, this.quality().animalLod, eco.brain.attackState(a));
       if (v.aura) updateAlphaAura(v.aura, now, a.state === 'alert' || a.state === 'defend' || a.state === 'hunt', a.alive && !this.inCave, dt, this.renderer.domElement.height);
       if (this.inCave || !a.alive) continue;
       const sp = SPECIES[a.speciesId];

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { createAnimal } from '../animals/animal';
-import { createAnimalView, poseAnimalView, setAnimalContext } from '../animals/animalView';
+import { type AttackPose, createAnimalView, poseAnimalView, setAnimalContext } from '../animals/animalView';
 import { loadExternalModels } from '../graphics/externalModels';
 import { SPECIES_IDS, SPECIES } from '../animals/species';
 import { Rng } from '../core/rng';
@@ -62,13 +62,17 @@ export function runShowcase(canvas: HTMLCanvasElement): void {
   ground.receiveShadow = true;
   scene.add(ground);
 
-  const ids = only ? [only] : SPECIES_IDS;
+  // ?attack=<move>: the species in four poses of one attack (rest, end of the
+  // wind-up, mid strike, mid recovery), side by side.
+  const move = params.get('attack') as AttackPose['kind'] | null;
+  const poses: (AttackPose | null)[] = [null, { kind: move!, phase: 'windup', u: 1 }, { kind: move!, phase: 'strike', u: 0.6 }, { kind: move!, phase: 'recover', u: 0.35 }];
+  const ids = only && move ? [only, only, only, only] : only ? [only] : SPECIES_IDS;
   const rng = new Rng(1);
   let x = 0;
-  const items = ids.map((id) => {
+  const items = ids.map((id, idx) => {
     const sp = SPECIES[id];
-    const a = createAnimal({ id, speciesId: id, x: 0, z: 0, bornAt: -1e9, groupId: 'g', rng });
-    const v = createAnimalView(id, `show-${id}`);
+    const a = createAnimal({ id: `${id}-${idx}`, speciesId: id, x: 0, z: 0, bornAt: -1e9, groupId: 'g', rng });
+    const v = createAnimalView(id, `show-${id}-${idx}`);
     x += sp.lengthM / 2 + 3;
     a.x = x;
     a.z = 0;
@@ -77,7 +81,7 @@ export function runShowcase(canvas: HTMLCanvasElement): void {
     a.state = (params.get('state') ?? (params.has('run') ? 'flee' : 'wander')) as typeof a.state;
     x += sp.lengthM / 2 + 3;
     scene.add(v.root);
-    return { a, v, sp, stride: 0 };
+    return { a, v, sp, stride: 0, atk: move ? poses[idx] : null };
   });
   const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 1000);
   const total = x;
@@ -89,9 +93,13 @@ export function runShowcase(canvas: HTMLCanvasElement): void {
   fit();
   addEventListener('resize', fit);
   const maxLen = Math.max(...items.map((i) => i.sp.lengthM));
-  const dist = only ? maxLen * 1.8 + 4 : total * 0.42;
-  camera.position.set(total / 2, only ? maxLen * 0.5 : 18, dist);
+  const dist = only && !move ? maxLen * 1.8 + 4 : total * 0.5;
+  camera.position.set(total / 2, only ? (move ? maxLen * 0.35 : maxLen * 0.5) : 18, dist);
   camera.lookAt(total / 2, only ? maxLen * 0.25 : 2, 0);
+  if (params.has('top')) {
+    camera.position.set(total / 2, total * 0.55, 1);
+    camera.lookAt(total / 2, 0, 0);
+  }
   if (only && params.has('close')) {
     // Three-quarter view at eye level, framing the head and fore body.
     const sp0 = SPECIES[only];
@@ -111,7 +119,7 @@ export function runShowcase(canvas: HTMLCanvasElement): void {
     t += dt;
     for (const it of items) {
       it.stride += (it.a.speed * dt) / it.sp.locomotion.stride;
-      poseAnimalView(it.v, it.a, it.stride, it.sp.locomotion.flies && !params.has('ground') ? 3 : 0, 0, dt, 10);
+      poseAnimalView(it.v, it.a, it.stride, it.sp.locomotion.flies && !params.has('ground') ? 3 : 0, 0, dt, 10, 70, it.atk);
       it.v.root.position.y = it.sp.locomotion.flies && !params.has('ground') ? 3 : 0;
     }
     renderer.render(scene, camera);

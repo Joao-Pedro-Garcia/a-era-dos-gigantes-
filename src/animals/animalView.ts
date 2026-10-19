@@ -1,3 +1,4 @@
+import type { MoveKind } from '../combat/dinoAttacks';
 import * as THREE from 'three';
 import { clamp, damp } from '../core/math';
 import type { TextureLibrary } from '../graphics/textureLibrary';
@@ -411,7 +412,14 @@ export function disposeAnimalView(v: AnimalView): void {
 }
 
 /** Poses the model for the current frame. */
-export function poseAnimalView(v: AnimalView, a: AnimalData, stride: number, altitude: number, now: number, dt: number, camDist: number, lodDistance = 70): void {
+/** Attack in progress (from the AI): which move, which phase and how far into it. */
+export interface AttackPose {
+  kind: MoveKind;
+  phase: 'windup' | 'strike' | 'recover';
+  u: number;
+}
+
+export function poseAnimalView(v: AnimalView, a: AnimalData, stride: number, altitude: number, now: number, dt: number, camDist: number, lodDistance = 70, atk: AttackPose | null = null): void {
   const sp = v.sp;
   const g = growthScale(a, now) * v.size;
   v.root.position.set(a.x, a.y, a.z);
@@ -445,7 +453,10 @@ export function poseAnimalView(v: AnimalView, a: AnimalData, stride: number, alt
       setExternalShadows(v.ext, camDist < lodDistance * 0.65);
       // Files without a death clip just roll onto their side.
       v.ext.root.rotation.z = a.alive || v.ext.actions.has('death') ? 0 : Math.PI / 2;
-      driveExternal(v.ext, dt, a.alive ? a.state : 'dead', a.speed / Math.max(0.2, g), sp.walkSpeed, sp.runSpeed, altitude > 1);
+      // The attack clip plays only while a blow is under way; between blows the
+      // animal stands or runs like any other.
+      const st = !a.alive ? 'dead' : atk ? 'defend' : a.state === 'hunt' || a.state === 'defend' ? 'idle' : a.state;
+      driveExternal(v.ext, dt, st, a.speed / Math.max(0.2, g), sp.walkSpeed, sp.runSpeed, altitude > 1);
       return;
     }
   }
@@ -701,7 +712,7 @@ export function poseAnimalView(v: AnimalView, a: AnimalData, stride: number, alt
     if (jaw) jaw.rotation.x = 0.06 + Math.max(0, Math.sin(now * 7 + a.z)) * 0.08;
   }
   // Threat display / combat by body type.
-  if (st === 'defend' || st === 'hunt') {
+  if ((st === 'defend' || st === 'hunt') && !atk) {
     const f = new Set(sp.look.features);
     const pulse = Math.sin(now * 2.2 + a.x);
     if (f.has('horns3') || f.has('frill') || f.has('nasalBoss') || f.has('dome')) {
@@ -727,6 +738,129 @@ export function poseAnimalView(v: AnimalView, a: AnimalData, stride: number, alt
     } else {
       // Other herbivores: tall alarm posture, head up.
       neckBones.forEach((b) => (b.rotation.x -= 0.1));
+    }
+  }
+  // ---- Attack moves (wind-up → strike → recover) -----------------------------
+  if (atk) {
+    const ease = (x: number) => x * x * (3 - 2 * x);
+    // wind: drawn back (1 at the end of the wind-up); hit: thrown into the blow.
+    const wind = atk.phase === 'windup' ? ease(atk.u) : atk.phase === 'strike' ? 1 - ease(atk.u) : 0;
+    const hit = atk.phase === 'strike' ? ease(atk.u) : atk.phase === 'recover' ? 1 - ease(atk.u) : 0;
+    const side = a.id.charCodeAt(a.id.length - 1) % 2 ? 1 : -1;
+    const arms = v.legInfo.filter((l) => l.front && !l.walking);
+    const fronts = v.legInfo.filter((l) => l.front && l.walking);
+    const jawOpen = (o: number) => {
+      if (jaw) jaw.rotation.x = Math.max(jaw.rotation.x, o + (v.rig?.visible ? v.jawRest : 0));
+    };
+    switch (atk.kind) {
+      case 'bite':
+      case 'shake':
+      case 'peck':
+      case 'roll':
+      case 'constrict':
+      case 'spit': {
+        // Head drawn back and up with the jaws gaping, then driven forward and
+        // down as they snap shut.
+        // Totals spread over however many neck bones the species has.
+        const back = (atk.kind === 'spit' ? 0.6 : 0.42) / Math.max(1, neckBones.length);
+        const fwd = 0.5 / Math.max(1, neckBones.length);
+        neckBones.forEach((b) => (b.rotation.x += -back * wind + fwd * hit));
+        if (head) head.rotation.x += -0.12 * wind + 0.1 * hit;
+        pelvis.position.z += (-0.05 * wind + 0.07 * hit) * H;
+        if (atk.kind !== 'peck') jawOpen(0.85 * wind + (atk.phase === 'strike' ? 0.85 * (1 - atk.u) : 0.05));
+        if (atk.kind === 'spit' && atk.phase !== 'windup') jawOpen(0.7 * hit);
+        if (atk.kind === 'shake' && atk.phase === 'recover') {
+          // Thrashing the head side to side with the prey in the jaws.
+          const f = Math.sin(atk.u * Math.PI * 6) * (1 - atk.u);
+          neckBones.forEach((b) => (b.rotation.y += f * 0.28));
+          if (chest) chest.rotation.y += f * 0.08;
+        }
+        if (atk.kind === 'roll' && atk.phase === 'recover') pelvis.rotation.z += Math.sin(atk.u * Math.PI) * 1.4 * side;
+        if (atk.kind === 'constrict') {
+          // Coils draw tight around the prey.
+          tailNames.forEach((n, i) => {
+            const b = bone(n);
+            if (b) b.rotation.y += side * (0.25 + i * 0.12) * Math.max(wind, hit);
+          });
+        }
+        break;
+      }
+      case 'claw':
+      case 'thumb':
+      case 'pounce': {
+        // Forelimbs raised and spread in the wind-up, raked down through the strike.
+        arms.forEach((l, i) => {
+          const b0 = bone(`${l.name}0`);
+          const b1 = bone(`${l.name}1`);
+          const lead = atk.kind === 'thumb' ? (i === 0 ? 1 : 0.3) : 1;
+          if (b0) b0.rotation.x += (-1.1 * wind + 0.7 * hit) * lead;
+          if (b1) b1.rotation.x += (0.5 * wind - 0.4 * hit) * lead;
+        });
+        // Quadrupeds (megatherium) rear onto the hind legs to swipe.
+        if (!arms.length) {
+          pelvis.rotation.x += -0.3 * Math.max(wind, hit);
+          fronts.forEach((l) => {
+            const b0 = bone(`${l.name}0`);
+            if (b0) b0.rotation.x += -1 * wind + 0.6 * hit;
+          });
+        }
+        if (atk.kind === 'pounce') {
+          // Crouch, then spring: the body is thrown forward nose-up, legs trailing.
+          pelvis.position.y -= 0.14 * H * wind;
+          pelvis.rotation.x += 0.12 * wind - 0.25 * hit;
+          for (const l of v.legInfo) {
+            if (l.front) continue;
+            const b0 = bone(`${l.name}0`);
+            const b1 = bone(`${l.name}1`);
+            if (b0) b0.rotation.x += 0.6 * hit;
+            if (b1) b1.rotation.x += -0.5 * hit;
+          }
+          jawOpen(0.6 * Math.max(wind, hit));
+        }
+        neckBones.forEach((b) => (b.rotation.x += 0.1 * hit));
+        break;
+      }
+      case 'tail':
+      case 'club':
+      case 'spikes': {
+        // The tail is cocked to one side, then swept hard across to the other;
+        // the hips counter-rotate to put the body behind it.
+        const amp = atk.kind === 'tail' ? 0.35 : 0.5;
+        const sweep = side * (amp * wind - amp * 1.3 * hit);
+        tailNames.forEach((n, i) => {
+          const b = bone(n);
+          if (b) b.rotation.y += sweep * (0.45 + i * 0.15);
+        });
+        pelvis.rotation.y += -sweep * 0.25;
+        neckBones.forEach((b) => (b.rotation.y += sweep * 0.2));
+        break;
+      }
+      case 'horns':
+      case 'headbutt': {
+        // Head lowered and braced, then a hooking thrust up and forward.
+        neckBones.forEach((b) => (b.rotation.x += 0.22 * wind - 0.3 * hit));
+        if (head) head.rotation.x += 0.25 * wind - 0.35 * hit;
+        pelvis.position.z += (-0.06 * wind + 0.08 * hit) * H;
+        pelvis.position.y -= 0.05 * H * wind;
+        break;
+      }
+      case 'stomp': {
+        // Rear up on the hind legs, forefeet lifted, then slam them down.
+        const rear = atk.phase === 'windup' ? wind : atk.phase === 'strike' ? 1 - ease(atk.u) : 0;
+        pelvis.rotation.x += -0.38 * rear + 0.06 * hit;
+        fronts.forEach((l) => {
+          const b0 = bone(`${l.name}0`);
+          const b1 = bone(`${l.name}1`);
+          if (b0) b0.rotation.x += -0.9 * rear;
+          if (b1) b1.rotation.x += 0.9 * rear;
+        });
+        arms.forEach((l) => {
+          const b0 = bone(`${l.name}0`);
+          if (b0) b0.rotation.x += -0.8 * rear;
+        });
+        neckBones.forEach((b) => (b.rotation.x += -0.15 * rear + 0.12 * hit));
+        break;
+      }
     }
   }
   // Tending a nest: crouched, head low over the eggs, slow movements.

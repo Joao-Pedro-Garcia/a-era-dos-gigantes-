@@ -279,3 +279,11 @@ body.reduce-motion * { animation: none !important; transition: none !important; 
 .gfxpop p { margin: 0; font-size: 12px; }
 .gfxpop > button { min-height: 40px; }
 body.building .gfxquick { display: none; }
+
+/* Venom spit in the eyes: blurred, greenish view that clears slowly. */
+.blind-fx {
+  position: fixed; inset: 0; pointer-events: none; opacity: 0; z-index: 4;
+  background: radial-gradient(ellipse at 50% 50%, rgba(150, 170, 40, 0.35) 0%, rgba(90, 110, 20, 0.75) 55%, rgba(40, 50, 10, 0.92) 100%);
+  backdrop-filter: blur(9px);
+  -webkit-backdrop-filter: blur(9px);
+}
