@@ -1,3 +1,4 @@
+import { HAND_GRIP } from './humanModel';
 import * as THREE from 'three';
 import type { TextureLibrary } from '../graphics/textureLibrary';
 
@@ -459,7 +460,7 @@ export function buildItemModel(id: string, lib: TextureLibrary | null): ItemMode
 export function attachToHand(model: ItemModel, hand: THREE.Object3D, side: 1 | -1): void {
   const holder = new THREE.Group();
   holder.name = 'grip';
-  holder.position.set(side * -0.02, -0.09, 0.0);
+  holder.position.set(side * -HAND_GRIP[0], HAND_GRIP[1], HAND_GRIP[2]);
   holder.rotation.x = Math.PI / 2;
   holder.add(model.root);
   hand.add(holder);

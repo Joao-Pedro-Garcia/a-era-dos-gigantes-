@@ -28,6 +28,10 @@ export function runShowcase(canvas: HTMLCanvasElement): void {
     runCombatShowcase(canvas, params);
     return;
   }
+  if (params.has('seq')) {
+    runHumanSequence(canvas, params);
+    return;
+  }
   if (params.has('human')) {
     runHumanShowcase(canvas, params);
     return;
@@ -132,6 +136,106 @@ export function runShowcase(canvas: HTMLCanvasElement): void {
  * ?showcase&human: the survivor model idle, walking, running and crouching
  * side by side (optionally ?side for a profile view, ?close for a close-up).
  */
+/**
+ * Animation review (?showcase&seq=turn|stop|jump|punch|walk): one survivor driven by a
+ * scripted controller, advanced deterministically at 60 Hz by `window.__seqStep(frames)`
+ * (no real-time loop), so frame strips can be captured before/after a change.
+ * &side / &front choose the camera; &ext loads the artist body.
+ */
+function runHumanSequence(canvas: HTMLCanvasElement, params: URLSearchParams): void {
+  installAtmosphere();
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
+  renderer.setPixelRatio(1);
+  renderer.shadowMap.enabled = true;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 0.85;
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x9fb4c8);
+  const sun = new THREE.DirectionalLight(0xfff2e0, 4);
+  sun.position.set(4, 8, 6);
+  sun.castShadow = true;
+  sun.shadow.mapSize.set(1024, 1024);
+  Object.assign(sun.shadow.camera, { left: -4, right: 4, top: 4, bottom: -2, far: 30 });
+  scene.add(sun, new THREE.HemisphereLight(0xbcd0e8, 0x5a4a38, 1.1));
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), new THREE.MeshStandardMaterial({ color: 0x6f7048, roughness: 1 }));
+  ground.rotation.x = -Math.PI / 2;
+  ground.receiveShadow = true;
+  scene.add(ground);
+  // Floor marks every metre: foot sliding shows against them.
+  for (let i = -10; i <= 10; i++) {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(0.02, 20), new THREE.MeshBasicMaterial({ color: 0x4a4a30 }));
+    m.rotation.x = -Math.PI / 2;
+    m.position.set(i, 0.002, 0);
+    scene.add(m);
+  }
+  const tex = new TextureLibrary();
+  tex.request(512);
+  const seq = params.get('seq') ?? 'walk';
+  const v = new PlayerView(tex);
+  scene.add(v.root);
+  const c = new CombatController();
+  const p = { s: { x: 0, y: 0, z: 0, yaw: 0, pitch: 0 }, bodyYaw: 0, horizontalSpeed: 0, onGround: true, swimming: false, crouching: false, sprinting: false, stride: 0, visualY: 0, vy: 0, stepLength: () => Math.min(1.6, Math.max(1.1, 1.1 + ((p.horizontalSpeed - 3.3) / 3.1) * 0.5)) };
+  const camera = new THREE.PerspectiveCamera(30, 1, 0.1, 100);
+  renderer.setSize(innerWidth, innerHeight, false);
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  let t = 0;
+  // Scripted controller: speed, yaw, jump and the punch request over time.
+  const script = (time: number): void => {
+    if (seq === 'turn') {
+      p.horizontalSpeed = 0;
+      p.bodyYaw = time < 0.4 ? 0 : Math.min(1.7, (time - 0.4) * 3.2);
+    } else if (seq === 'stop') {
+      p.horizontalSpeed = time < 1 ? 6.4 : Math.max(0, 6.4 - (time - 1) * 16);
+      p.sprinting = p.horizontalSpeed > 4;
+    } else if (seq === 'jump') {
+      p.horizontalSpeed = 0;
+      const j = time - 0.4;
+      if (j > 0 && j < 0.85) {
+        p.onGround = false;
+        p.vy = 4.8 - 11.3 * j;
+        p.s.y = Math.max(0, 4.8 * j - 0.5 * 11.3 * j * j);
+      } else {
+        p.onGround = true;
+        p.vy = 0;
+        p.s.y = 0;
+      }
+      p.visualY = p.s.y;
+    } else if (seq === 'punch') {
+      p.horizontalSpeed = 0;
+    } else {
+      p.horizontalSpeed = 1.6;
+    }
+  };
+  const frame = (): void => {
+    const dt = 1 / 60;
+    t += dt;
+    script(t);
+    p.stride += (p.horizontalSpeed * dt) / p.stepLength();
+    // The body moves for real (sliding feet would show against the floor marks).
+    p.s.x += Math.sin(p.bodyYaw) * p.horizontalSpeed * dt;
+    p.s.z += Math.cos(p.bodyYaw) * p.horizontalSpeed * dt;
+    if (seq === 'punch' && Math.abs(t - 0.5) < 0.009) c.request();
+    c.update(dt, { pressed: false, held: false, wanted: '', hasAmmo: true });
+    v.update(dt, p as unknown as PlayerController, false, undefined, c);
+  };
+  const view = (): void => {
+    const side = params.has('front') ? 0 : Math.PI / 2;
+    const d = seq === 'stop' ? 6 : 4.2;
+    camera.position.set(p.s.x + Math.sin(side) * d, 1.15 + p.s.y, p.s.z + Math.cos(side) * d);
+    camera.lookAt(p.s.x, 0.95 + p.s.y, p.s.z);
+    renderer.render(scene, camera);
+  };
+  (window as unknown as { __seqStep: (n: number) => number }).__seqStep = (n: number) => {
+    for (let i = 0; i < n; i++) frame();
+    view();
+    return t;
+  };
+  view();
+  (window as unknown as { __showcaseReady: boolean }).__showcaseReady = true;
+}
+
 function runHumanShowcase(canvas: HTMLCanvasElement, params: URLSearchParams): void {
   installAtmosphere();
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -168,7 +272,7 @@ function runHumanShowcase(canvas: HTMLCanvasElement, params: URLSearchParams): v
     scene.add(v.root);
     const c = new CombatController();
     if (i === 0 && params.has('tool')) c.shown = 'stone_axe';
-    const p = { s: { x: (i - 2) * 1.6, y: 0, z: 0, yaw: 0, pitch: 0 }, bodyYaw: params.has('side') ? Math.PI / 2 : params.has('back') ? Math.PI : 0, horizontalSpeed: m.speed, onGround: true, swimming: false, crouching: m.crouch, sprinting: m.sprint, stride: i * 0.3 };
+    const p = { s: { x: (i - 2) * 1.6, y: 0, z: 0, yaw: 0, pitch: 0 }, bodyYaw: params.has('side') ? Math.PI / 2 : params.has('back') ? Math.PI : 0, horizontalSpeed: m.speed, onGround: true, swimming: false, crouching: m.crouch, sprinting: m.sprint, stride: i * 0.3, visualY: 0, stepLength: () => Math.min(1.6, Math.max(1.1, 1.1 + ((m.speed - 3.3) / 3.1) * 0.5)) };
     return { v, p, m, c };
   });
   const camera = new THREE.PerspectiveCamera(params.has('close') ? 22 : 35, 1, 0.1, 100);
@@ -179,7 +283,13 @@ function runHumanShowcase(canvas: HTMLCanvasElement, params: URLSearchParams): v
   };
   fit();
   addEventListener('resize', fit);
-  if (params.has('close')) {
+  if (params.has('face')) {
+    // Portrait of the idle survivor (eyes, skin, hair).
+    camera.fov = 12;
+    camera.position.set(-3.2 + 0.25, 1.68, 1.6);
+    camera.lookAt(-3.2, 1.64, 0);
+    camera.updateProjectionMatrix();
+  } else if (params.has('close')) {
     camera.position.set(-3.2 + 0.4, 1.6, 2.2);
     camera.lookAt(-3.2, 1.45, 0);
   } else {
@@ -322,7 +432,7 @@ function runCombatShowcase(canvas: HTMLCanvasElement, params: URLSearchParams): 
     scene.add(v.root);
     const c = new CombatController();
     freeze(c, item, phase);
-    const p = { s: { x: (i - (items.length - 1) / 2) * 1.5, y: 0, z: 0, yaw: 0, pitch: 0 }, bodyYaw: params.has('front') ? 0 : Math.PI / 2, horizontalSpeed: 0, onGround: true, swimming: false, crouching: false, sprinting: false, stride: 0 };
+    const p = { s: { x: (i - (items.length - 1) / 2) * 1.5, y: 0, z: 0, yaw: 0, pitch: 0 }, bodyYaw: params.has('front') ? 0 : Math.PI / 2, horizontalSpeed: 0, onGround: true, swimming: false, crouching: false, sprinting: false, stride: 0, visualY: 0, stepLength: () => 1.1 };
     return { v, p, c, item };
   });
   const span = items.length * 1.5;
@@ -337,6 +447,12 @@ function runCombatShowcase(canvas: HTMLCanvasElement, params: URLSearchParams): 
     camera.lookAt(x + 0.25, 1.25, 0);
     camera.updateProjectionMatrix();
   }
+  const handParam = params.get('hand');
+  const handCam = handParam !== null ? { i: Number(handParam), off: params.has('palm') ? new THREE.Vector3(-0.15, 0.05, 0.6) : new THREE.Vector3(0.6, 0.1, 0.25) } : null;
+  if (handCam) {
+    camera.fov = 22;
+    camera.updateProjectionMatrix();
+  }
   let last = performance.now();
   const loop = (now: number) => {
     requestAnimationFrame(loop);
@@ -349,6 +465,13 @@ function runCombatShowcase(canvas: HTMLCanvasElement, params: URLSearchParams): 
       }
       // Frozen poses still need the IK weights to settle: step with a large dt.
       a.v.update(anim ? dt : 0.5, a.p as unknown as PlayerController, false, undefined, a.c);
+    }
+    if (handCam) {
+      // &hand=<index>: the right hand of one survivor filling the frame (grip review).
+      const hb = (actors[handCam.i]?.v as unknown as { rig: { bones: Record<string, THREE.Bone> } }).rig.bones['hand.R'];
+      const w = hb.getWorldPosition(new THREE.Vector3()).add(new THREE.Vector3(0, -0.08, 0));
+      camera.position.copy(w).add(handCam.off);
+      camera.lookAt(w);
     }
     renderer.render(scene, camera);
   };

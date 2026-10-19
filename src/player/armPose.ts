@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { ACTIONS, type ActionKind, type CombatController } from '../combat/actions';
-import { JOINTS, type BoneName } from './humanModel';
+import { HAND_GRIP, JOINTS, type BoneName } from './humanModel';
 
 /**
  * Arm animation for actions, shared by the third-person body and the
@@ -265,7 +265,7 @@ const W0 = { L: new THREE.Vector3(...JOINTS['hand.L']), R: new THREE.Vector3(...
 export const UPPER_LEN = S0.L.distanceTo(E0.L);
 export const FORE_LEN = E0.L.distanceTo(W0.L);
 /** Grip point inside the hand (hand bone frame, rest pose): matches itemModels.attachToHand. */
-const GRIP = { L: new THREE.Vector3(-0.02, -0.09, 0), R: new THREE.Vector3(0.02, -0.09, 0) };
+const GRIP = { L: new THREE.Vector3(-HAND_GRIP[0], HAND_GRIP[1], HAND_GRIP[2]), R: new THREE.Vector3(...HAND_GRIP) };
 
 function frame(x: THREE.Vector3, yHint: THREE.Vector3): THREE.Matrix4 {
   const X = x.clone().normalize();

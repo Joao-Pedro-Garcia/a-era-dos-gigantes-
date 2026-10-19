@@ -92,7 +92,7 @@ export function parseManifest(raw: unknown): ModelManifest {
     let rig: Record<string, string> | undefined;
     if (x.rig && typeof x.rig === 'object') {
       rig = {};
-      for (const [k, v] of Object.entries(x.rig as Record<string, unknown>)) if (typeof v === 'string' && /^[\w. -]{1,64}$/.test(k) && /^[a-zA-Z]\w{0,31}$/.test(v)) rig[k] = v;
+      for (const [k, v] of Object.entries(x.rig as Record<string, unknown>)) if (typeof v === 'string' && /^[\w. -]{1,64}$/.test(k) && /^[a-zA-Z][\w.]{0,31}$/.test(v)) rig[k] = v;
     }
     let variants: { url: string; chance: number }[] | undefined;
     if (Array.isArray(x.variants))
@@ -192,6 +192,14 @@ export function variantFor(entry: ModelEntry, individual: string): number {
 }
 
 async function loadAll(base: string): Promise<{ loaded: string[]; failed: string[] }> {
+  try {
+    return await loadEach(base);
+  } finally {
+    settle(null, false);
+  }
+}
+
+async function loadEach(base: string): Promise<{ loaded: string[]; failed: string[] }> {
   const result = { loaded: [] as string[], failed: [] as string[] };
   try {
     const res = await fetch(`${base}manifest.json`, { cache: 'no-cache' });
@@ -213,6 +221,7 @@ async function loadAll(base: string): Promise<{ loaded: string[]; failed: string
         prepareBounds(gltf.scene);
         loaded.set(id, { scene: gltf.scene, animations: gltf.animations, entry: e });
         result.loaded.push(id);
+        settle(id, true);
         for (const [i, v] of (e.variants ?? []).entries()) {
           try {
             const g = await loader.loadAsync(`${base}${v.url}`);
@@ -224,6 +233,7 @@ async function loadAll(base: string): Promise<{ loaded: string[]; failed: string
         }
       } catch {
         result.failed.push(id);
+        settle(id, false);
       }
     }),
   );
@@ -348,7 +358,7 @@ export function riggedMesh(id: string, boneIndex: Map<string, number>, bones?: A
     const i = boneIndex.get(v);
     if (i !== undefined) map.set(THREE.PropertyBinding.sanitizeNodeName(k), i);
   }
-  const fallback = boneIndex.get('pelvis') ?? 0;
+  const fallback = boneIndex.get('pelvis') ?? boneIndex.get('hips') ?? 0;
   const target = auto ? [] : sm.skeleton.bones.map((b) => map.get(b.name) ?? fallback);
   const geos: THREE.BufferGeometry[] = [];
   const mats: THREE.Material[] = [];
@@ -547,6 +557,30 @@ export function autoSkinWeights(g: THREE.BufferGeometry, b: AutoSkinBones): void
   }
   g.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(idx, 4));
   g.setAttribute('skinWeight', new THREE.Float32BufferAttribute(wts, 4));
+}
+
+const waiters = new Map<string, ((ok: boolean) => void)[]>();
+function settle(id: string | null, ok: boolean): void {
+  for (const [k, list] of [...waiters]) {
+    if (id !== null && k !== id) continue;
+    waiters.delete(k);
+    for (const f of list) f(ok);
+  }
+}
+
+/** Resolves when one model has loaded (true) or failed / is not listed (false), without waiting for the others. */
+export function whenModel(id: string): Promise<boolean> {
+  if (loaded.has(id)) return Promise.resolve(true);
+  return new Promise((res) => {
+    const list = waiters.get(id) ?? [];
+    list.push(res);
+    waiters.set(id, list);
+  });
+}
+
+/** The manifest entry of a loaded model. */
+export function externalEntry(id: string): ModelEntry | null {
+  return loaded.get(id)?.entry ?? null;
 }
 
 export function hasExternal(id: string): boolean {

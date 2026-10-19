@@ -23,29 +23,40 @@ export type BoneName =
   | 'upperArm.L' | 'foreArm.L' | 'hand.L' | 'upperArm.R' | 'foreArm.R' | 'hand.R'
   | 'thigh.L' | 'shin.L' | 'foot.L' | 'toe.L' | 'thigh.R' | 'shin.R' | 'foot.R' | 'toe.R';
 
-/** Rest-pose joint positions (model space, metres). */
+/**
+ * Rest-pose joint positions (model space, metres), fitted to the artist survivor
+ * (public/models/survivor.glb, re-posed by tools: arms hanging, thumbs forward,
+ * hands closed in a grip). The procedural body below is the fallback when that
+ * file is missing.
+ */
 export const JOINTS: Record<BoneName, [number, number, number]> = {
   root: [0, 0, 0],
-  hips: [0, 0.96, 0],
-  spine: [0, 1.08, 0],
-  chest: [0, 1.25, 0.005],
-  neck: [0, 1.49, -0.005],
-  head: [0, 1.57, 0.0],
-  'upperArm.L': [0.17, 1.385, -0.005],
-  'foreArm.L': [0.215, 1.12, -0.02],
-  'hand.L': [0.235, 0.87, 0.0],
-  'upperArm.R': [-0.17, 1.385, -0.005],
-  'foreArm.R': [-0.215, 1.12, -0.02],
-  'hand.R': [-0.235, 0.87, 0.0],
-  'thigh.L': [0.092, 0.93, 0],
-  'shin.L': [0.098, 0.5, 0.008],
-  'foot.L': [0.1, 0.085, -0.005],
-  'toe.L': [0.1, 0.02, 0.135],
-  'thigh.R': [-0.092, 0.93, 0],
-  'shin.R': [-0.098, 0.5, 0.008],
-  'foot.R': [-0.1, 0.085, -0.005],
-  'toe.R': [-0.1, 0.02, 0.135],
+  hips: [0, 0.977, 0],
+  spine: [0, 1.045, 0],
+  chest: [0, 1.201, 0],
+  neck: [0, 1.512, -0.041],
+  head: [0, 1.593, 0.017],
+  'upperArm.L': [0.211, 1.411, -0.065],
+  'foreArm.L': [0.22, 1.139, -0.073],
+  'hand.L': [0.23, 0.909, -0.057],
+  'upperArm.R': [-0.211, 1.411, -0.065],
+  'foreArm.R': [-0.22, 1.139, -0.073],
+  'hand.R': [-0.23, 0.909, -0.057],
+  'thigh.L': [0.088, 0.93, -0.025],
+  'shin.L': [0.093, 0.52, -0.013],
+  'foot.L': [0.098, 0.146, -0.039],
+  'toe.L': [0.115, 0.047, 0.173],
+  'thigh.R': [-0.088, 0.93, -0.025],
+  'shin.R': [-0.093, 0.52, -0.013],
+  'foot.R': [-0.098, 0.146, -0.039],
+  'toe.R': [-0.115, 0.047, 0.173],
 };
+
+/**
+ * Centre of the closed hand's grip axis in the hand bone (right hand; the left
+ * mirrors x): the handle runs along z through the curled fingers.
+ */
+export const HAND_GRIP: [number, number, number] = [0.006, -0.108, 0];
 
 const PARENT: Record<BoneName, BoneName | null> = {
   root: null,

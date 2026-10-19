@@ -1,9 +1,10 @@
 import * as THREE from 'three';
 import type { TextureLibrary } from '../graphics/textureLibrary';
-import { buildHumanRig, JOINTS, type BoneName, type HumanRig } from './humanModel';
+import { buildHumanRig, HAND_GRIP, JOINTS, type BoneName, type HumanRig } from './humanModel';
 import type { PlayerController } from './player';
 import { createContactShadow } from '../graphics/contactShadow';
-import { driveExternal, hasExternal, instantiate, type ExternalInstance } from '../graphics/externalModels';
+import { driveExternal, externalEntry, instantiate, whenModel, type ExternalInstance } from '../graphics/externalModels';
+import { artistBody } from './artistBody';
 import { actionKindFor, type CombatController } from '../combat/actions';
 import { actionPose, lowerPose, pitchKey, solveArm, type ArmPose, type HandKey } from './armPose';
 import { attachToHand, buildItemModel, disposeItemModel, type ItemModel } from './itemModels';
@@ -28,6 +29,7 @@ const THIGH = JOINTS['thigh.L'][1] - JOINTS['shin.L'][1];
 const SHIN = JOINTS['shin.L'][1] - JOINTS['foot.L'][1];
 const LEG = THIGH + SHIN;
 const HIP_Y = JOINTS['thigh.L'][1];
+const wrapAngle = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 const ANKLE_Y = JOINTS['foot.L'][1];
 
 export class PlayerView {
@@ -61,6 +63,16 @@ export class PlayerView {
   private hitZ = 0;
   private hitAmp = 0;
   private yaw = 0;
+  /** Turning, inertia and landing (see update). */
+  private prevYaw = 0;
+  private yawRate = 0;
+  private feetYaw = 0;
+  private turnStep = -1;
+  private prevSpeed = 0;
+  private accel = 0;
+  private landT = 9;
+  private landAmp = 0;
+  private fallVy = 0;
   /** Set by the game while mounted on an animal. */
   riding = false;
   /** Artist model replacing the procedural survivor (see externalModels.ts). */
@@ -86,14 +98,32 @@ export class PlayerView {
     this.shadow = createContactShadow(0.42);
     this.root.add(this.shadow);
     this.textures = textures ?? null;
-    if (hasExternal('player'))
-      void instantiate('player').then((inst) => {
-        if (!inst) return;
-        this.ext = inst;
-        this.root.add(inst.root);
-      });
+    void whenModel('player').then((ok) => {
+      if (!ok || this.disposed) return;
+      // A rigged survivor takes over the procedural body on the same skeleton; a file with
+      // its own clips replaces the whole figure.
+      if (externalEntry('player')?.rig) this.useArtistBody();
+      else
+        void instantiate('player').then((inst) => {
+          if (!inst || this.disposed) return;
+          this.ext = inst;
+          this.root.add(inst.root);
+        });
+    });
   }
   private textures: TextureLibrary | null;
+  private disposed = false;
+  /** The artist body is in use (its geometry is shared, never disposed here). */
+  artist = false;
+
+  private useArtistBody(): void {
+    const body = artistBody();
+    if (!body) return;
+    this.rig.mesh.geometry.dispose();
+    this.rig.mesh.geometry = body.geometry;
+    this.rig.mesh.material = body.material;
+    this.artist = true;
+  }
 
   /** Starts the dodge animation toward a world direction. */
   dodge(dx: number, dz: number): void {
@@ -140,7 +170,7 @@ export class PlayerView {
   tipWorld(out: THREE.Vector3, hand: 'L' | 'R' = 'R'): THREE.Vector3 {
     this.root.updateMatrixWorld(true);
     if (this.item && hand === 'R') return this.item.root.localToWorld(out.copy(this.item.tip));
-    return this.rig.bones[`hand.${hand}`].localToWorld(out.set(0, -0.09, 0));
+    return this.rig.bones[`hand.${hand}`].localToWorld(out.set(hand === 'R' ? HAND_GRIP[0] : -HAND_GRIP[0], HAND_GRIP[1], HAND_GRIP[2]));
   }
 
   /**
@@ -180,6 +210,43 @@ export class PlayerView {
     const run = Math.max(0, Math.min(1, (speed - 2.2) / 3));
     const stepLen = p.stepLength();
     const mv = this.moveBlend;
+    const inv = 1 / Math.max(dt, 1e-3);
+    // Turn rate (smoothed; snaps such as respawns ignored) and ground acceleration.
+    let dyaw = wrapAngle(p.bodyYaw - this.prevYaw);
+    this.prevYaw = p.bodyYaw;
+    if (Math.abs(dyaw) > 1.2) dyaw = 0;
+    this.yawRate += (dyaw * inv - this.yawRate) * k(10);
+    if (dt > 0 && dt < 0.2) this.accel += ((speed - this.prevSpeed) * inv - this.accel) * k(6);
+    this.prevSpeed = speed;
+    // Landing: a knee-and-hip dip scaled by the fall speed.
+    const vy = (p as { vy?: number }).vy ?? 0;
+    if (!p.onGround && !p.swimming) this.fallVy = Math.min(this.fallVy, vy);
+    else if (this.fallVy < -2.5) {
+      this.landT = 0;
+      this.landAmp = Math.min(1, -this.fallVy / 9);
+      this.fallVy = 0;
+    } else this.fallVy = 0;
+    if (this.landT < 1) this.landT += dt;
+    const landDip = this.landT < 0.6 ? Math.sin(Math.min(1, this.landT / 0.07) * Math.PI * 0.5) * Math.exp(-this.landT * 7) * this.landAmp : 0;
+    // Turning on the spot: the feet stay planted while the pelvis and chest follow the body;
+    // past ~30° a quick two-step (the foot on the turning side first) brings the feet round.
+    if (mv > 0.3 || !p.onGround || p.swimming || this.riding) {
+      this.feetYaw = p.bodyYaw;
+      this.turnStep = -1;
+    }
+    let off = wrapAngle(p.bodyYaw - this.feetYaw);
+    if (this.turnStep < 0 && Math.abs(off) > 0.5) this.turnStep = 0;
+    const stepLift = { 1: 0, [-1]: 0 } as Record<1 | -1, number>;
+    if (this.turnStep >= 0) {
+      this.turnStep += dt / 0.4;
+      const u = Math.min(1, this.turnStep);
+      const lead: 1 | -1 = off > 0 ? 1 : -1;
+      stepLift[lead] = Math.sin(Math.min(1, u * 2) * Math.PI);
+      stepLift[(-lead) as 1 | -1] = Math.sin(Math.max(0, u * 2 - 1) * Math.PI);
+      this.feetYaw += off * Math.min(1, (dt / 0.4) * 2.5);
+      if (u >= 1) this.turnStep = -1;
+      off = wrapAngle(p.bodyYaw - this.feetYaw);
+    }
 
     if (this.riding) {
       this.poseRiding();
@@ -229,7 +296,8 @@ export class PlayerView {
         const wz = s.z - lx * sy + fz * cy;
         g = Math.max(-0.35, Math.min(0.45, ground(wx, wz) - p.visualY));
       }
-      legs.push({ side, fz, fy: g + ANKLE_Y + lift * up, g, u, stance });
+      // Airborne: the feet tuck up (the IK bends the knees).
+      legs.push({ side, fz, fy: g + ANKLE_Y + lift * up + stepLift[side] * 0.07 + this.air * 0.16, g, u, stance });
     }
     const phase = cycle * Math.PI * 2;
     // Pelvis: low enough that neither foot (on its ground) is out of reach.
@@ -237,14 +305,18 @@ export class PlayerView {
     for (const l of legs) hip = Math.min(hip, l.g + ANKLE_Y + Math.sqrt(Math.max(0, (LEG * 0.985) ** 2 - l.fz * l.fz)));
     // Vertical bob: lowest at mid-stance loading, highest in the flight phase.
     const bob = -Math.cos(phase * 2) * (0.012 + run * 0.025) * mv;
-    hip += bob - this.crouch * 0.3 - this.air * 0.04;
+    // Braking sinks the hips a little (the knees absorb the momentum); landing dips them.
+    const brake = Math.min(0.035, Math.max(0, -this.accel) * 0.004) * (p.onGround ? 1 : 0);
+    hip += bob - this.crouch * 0.3 - this.air * 0.04 - brake - landDip * 0.15;
     const breathe = Math.sin(this.time * 1.7) * 0.004 * (1 - mv);
     this.pelvis += (hip - this.pelvis) * k(18);
     const sway = Math.sin(phase) * 0.022 * mv * (1 - run * 0.5);
     B.hips.position.y = this.pelvis - JOINTS.root[1] + breathe;
     B.hips.position.x = sway + Math.sin(this.time * 0.35) * 0.006 * (1 - mv);
-    B.hips.rotation.y = Math.sin(phase) * 0.12 * mv;
-    B.hips.rotation.z = Math.cos(phase) * 0.035 * mv;
+    // Planted feet while turning on the spot: the legs stay with the feet (pelvis turned back).
+    B.hips.rotation.y = Math.sin(phase) * 0.12 * mv - off * 0.85;
+    // Banking into turns when moving.
+    B.hips.rotation.z = Math.cos(phase) * 0.035 * mv + Math.max(-0.12, Math.min(0.12, -this.yawRate * speed * 0.012));
 
     for (const l of legs) {
       const sfx = l.side > 0 ? '.L' : '.R';
@@ -271,14 +343,21 @@ export class PlayerView {
     }
 
     // ---- Upper body ----------------------------------------------------------
-    const leanTarget = run * 0.22 + this.crouch * 0.35 + mv * 0.04;
+    // Inertia: leaning into acceleration, back against braking.
+    const inertia = p.onGround ? Math.max(-0.14, Math.min(0.1, this.accel * 0.025)) : 0;
+    const leanTarget = run * 0.22 + this.crouch * 0.35 + mv * 0.04 + inertia;
     this.lean += (leanTarget - this.lean) * k(6);
-    B.spine.rotation.x = this.lean * 0.5 + Math.sin(phase * 2) * 0.015 * mv;
+    B.spine.rotation.x = this.lean * 0.5 + Math.sin(phase * 2) * 0.015 * mv + landDip * 0.25;
+    // The torso faces the body direction even while the pelvis stays with planted feet.
+    B.spine.rotation.y = off * 0.85;
     B.chest.rotation.x = this.lean * 0.45 + Math.sin(this.time * 1.7) * 0.015 * (1 - mv);
-    B.chest.rotation.y = -Math.sin(phase) * (0.14 + run * 0.08) * mv;
-    B.neck.rotation.x = -this.lean * 0.6;
-    B.head.rotation.x = -this.lean * 0.3 + Math.sin(phase * 2) * 0.01 * mv;
-    B.head.rotation.y = -B.chest.rotation.y * 0.6;
+    // Head and chest lead a turn.
+    const leadTurn = Math.max(-0.35, Math.min(0.35, this.yawRate * 0.09));
+    B.chest.rotation.y = -Math.sin(phase) * (0.14 + run * 0.08) * mv + leadTurn * 0.35;
+    B.neck.rotation.x = -this.lean * 0.6 - s.pitch * 0.2;
+    // The head follows the aim (camera pitch) and looks into turns.
+    B.head.rotation.x = -this.lean * 0.3 + Math.sin(phase * 2) * 0.01 * mv - s.pitch * 0.3 - landDip * 0.15;
+    B.head.rotation.y = -B.chest.rotation.y * 0.6 + leadTurn;
 
     const armAmp = (0.45 + run * 0.6) * mv;
     const elbow = 0.18 + run * 1.15 + this.crouch * 0.4;
@@ -287,7 +366,7 @@ export class PlayerView {
       const ph = side > 0 ? phase : phase + Math.PI;
       const swingA = Math.sin(ph) * armAmp;
       B[`upperArm${sfx}` as BoneName].rotation.x = swingA - this.crouch * 0.3 + this.air * -0.4;
-      B[`upperArm${sfx}` as BoneName].rotation.z = side * (0.09 + run * 0.08 + this.air * 0.3);
+      B[`upperArm${sfx}` as BoneName].rotation.z = side * (0.09 + run * 0.08 + this.air * 0.3 + landDip * 0.3);
       B[`foreArm${sfx}` as BoneName].rotation.x = -(elbow + Math.max(0, -swingA) * 0.5);
       B[`hand${sfx}` as BoneName].rotation.x = -0.1;
     }
@@ -313,9 +392,20 @@ export class PlayerView {
       pose = { ...pose, R: pitchKey(pose.R, pitch * aim), L: pitchKey(pose.L, pitch * aim) };
     }
     this.twist += (pose.twist - this.twist) * k;
-    B.chest.rotation.y += this.twist * 0.6;
-    B.spine.rotation.y += this.twist * 0.4;
+    // The swing starts in the hips: the pelvis turns with it while the legs stay planted,
+    // then the spine and chest add the rest.
+    const hipTurn = this.twist * 0.3;
+    B.hips.rotation.y += hipTurn;
+    B['thigh.L'].rotation.y -= hipTurn;
+    B['thigh.R'].rotation.y -= hipTurn;
+    B.chest.rotation.y += this.twist * 0.45;
+    B.spine.rotation.y += this.twist * 0.3;
     B.spine.rotation.x += pose.lean;
+    // The shoulder of the striking arm comes forward with the chest (+twist turns the chest left: right arm leads).
+    const prot = Math.min(0.06, Math.abs(this.twist) * 0.09);
+    const lead = this.twist > 0 ? 'R' : 'L';
+    B[`upperArm.${lead}`].position.z += prot;
+    B[`upperArm.${lead}`].position.x += (lead === 'R' ? 1 : -1) * prot * 0.3;
     this.wR += ((pose.R ? 1 : 0) - this.wR) * k;
     this.wL += ((pose.L ? 1 : 0) - this.wL) * k;
     if (pose.R) this.lastR = pose.R;
@@ -422,8 +512,9 @@ export class PlayerView {
   }
 
   dispose(): void {
+    this.disposed = true;
     if (this.item) disposeItemModel(this.item);
-    this.rig.mesh.geometry.dispose();
+    if (!this.artist) this.rig.mesh.geometry.dispose();
     for (const m of this.materials) {
       this.textures?.unbind(m);
       m.dispose();

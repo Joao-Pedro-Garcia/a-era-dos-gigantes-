@@ -171,10 +171,10 @@ describe('combat actions', () => {
 describe('arm IK (first and third person share it)', () => {
   it('places the grip on the key for every action phase that is within reach', async () => {
     const THREE = await import('three');
-    const { buildHumanRig } = await import('../src/player/humanModel');
+    const { buildHumanRig, HAND_GRIP, JOINTS } = await import('../src/player/humanModel');
     const { actionPose, solveArm, UPPER_LEN, FORE_LEN } = await import('../src/player/armPose');
     const rig = buildHumanRig([new THREE.MeshBasicMaterial(), new THREE.MeshBasicMaterial(), new THREE.MeshBasicMaterial(), new THREE.MeshBasicMaterial(), new THREE.MeshBasicMaterial()]);
-    const shoulder = new THREE.Vector3(-0.17, 1.385, -0.005);
+    const shoulder = new THREE.Vector3(...JOINTS['upperArm.R']);
     let checked = 0;
     for (const item of ['', 'stone_axe', 'stone_pickaxe', 'spear', 'stone_knife', 'wooden_club']) {
       const c = new CombatController();
@@ -189,7 +189,7 @@ describe('arm IK (first and third person share it)', () => {
         rig.mesh.updateMatrixWorld(true);
         solveArm(rig.mesh, rig.bones, 'R', pose.R, 1);
         rig.mesh.updateMatrixWorld(true);
-        const grip = rig.bones['hand.R'].localToWorld(new THREE.Vector3(0.02, -0.09, 0));
+        const grip = rig.bones['hand.R'].localToWorld(new THREE.Vector3(...HAND_GRIP));
         const target = new THREE.Vector3(...pose.R.p);
         // Only keys the arm can physically reach must be met exactly.
         if (target.distanceTo(shoulder) < (UPPER_LEN + FORE_LEN) * 0.95) {

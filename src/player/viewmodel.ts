@@ -3,6 +3,8 @@ import { actionKindFor, type CombatController } from '../combat/actions';
 import type { TextureLibrary } from '../graphics/textureLibrary';
 import { FP_DRAW, actionPose, lowerPose, solveArm, type ArmPose, type HandKey } from './armPose';
 import { buildArmsGeometry, buildHumanRig, type BoneName, type HumanRig } from './humanModel';
+import { artistArms } from './artistBody';
+import { whenModel } from '../graphics/externalModels';
 import { attachToHand, buildItemModel, disposeItemModel, type ItemModel } from './itemModels';
 
 /**
@@ -61,7 +63,18 @@ export class Viewmodel {
     this.anchor.add(this.rig.mesh);
     this.camera.add(this.anchor);
     this.scene.add(this.camera, this.sun, this.sun.target, this.hemi);
+    // The artist survivor's own sleeves and hands, once its file is in.
+    void whenModel('player').then((ok) => {
+      const a = ok && !this.disposed ? artistArms() : null;
+      if (!a) return;
+      this.rig.mesh.geometry.dispose();
+      this.rig.mesh.geometry = a.geometry;
+      this.rig.mesh.material = a.material;
+      this.artist = true;
+    });
   }
+  private disposed = false;
+  private artist = false;
 
   setItem(id: string): void {
     if (id === this.itemId) return;
@@ -175,8 +188,9 @@ export class Viewmodel {
   }
 
   dispose(): void {
+    this.disposed = true;
     if (this.item) disposeItemModel(this.item);
-    this.rig.mesh.geometry.dispose();
+    if (!this.artist) this.rig.mesh.geometry.dispose();
     for (const m of this.materials) {
       this.textures?.unbind(m);
       m.dispose();
