@@ -194,7 +194,7 @@ const S: Record<string, Def> = {
   dilophosaurus: {
     name: { 'pt-BR': 'Dilofossauro', en: 'Dilophosaurus' }, scientificName: 'Dilophosaurus wetherilli', clade: 'dinosaur',
     period: 'Jurássico Inferior (~193 Ma)', diet: 'carnivore', ecology: 'mesoPredator',
-    lengthM: 7, hipHeightM: 1.6, massKg: 400, walkSpeed: 2, runSpeed: 9, stamina: 10, foodNeed: 1, waterNeed: 1,
+    lengthM: 3.2, hipHeightM: 0.9, massKg: 60, walkSpeed: 2, runSpeed: 9, stamina: 10, foodNeed: 1, waterNeed: 1,
     social: { type: 'pair', size: [1, 3] }, senses: { sight: 100, hearing: 110, smell: 150, fovDeg: 160 },
     temperament: { aggression: 0.5, fearfulness: 0.3, curiosity: 0.5 }, territory: { radius: 500, defends: true },
     activity: 'crepuscular', reproduction: { clutch: [3, 5], incubationDays: 5, maturityDays: 20, parentalCare: 0.5, season: [8, 16] },

@@ -196,12 +196,14 @@ function blueprint(sp: SpeciesDef, juvenile = false): Blueprint {
   if (plan === 'theropod' || plan === 'hadrosaur' || plan === 'bird') {
     const hadro = plan === 'hadrosaur';
     const apex = sp.ecology === 'apexPredator' || sp.massKg > 1500;
-    const b = hadro ? 1.25 : sp.id === 'tyrannosaurus' ? 1.18 : sp.id === 'gallimimus' ? 0.82 : f.has('feathers') && L < 3 ? 0.95 : sp.id === 'therizinosaurus' ? 1.2 : 1;
+    // Film-style Dilophosaurus: a slender, lightly built animal (thin body, neck and legs).
+    const slim = f.has('neckFrill');
+    const b = slim ? 0.68 : hadro ? 1.25 : sp.id === 'tyrannosaurus' ? 1.18 : sp.id === 'gallimimus' ? 0.82 : f.has('feathers') && L < 3 ? 0.95 : sp.id === 'therizinosaurus' ? 1.2 : 1;
     // Body breadth (back view): large theropods are broad at the hips and ribs, not slab-sided.
     // Hadrosaurs were deep- rather than broad-bodied.
     // Spinosaurids were narrow-bodied (deep, slab-sided chest).
     const spino = f.has('longSnout');
-    const wb = spino ? 0.8 : apexW(sp) ? 1.3 : hadro ? 0.8 : 1.08;
+    const wb = spino || slim ? 0.8 : apexW(sp) ? 1.3 : hadro ? 0.8 : 1.08;
     const Hh = H;
     const longNeck = f.has('longNeck');
     // Hadrosaur tails were tall and flattened side to side (long neural spines and
@@ -232,11 +234,12 @@ function blueprint(sp: SpeciesDef, juvenile = false): Blueprint {
       cp(0.31 * L, Hh * 1.16, 0.03 * L, 0.038 * L, 0, null);
     } else {
       // Spinosaurids: a long, slender, S-curved neck.
-      const ns = spino ? 0.7 : 1;
-      cp(0.215 * L, Hh * 1.1, 0.046 * L * b * ns, 0.058 * L * b * (spino ? 0.85 : 1), 0.01 * L, 'neck1');
-      cp(0.245 * L, Hh * (spino ? 1.24 : 1.2), 0.04 * L * b * ns, 0.048 * L * b * ns, 0.004 * L, 'neck2');
-      cp(0.268 * L, Hh * (spino ? 1.34 : 1.28), 0.036 * L * b * ns, 0.044 * L * b * ns, 0, 'neck3');
-      cp(0.285 * L, Hh * (spino ? 1.36 : 1.31), 0.034 * L * b * ns, 0.042 * L * b * ns, 0, null);
+      const ns = spino || slim ? 0.7 : 1;
+      const lean = spino || slim;
+      cp(0.215 * L, Hh * 1.1, 0.046 * L * b * ns, 0.058 * L * b * (lean ? 0.85 : 1), 0.01 * L, 'neck1');
+      cp(0.245 * L, Hh * (lean ? 1.24 : 1.2), 0.04 * L * b * ns, 0.048 * L * b * ns, 0.004 * L, 'neck2');
+      cp(0.268 * L, Hh * (lean ? 1.34 : 1.28), 0.036 * L * b * ns, 0.044 * L * b * ns, 0, 'neck3');
+      cp(0.285 * L, Hh * (lean ? 1.36 : 1.31), 0.034 * L * b * ns, 0.042 * L * b * ns, 0, null);
     }
     const end = cps[cps.length - 1].p;
     // Carnotaurus: short, deep, bulldog-like skull.
@@ -1436,7 +1439,7 @@ function buildFeatures(sp: SpeciesDef, bp: Blueprint, parts: Part[], boneIndex: 
     const c = n3.p.clone().lerp(at, 0.35);
     const along = at.clone().sub(n3.p).normalize();
     const upN = V(0, 1, 0).sub(along.clone().multiplyScalar(along.y)).normalize();
-    const R = 0.085 * L * fs;
+    const R = 0.12 * L * fs;
     const rn = Math.max(n3.rx, n3.ry) * 0.9;
     const ribs = detail ? 18 : 7;
     const rows = detail ? 5 : 2;

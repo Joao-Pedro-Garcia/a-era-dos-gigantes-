@@ -50,7 +50,7 @@ Ficaram de fora, mesmo com boa aparência:
 A pedido, o visual dos dinossauros passa a priorizar o **estilo dos filmes Jurassic Park/World**, mesmo onde isso contradiz a ciência. Nenhum modelo copiado dos filmes ou dos jogos oficiais é usado (direito autoral). O jogo usa só modelos livres e geração própria, no estilo dos filmes:
 - **Tiranossauro:** textura do modelo de LasquetiSpice recolorida (pele azul e listras vermelhas → marrom-oliva); boca, olhos, dentes e ventre mantidos.
 - **Velocirraptor:** tamanho dos filmes (3,6 m, quadril a 1 m, 70 kg) e sem penas, também no modelo visto de longe.
-- **Dilofossauro:** gola de leque amarela e vermelha no pescoço (invenção do filme; sem evidência fóssil).
+- **Dilofossauro:** pequeno e esguio como no filme (3,2 m, quadril a 0,9 m, 60 kg; o real tinha ~7 m e ~400 kg), com gola de leque amarela e vermelha no pescoço (invenção do filme; sem evidência fóssil).
 - **Compsognato e galimimo:** sem penas.
 - **Espinossauro:** o modelo de seirogan já tem o visual do JP3 (pernas longas, cauda fina).
 
