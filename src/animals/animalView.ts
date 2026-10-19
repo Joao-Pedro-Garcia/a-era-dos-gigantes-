@@ -850,6 +850,22 @@ export function poseAnimalView(v: AnimalView, a: AnimalData, stride: number, alt
         pelvis.position.y -= 0.05 * H * wind;
         break;
       }
+      case 'roar': {
+        // Alpha roar: head thrown up and forward, jaws wide, the body braced and
+        // shaking with the effort through the whole call.
+        const call = atk.phase === 'strike' ? 1 : wind;
+        const shake = atk.phase === 'strike' ? Math.sin(atk.u * Math.PI * 14) * 0.03 : 0;
+        neckBones.forEach((b) => (b.rotation.x += -0.4 / Math.max(1, neckBones.length) * call + shake));
+        if (head) head.rotation.x += -0.15 * call;
+        jawOpen(1.0 * call);
+        pelvis.position.y -= 0.03 * H * call;
+        tailNames.forEach((n) => {
+          const b = bone(n);
+          if (b) b.rotation.x -= 0.05 * call;
+        });
+        if (chest) chest.scale.setScalar(1 + 0.04 * call);
+        break;
+      }
       case 'stomp': {
         // Rear up on the hind legs, forefeet lifted, then slam them down.
         const rear = atk.phase === 'windup' ? wind : atk.phase === 'strike' ? 1 - ease(atk.u) : 0;

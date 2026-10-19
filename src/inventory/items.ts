@@ -72,6 +72,7 @@ export const ITEMS: Record<string, ItemDef> = Object.fromEntries(
     I('metal_ingot', 'resource', 1.2, 20),
     I('crystal', 'resource', 0.4, 20),
     I('fossil', 'special', 2, 10),
+    I('alpha_trophy', 'special', 3, 10),
     I('dino_egg', 'special', 2, 4, { food: { hunger: 0.25 } }),
     I('feed_mix', 'food', 0.4, 20, { food: { hunger: 0.06 } }),
     I('metal_axe', 'tool', 1.8, 1, { damage: 22, gather: { wood: 5, stone: 1 }, durability: 400 }),

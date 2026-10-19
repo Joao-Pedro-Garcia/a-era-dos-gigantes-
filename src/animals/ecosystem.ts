@@ -65,11 +65,14 @@ export interface EcoContext {
   spit?: AIWorld['spit'];
   strikeLanded?: AIWorld['strikeLanded'];
   playerEvaded?: AIWorld['playerEvaded'];
+  alphaRoar?: AIWorld['alphaRoar'];
+  alphaDuel?: AIWorld['alphaDuel'];
 }
 
 export type EcoEvent =
   | { type: 'tameLeft'; id: string; speciesId: string; name: string }
-  | { type: 'tamedKilled'; id: string; speciesId: string; name: string; by: string };
+  | { type: 'tamedKilled'; id: string; speciesId: string; name: string; by: string }
+  | { type: 'alphaKilled'; id: string; speciesId: string; x: number; z: number };
 
 const DAY = WORLD.dayLengthSeconds;
 /** Big predators that hold a den (only those that live in the den's biome are chosen). */
@@ -322,6 +325,7 @@ export class Ecosystem {
   kill(a: AnimalData, cause: string): void {
     if (!a.alive) return;
     if (a.tame) this.onEvent({ type: 'tamedKilled', id: a.id, speciesId: a.speciesId, name: a.tame.name, by: cause });
+    if (a.alpha && cause === 'player') this.onEvent({ type: 'alphaKilled', id: a.id, speciesId: a.speciesId, x: a.x, z: a.z });
     a.tame = null;
     a.alive = false;
     a.health = 0;
@@ -421,6 +425,8 @@ export class Ecosystem {
       spit: ctx.spit,
       strikeLanded: ctx.strikeLanded,
       playerEvaded: ctx.playerEvaded,
+      alphaRoar: ctx.alphaRoar,
+      alphaDuel: ctx.alphaDuel,
     };
 
     // Distant active animals think and move at a reduced rate (accumulated time keeps them consistent).

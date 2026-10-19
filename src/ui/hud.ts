@@ -34,7 +34,7 @@ const ICON: Partial<Record<string, string>> = {
   ice: '🧊', herb: '🌿', cycad_fronds: '🌴', fern_fronds: '🌱', berries: '🫐', raw_meat: '🥩', cooked_meat: '🍖', raw_fish: '🐟', egg: '🥚',
   waterskin: '👝', waterskin_full: '💧', stone_axe: '🪓', stone_pickaxe: '⛏', stone_knife: '🔪', spear: '🗡', obsidian_spear: '🗡', bow: '🏹', arrow: '➶',
   torch: '🔥', bandage: '🩹', herbal_poultice: '🌿', hide_hood: '🧢', hide_tunic: '🧥', hide_leggings: '👖', fur_coat: '🧥', backpack: '🎒',
-  trap_snare: '🪢', field_journal: '📔', research_scanner: '📡', rope: '🧶', metal_ingot: '🧱', crystal: '💎', fossil: '🦴', dino_egg: '🥚',
+  trap_snare: '🪢', field_journal: '📔', research_scanner: '📡', rope: '🧶', metal_ingot: '🧱', crystal: '💎', fossil: '🦴', alpha_trophy: '🏆', dino_egg: '🥚',
   feed_mix: '🥗', metal_axe: '🪓', metal_pickaxe: '⛏', metal_knife: '🔪', metal_spear: '🔱', splint: '🦯', antidote: '🧪', spyglass: '🔭',
   compass: '🧭', radio_receiver: '📻', battery: '🔋', flare: '🧨', keycard: '💳', calibration_core: '🔶',
 };

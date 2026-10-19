@@ -11,7 +11,7 @@ import { SPECIES, type SpeciesDef } from '../animals/species';
  */
 export type MoveKind =
   | 'bite' | 'shake' | 'claw' | 'pounce' | 'tail' | 'club' | 'spikes' | 'horns' | 'headbutt'
-  | 'stomp' | 'thumb' | 'spit' | 'peck' | 'constrict' | 'roll';
+  | 'stomp' | 'thumb' | 'spit' | 'peck' | 'constrict' | 'roll' | 'roar';
 
 export interface AttackMove {
   kind: MoveKind;
@@ -60,6 +60,9 @@ export const MOVES = {
   peck: M('peck', { windup: 0.3, strike: 0.12, recover: 0.35, arc: 0.5, dmg: 1, knock: 0.3 }),
   constrict: M('constrict', { windup: 0.5, strike: 0.2, recover: 1.2, arc: 0.6, dmg: 1.2, knock: 0, hold: 2.5, weight: 0.7 }),
   roll: M('roll', { windup: 0.55, strike: 0.3, recover: 1.1, arc: 0.55, dmg: 1.5, knock: 0, hold: 1.8, weight: 0.6 }),
+  // Alphas only: a deafening roar that staggers the player, scatters small
+  // animals and puts birds to flight (no damage).
+  roar: M('roar', { windup: 0.9, strike: 1.2, recover: 0.6, reach: 1, arc: Math.PI, dmg: 0, knock: 0, range: 22, weight: 0.45 }),
 } satisfies Record<MoveKind, AttackMove>;
 
 /** The moves of each species (the first one is its basic attack). */
@@ -172,11 +175,19 @@ export function strikeHits(ax: number, az: number, heading: number, sp: SpeciesD
  * beside or behind, ranged ones only at range, the rest when it is in front
  * and in reach. Returns null when nothing fits (keep approaching).
  */
-export function chooseMove(sp: SpeciesDef, g: number, ax: number, az: number, heading: number, tx: number, tz: number, tr: number, rnd: () => number, exclude?: MoveKind): AttackMove | null {
+export function chooseMove(sp: SpeciesDef, g: number, ax: number, az: number, heading: number, tx: number, tz: number, tr: number, rnd: () => number, exclude?: MoveKind, alpha = false): AttackMove | null {
   const fits: AttackMove[] = [];
   const rel = Math.abs(angleDiff(Math.atan2(tx - ax, tz - az), heading));
-  for (const m of movesFor(sp)) {
-    if (m.kind === exclude && movesFor(sp).length > 1) continue;
+  const moves = alpha && sp.massKg >= 150 ? [...movesFor(sp), MOVES.roar] : movesFor(sp);
+  for (const m of moves) {
+    if (m.kind === exclude && moves.length > 1) continue;
+    if (m.kind === 'roar') {
+      // Roars at a distance, facing the enemy, not every time.
+      const d = Math.hypot(tx - ax, tz - az);
+      if (d < 6 || d > 22 || rel > 0.8) continue;
+      fits.push(m);
+      continue;
+    }
     const [ox, oz] = moveOrigin(ax, az, heading, sp, m, g);
     const d = Math.hypot(tx - ox, tz - oz) - tr;
     const reach = moveReach(sp, m, g);

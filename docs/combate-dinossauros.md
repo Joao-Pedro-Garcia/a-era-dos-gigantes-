@@ -70,3 +70,22 @@ Animais grandes são mais lentos: o T. rex leva cerca de 1,35× o tempo de um ra
 ## Limites conhecidos
 - Nos modelos de artista com animação própria (T. rex, velocirraptor e arqueopterix) toca o clipe "attack" do arquivo durante o golpe. As poses por fase só aparecem nos modelos procedurais e no espinossauro com rig.
 - A gola do dilofossauro ainda não abre animada: é geometria fixa da cabeça.
+
+## Alfas
+- **Rugido exclusivo:** só os alfas rugem, entre 6 e 22 m e de frente para o inimigo.
+  - O rugido faz o jogador cambalear (até 30 m) e treme a câmera.
+  - Animais pequenos e aves a até 45 m fogem.
+  - Animação: cabeça para cima, boca escancarada e corpo tremendo.
+- **Ataques mais rápidos:** a preparação dos golpes de um alfa é 12% mais curta.
+- **Luta entre dois alfas:**
+  - os dois se exibem e, se forem ousados, partem para a briga física, com golpes 1,6× mais fortes que numa caçada;
+  - a briga dura até um deles cair abaixo de 45% da vida (ou até 90 s). O perdedor recua e ninguém morre;
+  - um aviso aparece quando a luta acontece perto do jogador.
+- **Patrulha:** sem necessidades urgentes, o alfa faz a ronda do território por pontos ao redor do centro, parando às vezes para vigiar.
+- **Perseguição tática:** o alfa corre para onde o jogador está indo (antecipa a velocidade dele), em vez de correr atrás.
+- **Recompensa:** derrotar um alfa dá o item **Troféu de alfa** 🏆 e 300 de experiência em combate. A carcaça continua no lugar para ser aproveitada.
+- **Testes** (`tests/alpha.test.ts`):
+  - só os alfas rugem, e só à distância e de frente;
+  - dois alfas ousados lutam até um ceder, sem mortes;
+  - matar um alfa gera o evento de recompensa;
+  - alfas cautelosos continuam apenas se exibindo.

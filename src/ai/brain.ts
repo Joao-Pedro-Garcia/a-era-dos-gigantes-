@@ -26,6 +26,9 @@ export interface PlayerPercept {
   running: boolean;
   /** Mid-dodge (invulnerable to a strike that lands now). */
   dodging?: boolean;
+  /** Player velocity (m/s), for predators that lead their target. */
+  vx?: number;
+  vz?: number;
   /** Torch/campfire in hand or adjacent: deters many animals. */
   hasFire: boolean;
 }
@@ -73,6 +76,10 @@ export interface AIWorld {
   strikeLanded?(a: AnimalData, target: AnimalData | null, move: AttackMove, damage: number): void;
   /** The player dodged a blow at the last moment (opens a counter-attack window). */
   playerEvaded?(a: AnimalData, move: AttackMove): void;
+  /** An alpha roared (stagger the player, scatter small animals and birds). */
+  alphaRoar?(a: AnimalData): void;
+  /** Two alphas began / ended a fight (for the player's notice). */
+  alphaDuel?(a: AnimalData, b: AnimalData, ended: boolean, winner: AnimalData | null): void;
 }
 
 export interface TroughAccess {
@@ -122,6 +129,11 @@ interface Runtime {
   counterUntil: number;
   /** Wounded leg: slower until then. */
   limpUntil: number;
+  /** Fighting another alpha (until one gives way). */
+  duelWith: string | null;
+  duelUntil: number;
+  /** Patrol: current angle around the territory centre. */
+  patrolAng: number;
 }
 
 const PLAYER_ID = '__player__';
@@ -133,7 +145,7 @@ export class AnimalBrain {
   runtime(a: AnimalData): Runtime {
     let r = this.rt.get(a.id);
     if (!r) {
-      r = { thinkIn: Math.random() * 0.5, threatX: 0, threatZ: 0, threatIsPlayer: false, chaseStart: 0, altitude: 0, stride: 0, peacefulAcc: 0, trough: null, ride: null, lastHurtAt: -1e9, displayWith: null, displayUntil: 0, displayWins: false, lastDisplayAt: -1e9, yieldFrom: null, yieldUntil: 0, turnVel: 0, avoidSide: 0, avoidUntil: 0, atk: null, lastMove: null, staggerUntil: 0, counterUntil: 0, limpUntil: 0 };
+      r = { thinkIn: Math.random() * 0.5, threatX: 0, threatZ: 0, threatIsPlayer: false, chaseStart: 0, altitude: 0, stride: 0, peacefulAcc: 0, trough: null, ride: null, lastHurtAt: -1e9, displayWith: null, displayUntil: 0, displayWins: false, lastDisplayAt: -1e9, yieldFrom: null, yieldUntil: 0, turnVel: 0, avoidSide: 0, avoidUntil: 0, atk: null, lastMove: null, staggerUntil: 0, counterUntil: 0, limpUntil: 0, duelWith: null, duelUntil: 0, patrolAng: Math.random() * Math.PI * 2 };
       this.rt.set(a.id, r);
     }
     return r;
@@ -464,6 +476,20 @@ export class AnimalBrain {
 
     if (a.state === 'wander' && Math.hypot(a.tx - a.x, a.tz - a.z) > 3 && a.stateTime < 40) return;
     if (a.state === 'investigate' && a.stateTime < 15) return;
+    // Alphas patrol their territory: a slow round of waypoints around its centre,
+    // pausing now and then to watch (and roar at what they see).
+    if (a.alpha && !a.tame && stage === 'adult' && !(leader && leader !== a && leader.alive && Math.hypot(leader.x - a.x, leader.z - a.z) > 40)) {
+      if (w.random() < 0.2) {
+        this.setState(a, 'idle');
+        return;
+      }
+      const R = Math.min(sp.territory.radius, 250) * 0.6;
+      r.patrolAng += 0.7 + w.random() * 0.4;
+      a.tx = a.homeX + Math.sin(r.patrolAng) * R;
+      a.tz = a.homeZ + Math.cos(r.patrolAng) * R;
+      this.setState(a, 'wander');
+      return;
+    }
     if (w.random() < 0.35) {
       this.setState(a, 'idle');
     } else {
@@ -502,7 +528,19 @@ export class AnimalBrain {
         a.stateTime = Math.min(a.stateTime, 3);
         if (now >= r.displayUntil) {
           r.displayWith = null;
-          if (r.displayWins) this.setState(a, 'idle');
+          const ro = this.runtime(o);
+          // Two bold alphas come to blows; otherwise the weaker one gives way.
+          const bold = a.alpha && o.alpha && a.personality.aggression + o.personality.aggression > 1.05 && lifeStage(o, now) === 'adult';
+          if (bold && !r.duelWith && !ro.duelWith) {
+            for (const [x, y, rx] of [[a, o, r], [o, a, ro]] as const) {
+              rx.duelWith = y.id;
+              rx.duelUntil = now + 90;
+              rx.displayWith = null;
+              x.targetId = y.id;
+              this.setState(x, 'defend');
+            }
+            w.alphaDuel?.(a, o, false, null);
+          } else if (r.displayWins) this.setState(a, 'idle');
           else this.yieldTo(a, o, now);
         }
         return true;
@@ -794,6 +832,26 @@ export class AnimalBrain {
     const tx = isPlayer ? w.player.x : target!.x;
     const tz = isPlayer ? w.player.z : target!.z;
     const d = Math.hypot(tx - a.x, tz - a.z);
+    if (a.state === 'defend' && r.duelWith && target && r.duelWith === target.id) {
+      // Alpha fight: until one is beaten (never to the death) or both tire.
+      const mine = a.health / Math.max(1, maxHealth(a, now));
+      const theirs = target.health / Math.max(1, maxHealth(target, now));
+      if (mine < 0.45 || theirs < 0.45 || now > r.duelUntil || d > 60) {
+        const loser = mine <= theirs ? a : target;
+        const winner = loser === a ? target : a;
+        for (const x of [a, target]) {
+          const rx = this.runtime(x);
+          rx.duelWith = null;
+          rx.atk = null;
+          x.targetId = null;
+        }
+        this.yieldTo(loser, winner, now);
+        loser.fear = 1;
+        this.setState(winner, 'alert');
+        w.alphaDuel?.(winner, loser, true, winner);
+      }
+      return true;
+    }
     if (a.state === 'defend') {
       if (a.stateTime > 7 || d > 40) {
         // Disengage: back away a little; the episode stays in memory.
@@ -1056,6 +1114,13 @@ export class AnimalBrain {
         tx = isPlayer ? w.player.x : t!.x;
         tz = isPlayer ? w.player.z : t!.z;
         const d = Math.hypot(tx - a.x, tz - a.z);
+        // Alphas chase tactically: they run for where the player is going, not
+        // where the player is (cutting corners instead of trailing behind).
+        if (a.alpha && isPlayer && d > 8 && !r.atk) {
+          const lead = Math.min(2.5, d / Math.max(1, sp.runSpeed));
+          tx += (w.player.vx ?? 0) * lead;
+          tz += (w.player.vz ?? 0) * lead;
+        }
         const tsp = t ? SPECIES[t.speciesId] : null;
         const tr = tsp ? tsp.lengthM * 0.3 * growthScale(t!, now) : 0.4;
         const reach = sp.attack.range * (0.5 + 0.5 * g) + tr + sp.lengthM * 0.25 * g;
@@ -1082,9 +1147,9 @@ export class AnimalBrain {
         }
         const rest = Math.max(0.25, sp.attack.cooldown - 1.1) * (now < r.counterUntil ? 0.35 : 1);
         if (now - a.lastAttackAt > rest && now >= r.staggerUntil) {
-          const m = chooseMove(sp, g, a.x, a.z, a.heading, isPlayer ? w.player.x : t!.x, isPlayer ? w.player.z : t!.z, tr, w.random, r.lastMove ?? undefined);
+          const m = chooseMove(sp, g, a.x, a.z, a.heading, isPlayer ? w.player.x : t!.x, isPlayer ? w.player.z : t!.z, tr, w.random, r.lastMove ?? undefined, !!a.alpha);
           if (m) {
-            r.atk = { move: m, t: 0, ts: timeScale(effectiveMass(a, now)) * (now < r.counterUntil ? 0.75 : 1), resolved: false, landed: false, aim: a.heading };
+            r.atk = { move: m, t: 0, ts: timeScale(effectiveMass(a, now)) * (now < r.counterUntil ? 0.75 : 1) * (a.alpha ? 0.88 : 1), resolved: false, landed: false, aim: a.heading };
             r.counterUntil = 0;
           }
         }
@@ -1179,11 +1244,16 @@ export class AnimalBrain {
       at.resolved = true;
       const px = isPlayer ? w.player.x : t!.x;
       const pz = isPlayer ? w.player.z : t!.z;
-      if (m.range) {
+      if (m.kind === 'roar') {
+        w.alphaRoar?.(a);
+        at.landed = true;
+      } else if (m.range) {
         w.spit?.(a, px, pz);
         at.landed = true;
       } else if (strikeHits(a.x, a.z, a.heading, sp, m, g, px, pz, tr)) {
-        const dmg = sp.attack.damage * m.dmg * (0.4 + 0.6 * g) * (0.75 + a.personality.aggression * 0.5) * alphaMul(a, 'damage');
+        // Fights between alphas are brutal: harder blows than a hunt.
+        const duel = !isPlayer && r.duelWith === t!.id ? 1.6 : 1;
+        const dmg = sp.attack.damage * m.dmg * (0.4 + 0.6 * g) * (0.75 + a.personality.aggression * 0.5) * alphaMul(a, 'damage') * duel;
         const ang = m.from === 'tail' ? a.heading + Math.PI * 0.5 * (w.random() < 0.5 ? 1 : -1) : Math.atan2(px - a.x, pz - a.z);
         if (isPlayer) {
           if (w.player.dodging) w.playerEvaded?.(a, m);

@@ -3,6 +3,7 @@ export const EXTRA_PT: Record<string, string> = {
   // UI
   'ai.ridden': 'sendo montado', 'ui.skills': 'Habilidades', 'ui.animals': 'Animais', 'ui.map': 'Mapa', 'ui.close': 'Fechar', 'ui.continue': 'Continuar', 'ui.juvenile': '(filhote)', 'ui.alpha': 'Alfa', 'obs.alpha': 'macho dominante: maior, mais forte e mais resistente',
   'controls.list': 'WASD mover · Mouse olhar · Shift correr · Espaço pular · C agachar · E interagir · Clique atacar/coletar/usar ferramenta · F usar item (comer, curar, sinalizador) · 1–6 atalhos · Tab inventário · M mapa · B construir · V câmera · Esc pausa',
+  'item.alpha_trophy': 'Troféu de alfa', 'desc.alpha_trophy': 'Crânio e garras de um alfa abatido: o troféu de um grande caçador.', 'alpha.roar': 'O rugido do {what} alfa faz você recuar!', 'alpha.duel': 'Dois {what} alfas estão lutando por perto!', 'alpha.duelEnd': 'A luta dos {what} alfas acabou: o perdedor recua.', 'alpha.killed': 'Você derrotou um {what} alfa! Troféu obtido.',
   'action.dodge': 'Esquivar', 'touch.dodge': 'Esquiva', 'combat.dodged': 'Esquivou!', 'combat.counter': 'Contra-ataque!', 'combat.held': 'Você está preso! Ataque para se soltar.', 'combat.spit': 'Cuspe venenoso nos olhos!', 'combat.region.head': 'Golpe na cabeça', 'combat.region.leg': 'Golpe na perna: ele manca',
   'action.jump': 'Pular', 'action.sprint': 'Correr', 'action.crouch': 'Agachar', 'action.interact': 'Interagir', 'action.attack': 'Atacar / usar',
   'action.inventory': 'Inventário', 'action.build': 'Construir', 'action.camera': 'Câmera', 'action.pause': 'Pausa', 'action.rotateLeft': 'Girar à esquerda',
@@ -243,6 +244,7 @@ export const EXTRA_PT: Record<string, string> = {
 export const EXTRA_EN: Record<string, string> = {
   'ai.ridden': 'being ridden', 'ui.skills': 'Skills', 'ui.animals': 'Animals', 'ui.map': 'Map', 'ui.close': 'Close', 'ui.continue': 'Continue', 'ui.juvenile': '(juvenile)', 'ui.alpha': 'Alpha', 'obs.alpha': 'dominant male: bigger, stronger and tougher',
   'controls.list': 'WASD move · Mouse look · Shift run · Space jump · C crouch · E interact · Click attack/gather/use tool · F use held item (eat, heal, flare) · 1–6 hotbar · Tab inventory · M map · B build · V camera · Esc pause',
+  'item.alpha_trophy': 'Alpha trophy', 'desc.alpha_trophy': 'Skull and claws of a slain alpha: a great hunter\'s trophy.', 'alpha.roar': 'The {what} alpha\'s roar makes you stagger!', 'alpha.duel': 'Two {what} alphas are fighting nearby!', 'alpha.duelEnd': 'The {what} alphas\' fight is over: the loser backs off.', 'alpha.killed': 'You defeated a {what} alpha! Trophy obtained.',
   'action.dodge': 'Dodge', 'touch.dodge': 'Dodge', 'combat.dodged': 'Dodged!', 'combat.counter': 'Counter-attack!', 'combat.held': 'You are held! Attack to break free.', 'combat.spit': 'Venom spit in your eyes!', 'combat.region.head': 'Head blow', 'combat.region.leg': 'Leg blow: it limps',
   'action.jump': 'Jump', 'action.sprint': 'Run', 'action.crouch': 'Crouch', 'action.interact': 'Interact', 'action.attack': 'Attack / use',
   'action.inventory': 'Inventory', 'action.build': 'Build', 'action.camera': 'Camera', 'action.pause': 'Pause', 'action.rotateLeft': 'Rotate left',

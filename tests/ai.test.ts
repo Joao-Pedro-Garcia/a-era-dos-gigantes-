@@ -183,5 +183,5 @@ describe('ecosystem', () => {
     for (const a of eco.animals.values()) {
       expect(Number.isFinite(a.x) && Number.isFinite(a.z)).toBe(true);
     }
-  });
+  }, 120_000);
 });

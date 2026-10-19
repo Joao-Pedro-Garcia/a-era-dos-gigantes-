@@ -126,13 +126,15 @@ describe('alpha males: dominance behaviour', () => {
     return { eco, s, now, p, step };
   };
 
-  it('two alphas display, then exactly one gives way; nobody is hurt', () => {
+  it('two cautious alphas display, then exactly one gives way; nobody is hurt', () => {
     const { eco, s, now, step } = setup();
     const a = adult('tyrannosaurus', s.x, s.z, 'm', now);
     const b = adult('tyrannosaurus', s.x + 12, s.z, 'm', now);
     for (const x of [a, b]) {
       makeAlpha(x);
       x.health = maxHealth(x, now);
+      // Not bold enough to come to blows (bold pairs fight: see below).
+      x.personality.aggression = 0.3;
       eco.animals.set(x.id, x);
     }
     a.health *= 0.7; // the weaker one
@@ -179,5 +181,56 @@ describe('alpha males: dominance behaviour', () => {
     step(100);
     expect(eco.brain.runtime(mate).yieldFrom).toBeNull();
     expect(eco.brain.runtime(brother).yieldFrom).toBeNull();
+  });
+});
+
+describe('alphas: special moves, duels and rewards', () => {
+  it('only alphas roar, and only at a distance while facing the enemy', async () => {
+    const { chooseMove } = await import('../src/combat/dinoAttacks');
+    const rex = SPECIES.tyrannosaurus;
+    const pick = (alpha: boolean) => chooseMove(rex, 1, 0, 0, 0, 0, 15, 0.4, () => 0.99, undefined, alpha)?.kind;
+    expect(pick(false)).not.toBe('roar');
+    const kinds = new Set<string>();
+    for (let i = 0; i < 20; i++) kinds.add(chooseMove(rex, 1, 0, 0, 0, 0, 15, 0.4, () => i / 20, undefined, true)?.kind ?? 'none');
+    expect(kinds.has('roar')).toBe(true);
+    // Behind it: no roar.
+    expect(chooseMove(rex, 1, 0, 0, 0, 0, -15, 0.4, () => 0.99, undefined, true)?.kind).not.toBe('roar');
+  });
+
+  it('two bold alphas fight until one gives way; nobody dies', () => {
+    const { terrain, env, eco } = makeWorld(31);
+    const s = dryPlains(terrain);
+    const now = env.state.time;
+    const a = adult('triceratops', s.x, s.z, 'm', now, 'ga');
+    const b = adult('triceratops', s.x + 8, s.z, 'm', now, 'gb');
+    for (const x of [a, b]) {
+      makeAlpha(x);
+      x.health = maxHealth(x, now);
+      x.personality.aggression = 0.9;
+      x.personality.courage = 0.9;
+      eco.animals.set(x.id, x);
+    }
+        const events: string[] = [];
+    const c = ctx(player(s.x + 150, s.z, { visibility: 0, noiseRadius: 0 }), { alphaDuel: (_x, _y, ended) => events.push(ended ? 'end' : 'start') });
+    for (let i = 0; i < 4000 && !events.includes('end'); i++) {
+      env.update(0.05, 0, 0, []);
+      eco.update(0.05, c);
+    }
+    expect(events[0]).toBe('start');
+    expect(events).toContain('end');
+    expect(a.alive && b.alive).toBe(true);
+    expect(Math.min(a.health / maxHealth(a, env.state.time), b.health / maxHealth(b, env.state.time))).toBeLessThan(0.5);
+  });
+
+  it('killing an alpha raises an event for the reward', () => {
+    const { terrain, env, eco } = makeWorld(32);
+    const s = dryPlains(terrain);
+    const a = adult('allosaurus', s.x, s.z, 'm', env.state.time);
+    makeAlpha(a);
+    eco.animals.set(a.id, a);
+    const got: string[] = [];
+    eco.onEvent = (e) => got.push(e.type);
+    eco.kill(a, 'player');
+    expect(got).toContain('alphaKilled');
   });
 });

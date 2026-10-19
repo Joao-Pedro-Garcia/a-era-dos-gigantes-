@@ -1021,6 +1021,8 @@ export class Game {
         visibility,
         running: p.sprinting,
         dodging: p.dodging,
+        vx: p.vx,
+        vz: p.vz,
         hasFire: held?.id === 'torch' || nearCampfire,
       },
       predatorBoldness: DIFFICULTY[this.settings.difficulty].predatorBoldness,
@@ -1042,6 +1044,14 @@ export class Game {
       },
       spit: (a, tx, tz) => this.dinoCombat.spit(a, tx, tz),
       strikeLanded: (a, target, move) => this.dinoCombat.landed(a, target, move),
+      alphaRoar: (a) => this.onAlphaRoar(a),
+      alphaDuel: (a, b, ended, winner) => {
+        if (Math.hypot(a.x - p.s.x, a.z - p.s.z) > 180) return;
+        const what = SPECIES[a.speciesId].name[language()];
+        if (!ended) this.notify('alpha.duel', { what }, 'warn');
+        else if (winner) this.notify('alpha.duelEnd', { what }, 'info');
+        void b;
+      },
       playerEvaded: () => {
         this.counterUntil = env.state.time + 1.2;
         this.notify('combat.dodged', {}, 'good');
@@ -1442,7 +1452,40 @@ export class Game {
     }
   }
 
+  /**
+   * An alpha's roar: the player within earshot staggers and the view shakes;
+   * small animals scatter and birds take flight.
+   */
+  private onAlphaRoar(a: AnimalData): void {
+    const p = this.player!;
+    const now = this.env!.state.time;
+    const sp = SPECIES[a.speciesId];
+    this.audio.call(sp, a.x, a.y + sp.hipHeightM, a.z, 1.3, 1, false, '');
+    const d = Math.hypot(a.x - p.s.x, a.z - p.s.z);
+    if (d < 30 && !this.mountedId) {
+      p.staggerT = Math.max(p.staggerT, 1.1 * (1 - d / 30) + 0.3);
+      this.hitStop(0.06 * (1 - d / 30) + 0.02);
+      this.notify('alpha.roar', { what: SPECIES[a.speciesId].name[language()] }, 'warn');
+    }
+    const am = sp.massKg;
+    for (const o of this.eco!.active) {
+      if (o === a || !o.alive || o.tame || o.alpha) continue;
+      const od = Math.hypot(o.x - a.x, o.z - a.z);
+      const osp = SPECIES[o.speciesId];
+      if (od < 45 && (osp.massKg < am * 0.3 || osp.locomotion.flies)) this.eco!.brain.onScare(o, a.x, a.z, now);
+    }
+  }
+
   private onEcoEvent(e: EcoEvent): void {
+    if (e.type === 'alphaKilled') {
+      // Trophy, a rich carcass (it stays to be butchered) and a big boost of experience.
+      const left = this.inventory.add('alpha_trophy', 1);
+      if (left > 0) this.dropOverflow({ alpha_trophy: left });
+      this.xp('combat', 300);
+      this.notify('alpha.killed', { what: SPECIES[e.speciesId].name[language()] }, 'good');
+      this.audio.sfx('craft');
+      return;
+    }
     if (e.type === 'tameLeft') this.notify('tame.left', { name: e.name }, 'warn');
     else if (e.type === 'tamedKilled') {
       this.notify('tame.died', { name: e.name }, 'warn');
