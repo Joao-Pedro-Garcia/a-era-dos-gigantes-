@@ -28,6 +28,10 @@ export interface ModelEntry {
    * metres per model unit; the skeleton is fitted in `src/animals/rigFits.ts`.
    */
   rig?: Record<string, string>;
+  /** Rigged files modelled facing another way: turn about Y (rad) so the head points to +Z. */
+  rigRotY?: number;
+  /** Rigged files: model-unit height of the ground under the feet (moved to y = 0). */
+  rigFloor?: number;
   /**
    * Alternative colourings of the same model (same skeleton and clips), each worn
    * by a share of the individuals (`chance`, 0–1); the rest wear `url`.
@@ -78,7 +82,7 @@ export function parseManifest(raw: unknown): ModelManifest {
     let rig: Record<string, string> | undefined;
     if (x.rig && typeof x.rig === 'object') {
       rig = {};
-      for (const [k, v] of Object.entries(x.rig as Record<string, unknown>)) if (typeof v === 'string' && /^[\w.]{1,64}$/.test(k) && /^[a-zA-Z]\w{0,31}$/.test(v)) rig[k] = v;
+      for (const [k, v] of Object.entries(x.rig as Record<string, unknown>)) if (typeof v === 'string' && /^[\w. -]{1,64}$/.test(k) && /^[a-zA-Z]\w{0,31}$/.test(v)) rig[k] = v;
     }
     let variants: { url: string; chance: number }[] | undefined;
     if (Array.isArray(x.variants))
@@ -87,7 +91,9 @@ export function parseManifest(raw: unknown): ModelManifest {
         if (!o || typeof o.url !== 'string' || !validUrl(o.url) || typeof o.chance !== 'number' || !(o.chance > 0)) continue;
         (variants ??= []).push({ url: o.url, chance: Math.min(1, o.chance) });
       }
-    return { url: x.url, scale: num(x.scale, 1, 0.001, 1000), strideM: num(x.strideM, 1, 0.05, 20), clips, clipSpeeds, credit, ...(rig ? { rig } : {}), ...(variants ? { variants } : {}) };
+    const rigRotY = typeof x.rigRotY === 'number' && Number.isFinite(x.rigRotY) ? x.rigRotY : undefined;
+    const rigFloor = typeof x.rigFloor === 'number' && Number.isFinite(x.rigFloor) ? x.rigFloor : undefined;
+    return { url: x.url, scale: num(x.scale, 1, 0.001, 1000), strideM: num(x.strideM, 1, 0.05, 20), clips, clipSpeeds, credit, ...(rig ? { rig } : {}), ...(rigRotY !== undefined ? { rigRotY } : {}), ...(rigFloor !== undefined ? { rigFloor } : {}), ...(variants ? { variants } : {}) };
   };
   if (r.species && typeof r.species === 'object')
     for (const [id, e] of Object.entries(r.species as Record<string, unknown>)) {
@@ -352,7 +358,21 @@ export function riggedMesh(id: string, boneIndex: Map<string, number>): { geomet
   const g = merged;
   const pos = g.attributes.position;
   const s = src.entry.scale;
-  for (let i = 0; i < pos.count; i++) pos.setXYZ(i, pos.getX(i) * s, pos.getY(i) * s, pos.getZ(i) * s);
+  const ry = src.entry.rigRotY ?? 0;
+  const cy = Math.cos(ry);
+  const sy = Math.sin(ry);
+  const fl = src.entry.rigFloor ?? 0;
+  const nrm = g.attributes.normal;
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i);
+    const z = pos.getZ(i);
+    pos.setXYZ(i, (x * cy + z * sy) * s, (pos.getY(i) - fl) * s, (-x * sy + z * cy) * s);
+    if (nrm && ry) {
+      const nx = nrm.getX(i);
+      const nz = nrm.getZ(i);
+      nrm.setXYZ(i, nx * cy + nz * sy, nrm.getY(i), -nx * sy + nz * cy);
+    }
+  }
   const si = g.attributes.skinIndex;
   const sw = g.attributes.skinWeight;
   const idx = new Uint16Array(si.count * 4);
