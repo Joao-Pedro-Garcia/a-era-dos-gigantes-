@@ -147,6 +147,8 @@ interface Loaded {
 }
 
 const loaded = new Map<string, Loaded>();
+/** Last load error per model (shown in the main menu when the survivor fails). */
+const loadErrors = new Map<string, string>();
 let manifest: ModelManifest = { version: 1, species: {}, player: null };
 let ready: Promise<unknown> | null = null;
 
@@ -163,6 +165,44 @@ export function loadExternalModels(base = './models/'): Promise<{ loaded: string
   const p = loadAll(base);
   ready = p;
   return p;
+}
+
+function errorText(err: unknown): string {
+  const m = err instanceof Error ? err.message : String(err);
+  return m.length > 140 ? `${m.slice(0, 140)}…` : m;
+}
+
+/** Bytes of a base64 `data:` URI, decoded in memory. */
+export function decodeDataUri(uri: string): ArrayBuffer {
+  const comma = uri.indexOf(',');
+  const bin = atob(uri.slice(comma + 1));
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out.buffer;
+}
+
+interface ParserLike {
+  json: { buffers?: { uri?: string }[]; images?: { uri?: string }[] };
+  options: { manager: THREE.LoadingManager; crossOrigin: string };
+  textureLoader: THREE.Loader;
+  loadBuffer(index: number): Promise<ArrayBuffer>;
+}
+
+/**
+ * Self-contained .gltf files (buffers and images as data: URIs, as published to
+ * hosts that do not serve .glb) without fetching data: URIs, which strict
+ * content-security policies refuse (connect-src): buffers are decoded in memory
+ * and images go through <img> (img-src) instead of fetch + createImageBitmap.
+ */
+function embeddedDataPlugin(parser: unknown): { name: string } {
+  const p = parser as ParserLike;
+  const load = p.loadBuffer.bind(p);
+  p.loadBuffer = (index) => {
+    const uri = p.json.buffers?.[index]?.uri;
+    return uri?.startsWith('data:') ? Promise.resolve(decodeDataUri(uri)) : load(index);
+  };
+  if (p.json.images?.some((im) => im.uri?.startsWith('data:'))) p.textureLoader = new THREE.TextureLoader(p.options.manager).setCrossOrigin(p.options.crossOrigin);
+  return { name: 'era_embedded_data' };
 }
 
 /** Bind-pose bounds once, so clones never skin every vertex on the CPU to get them. */
@@ -203,9 +243,13 @@ async function loadEach(base: string): Promise<{ loaded: string[]; failed: strin
   const result = { loaded: [] as string[], failed: [] as string[] };
   try {
     const res = await fetch(`${base}manifest.json`, { cache: 'no-cache' });
-    if (!res.ok) return result;
+    if (!res.ok) {
+      loadErrors.set('player', `manifest.json: HTTP ${res.status}`);
+      return result;
+    }
     manifest = parseManifest(await res.json());
-  } catch {
+  } catch (err) {
+    loadErrors.set('player', `manifest.json: ${errorText(err)}`);
     return result;
   }
   const jobs = Object.entries(manifest.species).map(([id, e]) => [id, e] as const);
@@ -216,6 +260,7 @@ async function loadEach(base: string): Promise<{ loaded: string[]; failed: strin
   const [{ GLTFLoader }, { MeshoptDecoder }] = await Promise.all([import('three/examples/jsm/loaders/GLTFLoader.js'), import('three/examples/jsm/libs/meshopt_decoder.module.js')]);
   const loader = new GLTFLoader();
   loader.setMeshoptDecoder(MeshoptDecoder);
+  loader.register(embeddedDataPlugin);
   if (player)
     for (let attempt = 0; attempt < 2 && !loaded.has('player'); attempt++) {
       try {
@@ -224,7 +269,8 @@ async function loadEach(base: string): Promise<{ loaded: string[]; failed: strin
         loaded.set('player', { scene: gltf.scene, animations: gltf.animations, entry: player });
         result.loaded.push('player');
         settle('player', true);
-      } catch {
+      } catch (err) {
+        loadErrors.set('player', errorText(err));
         if (attempt === 1) {
           result.failed.push('player');
           settle('player', false);
@@ -248,7 +294,8 @@ async function loadEach(base: string): Promise<{ loaded: string[]; failed: strin
             result.failed.push(`${id}#${i}`);
           }
         }
-      } catch {
+      } catch (err) {
+        loadErrors.set(id, errorText(err));
         result.failed.push(id);
         settle(id, false);
       }
@@ -604,6 +651,11 @@ export function modelState(id: string): 'loaded' | 'loading' | 'failed' {
   if (loaded.has(id)) return 'loaded';
   if (settled.get(id) === false || allSettled) return 'failed';
   return 'loading';
+}
+
+/** Why a model failed to load (empty when it did not fail). */
+export function modelError(id: string): string {
+  return loaded.has(id) ? '' : (loadErrors.get(id) ?? '');
 }
 
 /** The manifest entry of a loaded model. */

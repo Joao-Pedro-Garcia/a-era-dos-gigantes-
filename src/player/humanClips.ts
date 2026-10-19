@@ -33,18 +33,24 @@ export interface Pose {
 
 let data: ClipFile | null = null;
 let loading: Promise<boolean> | null = null;
+let failed = false;
 
 /** Loads the clip file once (false when missing: the procedural animation is used). */
 export function loadHumanClips(url = './anim/human.json'): Promise<boolean> {
   loading ??= fetch(url)
     .then((r) => (r.ok ? r.json() : null))
     .then((j: ClipFile | null) => {
-      if (!j?.clips || !Array.isArray(j.bones)) return false;
+      if (!j?.clips || !Array.isArray(j.bones)) return (failed = true), false;
       data = j;
       return true;
     })
-    .catch(() => false);
+    .catch(() => ((failed = true), false));
   return loading;
+}
+
+/** Load state of the clip file, for the menu. */
+export function clipsState(): 'loaded' | 'loading' | 'failed' {
+  return data ? 'loaded' : failed || !loading ? 'failed' : 'loading';
 }
 
 export function clipsReady(): boolean {

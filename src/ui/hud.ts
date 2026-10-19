@@ -1,4 +1,5 @@
-import { modelState } from '../graphics/externalModels';
+import { modelError, modelState } from '../graphics/externalModels';
+import { clipsState } from '../player/humanClips';
 import { matches } from './search';
 import { DEFAULT_SETTINGS, WORLD, type Settings } from '../core/config';
 import type { Game } from '../core/game';
@@ -1062,8 +1063,10 @@ export class Hud {
     const ver = h('p', 'muted build-info', '');
     const paint = () => {
       const st = modelState('player');
-      ver.textContent = `${t('menu.version', { v: import.meta.env.VITE_BUILD ?? 'dev' })} · ${t(`menu.human.${st}`)}`;
-      if (st === 'loading' && ver.isConnected) setTimeout(paint, 1000);
+      const an = clipsState();
+      const err = st === 'failed' ? modelError('player') : '';
+      ver.textContent = `${t('menu.version', { v: import.meta.env.VITE_BUILD ?? 'dev' })} · ${t(`menu.human.${st}`)} · ${t(`menu.anim.${an}`)}${err ? ` (${err})` : ''}`;
+      if ((st === 'loading' || an === 'loading') && ver.isConnected) setTimeout(paint, 1000);
     };
     paint();
     setTimeout(paint, 1000);
