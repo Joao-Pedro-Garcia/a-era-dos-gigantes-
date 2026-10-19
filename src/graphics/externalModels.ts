@@ -32,6 +32,8 @@ export interface ModelEntry {
   rigRotY?: number;
   /** Rigged files: model-unit height of the ground under the feet (moved to y = 0). */
   rigFloor?: number;
+  /** Rigged files: model-unit sideways offset of the body's midline (moved to x = 0, before rigRotY). */
+  rigShiftX?: number;
   /**
    * Alternative colourings of the same model (same skeleton and clips), each worn
    * by a share of the individuals (`chance`, 0–1); the rest wear `url`.
@@ -93,7 +95,8 @@ export function parseManifest(raw: unknown): ModelManifest {
       }
     const rigRotY = typeof x.rigRotY === 'number' && Number.isFinite(x.rigRotY) ? x.rigRotY : undefined;
     const rigFloor = typeof x.rigFloor === 'number' && Number.isFinite(x.rigFloor) ? x.rigFloor : undefined;
-    return { url: x.url, scale: num(x.scale, 1, 0.001, 1000), strideM: num(x.strideM, 1, 0.05, 20), clips, clipSpeeds, credit, ...(rig ? { rig } : {}), ...(rigRotY !== undefined ? { rigRotY } : {}), ...(rigFloor !== undefined ? { rigFloor } : {}), ...(variants ? { variants } : {}) };
+    const rigShiftX = typeof x.rigShiftX === 'number' && Number.isFinite(x.rigShiftX) ? x.rigShiftX : undefined;
+    return { url: x.url, scale: num(x.scale, 1, 0.001, 1000), strideM: num(x.strideM, 1, 0.05, 20), clips, clipSpeeds, credit, ...(rig ? { rig } : {}), ...(rigRotY !== undefined ? { rigRotY } : {}), ...(rigFloor !== undefined ? { rigFloor } : {}), ...(rigShiftX !== undefined ? { rigShiftX } : {}), ...(variants ? { variants } : {}) };
   };
   if (r.species && typeof r.species === 'object')
     for (const [id, e] of Object.entries(r.species as Record<string, unknown>)) {
@@ -362,9 +365,10 @@ export function riggedMesh(id: string, boneIndex: Map<string, number>): { geomet
   const cy = Math.cos(ry);
   const sy = Math.sin(ry);
   const fl = src.entry.rigFloor ?? 0;
+  const sx = src.entry.rigShiftX ?? 0;
   const nrm = g.attributes.normal;
   for (let i = 0; i < pos.count; i++) {
-    const x = pos.getX(i);
+    const x = pos.getX(i) - sx;
     const z = pos.getZ(i);
     pos.setXYZ(i, (x * cy + z * sy) * s, (pos.getY(i) - fl) * s, (-x * sy + z * cy) * s);
     if (nrm && ry) {

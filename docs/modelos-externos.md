@@ -110,3 +110,16 @@ Também foram descartadas as versões "rebuilt" de kenchoo baseadas nesses model
 - **Cor no estilo do filme:** a textura foi recolorida de marrom-escuro e barriga rosada para **marrom-avermelhado com manchas pretas e barriga castanho-clara**. Olhos e boca foram mantidos.
 - **Animação:** como no espinossauro, a pele do artista foi religada ao esqueleto do jogo (campo `rig` com 43 ossos e `RIG_FITS.carnotaurus`). Por isso ele usa todas as animações e golpes do jogo: andar, correr, mordida, cabeçada e rabada.
 - **Junção das partes:** o jogo agora junta todas as malhas com esqueleto de um arquivo (corpo em duas partes, olhos e dentes) numa só, com um material por parte.
+
+## Terizinossauro, dodô e deinosuco (modelos de artista no esqueleto do jogo)
+| Espécie | Modelo (CC BY 4.0) | Preparação |
+|---|---|---|
+| Terizinossauro | victory_, "Therizinosaurus dinosaur" | Removidas as peças soltas (cubos e esfera a dezenas de milhares de unidades). O arquivo está modelado com a cabeça para −x: girado com `rigRotY` e apoiado no chão com `rigFloor`. A cor original (cinza-escuro) já combina com a referência. |
+| Dodô | BlueMesh, "Dodo [ Extinct Bird ]" | Removida uma esfera solta. **Escurecido a pedido**: cinza-amarronzado, com bico e patas na cor original. As pernas são um osso só no arquivo, então se movem inteiras. |
+| Deinosuco | victory_, "deinosuchus" | Removidas as peças soltas. A linha do corpo está deslocada no arquivo (`rigShiftX`). |
+
+Os três usam o mesmo processo do carnotauro (`rig` no manifesto e `RIG_FITS`).
+
+**Megatério de AneesAnimates:** ficou de fora por enquanto. O modelo está de pé, sobre as patas traseiras, e no jogo o megatério anda de quatro: os braços não alcançariam o chão.
+
+**Descartado:** o dilofossauro de LilCick. A conta publica personagens de jogos e filmes, e o modelo não informa a origem.
