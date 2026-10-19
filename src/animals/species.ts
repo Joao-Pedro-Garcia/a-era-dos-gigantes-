@@ -136,7 +136,7 @@ const S: Record<string, Def> = {
     threat: { response: 'charge', flightDistance: 0 }, attack: { damage: 60, range: 4.5, cooldown: 2 }, health: 1400,
     taming: { possible: false, difficulty: 1, preferredFood: ['raw_fish'] }, habitat: ['swamp', 'beach'], tempRange: [18, 40],
     locomotion: { plan: 'theropod', stride: 2.6, turnRate: 1, swims: true, flies: false },
-    audio: { pitch: 70, call: 'hiss' }, look: { base: 0x4d5040, belly: 0x8a8a70, accent: 0x9a3a2a, pattern: 'stripes', features: ['sail', 'longSnout'] },
+    audio: { pitch: 70, call: 'hiss' }, look: { base: 0x58533f, belly: 0xa59c7f, accent: 0x7a4a33, pattern: 'countershade', features: ['sail', 'longSnout'] },
     huntsHumans: true,
   },
   pteranodon: {

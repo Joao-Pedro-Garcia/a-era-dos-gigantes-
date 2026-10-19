@@ -198,18 +198,22 @@ function blueprint(sp: SpeciesDef, juvenile = false): Blueprint {
     const b = hadro ? 1.25 : sp.id === 'tyrannosaurus' ? 1.18 : sp.id === 'gallimimus' ? 0.82 : f.has('feathers') && L < 3 ? 0.95 : sp.id === 'therizinosaurus' ? 1.2 : 1;
     // Body breadth (back view): large theropods are broad at the hips and ribs, not slab-sided.
     // Hadrosaurs were deep- rather than broad-bodied.
-    const wb = apexW(sp) ? 1.3 : hadro ? 0.8 : 1.08;
+    // Spinosaurids were narrow-bodied (deep, slab-sided chest).
+    const spino = f.has('longSnout');
+    const wb = spino ? 0.8 : apexW(sp) ? 1.3 : hadro ? 0.8 : 1.08;
     const Hh = H;
     const longNeck = f.has('longNeck');
     // Hadrosaur tails were tall and flattened side to side (long neural spines and
     // chevrons) and held straight out, stiffened by ossified tendons; blunt tip.
-    const tw = hadro ? 0.7 : 1;
-    const td = hadro ? 1.22 : 1;
-    cp(-0.56 * L, Hh * (hadro ? 0.86 : 0.72), 0.004 * L * (hadro ? 1.5 : 1), 0.005 * L * (hadro ? 2.4 : 1), 0, null);
+    // Spinosaurus: a tall, flattened, paddle-like tail (Ibrahim et al. 2020).
+    const paddle = f.has('sail');
+    const tw = hadro ? 0.7 : paddle ? 0.6 : 1;
+    const td = hadro ? 1.22 : paddle ? 1.45 : 1;
+    cp(-0.56 * L, Hh * (hadro ? 0.86 : 0.72), 0.004 * L * (hadro ? 1.5 : paddle ? 1.2 : 1), 0.005 * L * (hadro ? 2.4 : paddle ? 2.2 : 1), 0, null);
     cp(-0.44 * L, Hh * (hadro ? 0.93 : 0.84), 0.016 * L * b * tw, 0.02 * L * b * td, 0, 'tail4');
     cp(-0.31 * L, Hh * (hadro ? 0.99 : 0.95), 0.031 * L * b * tw, 0.04 * L * b * td, 0, 'tail3');
     // The tail base is thick (caudofemoralis muscles that pull the thighs).
-    cp(-0.19 * L, Hh * 1.02, 0.05 * L * b * wb * (hadro ? 0.85 : 1), 0.062 * L * b * (hadro ? 1.08 : 1), 0.006 * L, 'tail2');
+    cp(-0.19 * L, Hh * 1.02, 0.05 * L * b * wb * (hadro ? 0.85 : 1), 0.062 * L * b * (hadro ? 1.08 : paddle ? 0.95 : 1), 0.006 * L, 'tail2');
     cp(-0.08 * L, Hh * 1.06, 0.056 * L * b * wb, 0.068 * L * b, 0.012 * L, 'tail1');
     cp(0.02 * L, Hh * 1.08, 0.062 * L * b * wb, 0.074 * L * b, 0.016 * L * b, 'pelvis');
     cp(0.1 * L, Hh * 1.07, 0.064 * L * b * wb, 0.08 * L * b, 0.028 * L * b, 'torso');
@@ -226,10 +230,12 @@ function blueprint(sp: SpeciesDef, juvenile = false): Blueprint {
       cp(0.29 * L, Hh * 1.18, 0.032 * L, 0.04 * L, 0, 'neck3');
       cp(0.31 * L, Hh * 1.16, 0.03 * L, 0.038 * L, 0, null);
     } else {
-      cp(0.215 * L, Hh * 1.1, 0.046 * L * b, 0.058 * L * b, 0.01 * L, 'neck1');
-      cp(0.245 * L, Hh * 1.2, 0.04 * L * b, 0.048 * L * b, 0.004 * L, 'neck2');
-      cp(0.268 * L, Hh * 1.28, 0.036 * L * b, 0.044 * L * b, 0, 'neck3');
-      cp(0.285 * L, Hh * 1.31, 0.034 * L * b, 0.042 * L * b, 0, null);
+      // Spinosaurids: a long, slender, S-curved neck.
+      const ns = spino ? 0.7 : 1;
+      cp(0.215 * L, Hh * 1.1, 0.046 * L * b * ns, 0.058 * L * b * (spino ? 0.85 : 1), 0.01 * L, 'neck1');
+      cp(0.245 * L, Hh * (spino ? 1.24 : 1.2), 0.04 * L * b * ns, 0.048 * L * b * ns, 0.004 * L, 'neck2');
+      cp(0.268 * L, Hh * (spino ? 1.34 : 1.28), 0.036 * L * b * ns, 0.044 * L * b * ns, 0, 'neck3');
+      cp(0.285 * L, Hh * (spino ? 1.36 : 1.31), 0.034 * L * b * ns, 0.042 * L * b * ns, 0, null);
     }
     const end = cps[cps.length - 1].p;
     // Carnotaurus: short, deep, bulldog-like skull.
@@ -1419,36 +1425,57 @@ function buildFeatures(sp: SpeciesDef, bp: Blueprint, parts: Part[], boneIndex: 
   // Dorsal structures along the spine.
   const spineBone = (s: number) => spineWeights(s);
   if (f.has('sail')) {
-    // Dorsal sail: skin stretched over tall neural spines. A solid fin, thick at its
-    // base and thin at its edge, with the spines showing as ridges.
+    // Dorsal sail: skin over very tall neural spines, tallest over the hips and
+    // sloping down toward the shoulders, and continuing (much lower) as a fin along
+    // the tall, paddle-like tail. A solid fin, thick at its base and thin at its
+    // edge, with the spines showing as ridges; skin-coloured, darker toward the edge.
     const p = parts[DMAT.scales];
-    const n = detail ? 28 : 8;
+    const n = detail ? 44 : 10;
     const b0 = p.pos.length / 3;
-    const s0 = atS(0.35).s;
-    const s1 = atS(0.72).s;
-    const rows = 3;
+    const sOfZ = (z: number) => {
+      let best = samples[0];
+      for (const sm of samples) if (Math.abs(sm.p.z - z) < Math.abs(best.p.z - z)) best = sm;
+      return best.s;
+    };
+    const sPel = sOfZ(bp.cps.find((c) => c.bone === 'pelvis')!.p.z);
+    const sCh = sOfZ(bp.cps.find((c) => c.bone === 'chest')!.p.z);
+    const sF = Math.min(0.97, sCh + 0.03);
+    const sP = sPel + 0.05;
+    const sB = sPel - 0.1;
+    const s0 = 0.02;
+    const hMax = 0.12 * L * fs;
+    const height = (s: number) => {
+      const sail = s >= sP ? Math.pow(smooth(sF, sP, s), 0.75) : Math.pow(smooth(sB - 0.06, sP, s), 0.9);
+      const fin = 0.02 * L * fs * smooth(s0, 0.16, s) * smooth(sP, sB - 0.04, s);
+      return Math.max(hMax * sail * (0.94 + 0.06 * Math.sin(s * 90)), fin);
+    };
+    const rows = 4;
     for (const face of [1, -1])
       for (let i = 0; i <= n; i++) {
         const t = i / n;
-        const s = lerp(s0, s1, t);
-        const base = dorsal(s, -0.01 * L);
-        const h = 0.13 * L * Math.sin(Math.PI * t) * (0.85 + 0.15 * Math.sin(t * 9)) * fs;
+        const s = lerp(s0, sF, t);
+        const base = dorsal(s, -0.012 * L);
+        const h = height(s);
         const [bi, bw] = spineBone(s);
         const ridge = detail ? 0.5 + 0.5 * Math.cos(i * Math.PI) : 0;
         for (let k = 0; k <= rows; k++) {
           const u = k / rows;
-          const th = 0.012 * L * (1 - u * 0.8) * (0.7 + 0.3 * ridge);
+          const th = Math.min(0.012 * L, h * 0.25 + 0.002 * L) * (1 - u * 0.8) * (0.7 + 0.3 * ridge);
           const q = base.clone().add(V(face * th * 0.5, u * h, 0));
-          p.v(q, t * 4, u, paint(q, -0.4 + u * 0.2, u > 0.5 ? 'accent' : 'body'), bi, bw);
+          const c = paint(q, -0.35, 'body');
+          const a = paint(q, -0.35, 'accent');
+          const m = 0.45 * smooth(0.45, 1, u);
+          p.v(q, t * 6, u, [lerp(c[0], a[0], m), lerp(c[1], a[1], m), lerp(c[2], a[2], m)], bi, bw);
         }
       }
     const id = (face: number, i: number, k: number) => b0 + (face > 0 ? 0 : (n + 1) * (rows + 1)) + i * (rows + 1) + k;
     for (let i = 0; i < n; i++)
       for (let k = 0; k < rows; k++) {
-        p.idx.push(id(1, i, k), id(1, i + 1, k), id(1, i, k + 1), id(1, i + 1, k), id(1, i + 1, k + 1), id(1, i, k + 1));
-        p.idx.push(id(-1, i, k), id(-1, i, k + 1), id(-1, i + 1, k), id(-1, i + 1, k), id(-1, i, k + 1), id(-1, i + 1, k + 1));
+        // Outward-facing on both sides (the faces must point away from the midline).
+        p.idx.push(id(1, i, k), id(1, i, k + 1), id(1, i + 1, k), id(1, i + 1, k), id(1, i, k + 1), id(1, i + 1, k + 1));
+        p.idx.push(id(-1, i, k), id(-1, i + 1, k), id(-1, i, k + 1), id(-1, i + 1, k), id(-1, i + 1, k + 1), id(-1, i, k + 1));
       }
-    for (let i = 0; i < n; i++) p.idx.push(id(1, i, rows), id(1, i + 1, rows), id(-1, i, rows), id(-1, i, rows), id(1, i + 1, rows), id(-1, i + 1, rows));
+    for (let i = 0; i < n; i++) p.idx.push(id(1, i, rows), id(-1, i, rows), id(1, i + 1, rows), id(-1, i, rows), id(-1, i + 1, rows), id(1, i + 1, rows));
   }
   if (f.has('plates')) {
     // Seventeen individual plates in two alternating rows, largest over the hips and
