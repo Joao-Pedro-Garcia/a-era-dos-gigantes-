@@ -83,7 +83,7 @@ export function runShowcase(canvas: HTMLCanvasElement): void {
     x += sp.lengthM / 2 + 3;
     a.x = x;
     a.z = 0;
-    a.heading = params.has('side') ? Math.PI / 2 : 0.6;
+    a.heading = params.has('yaw') ? Number(params.get('yaw')) : params.has('side') ? Math.PI / 2 : 0.6;
     a.speed = params.has('still') ? 0 : params.has('run') ? sp.runSpeed : sp.walkSpeed;
     a.state = (params.get('state') ?? (params.has('run') ? 'flee' : 'wander')) as typeof a.state;
     x += sp.lengthM / 2 + 3;

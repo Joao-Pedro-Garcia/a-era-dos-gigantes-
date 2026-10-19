@@ -165,7 +165,8 @@ describe('realism pilot: triceratops and skin regions', () => {
     expect(t.bp.cps[0].ry).toBeGreaterThan(0.01 * sp.lengthM);
     // Thighs proportionate to a 2.6 t ornithopod (not theropod "drumsticks").
     const thigh = t.bp.legs.find((l) => l.name === 'hindL')!;
-    expect(thigh.radii[0]).toBeLessThan(0.04 * sp.lengthM);
+    // (the film look carries heavier thighs than the fossil proportions, still not theropod-like).
+    expect(thigh.radii[0]).toBeLessThan(0.05 * sp.lengthM);
   });
 
   it('the brachiosaurus stands higher at the shoulders, with a raised neck and a short tail', () => {

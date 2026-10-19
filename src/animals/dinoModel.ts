@@ -221,7 +221,7 @@ function blueprint(sp: SpeciesDef, juvenile = false): Blueprint {
     cp(0.02 * L, Hh * 1.08, 0.062 * L * b * wb, 0.074 * L * b, 0.016 * L * b, 'pelvis');
     cp(0.1 * L, Hh * 1.07, 0.064 * L * b * wb, 0.08 * L * b, 0.028 * L * b, 'torso');
     // The hadrosaur back slopes down from the hips to the shoulders.
-    cp(0.17 * L, Hh * (hadro ? 1.01 : 1.05), 0.054 * L * b * wb, 0.072 * L * b, 0.022 * L * b, 'chest');
+    cp(0.17 * L, Hh * (hadro ? 1.12 : 1.05), 0.054 * L * b * wb, 0.072 * L * b, 0.022 * L * b, 'chest');
     if (longNeck) {
       cp(0.22 * L, Hh * 1.14, 0.038 * L * b, 0.046 * L * b, 0.006 * L, 'neck1');
       cp(0.255 * L, Hh * 1.34, 0.028 * L * b, 0.032 * L * b, 0, 'neck2');
@@ -229,10 +229,10 @@ function blueprint(sp: SpeciesDef, juvenile = false): Blueprint {
       cp(0.3 * L, Hh * 1.68, 0.022 * L, 0.024 * L, 0, null);
     } else if (hadro) {
       // Film look: a long S-curved neck carrying the head high above the shoulders.
-      cp(0.22 * L, Hh * 1.1, 0.045 * L * b, 0.058 * L * b, 0.01 * L, 'neck1');
-      cp(0.255 * L, Hh * 1.26, 0.036 * L, 0.045 * L, 0.004 * L, 'neck2');
-      cp(0.278 * L, Hh * 1.42, 0.031 * L, 0.038 * L, 0, 'neck3');
-      cp(0.3 * L, Hh * 1.47, 0.029 * L, 0.036 * L, 0, null);
+      cp(0.215 * L, Hh * 1.16, 0.047 * L * b, 0.06 * L * b, 0.01 * L, 'neck1');
+      cp(0.238 * L, Hh * 1.45, 0.037 * L, 0.044 * L, 0.004 * L, 'neck2');
+      cp(0.25 * L, Hh * 1.7, 0.032 * L, 0.037 * L, 0, 'neck3');
+      cp(0.265 * L, Hh * 1.84, 0.03 * L, 0.035 * L, 0, null);
     } else {
       // Spinosaurids: a long, slender, S-curved neck.
       const ns = spino || slim ? 0.7 : 1;
@@ -258,9 +258,17 @@ function blueprint(sp: SpeciesDef, juvenile = false): Blueprint {
         }
       }
     }
+    if (sp.id === 'parasaurolophus')
+      // Film look: a deep, round-bellied body.
+      for (const c of cps)
+        if (c.bone === 'pelvis' || c.bone === 'torso' || c.bone === 'chest' || c.bone === 'tail1') {
+          c.ry *= 1.3;
+          c.rx *= 1.12;
+          c.drop *= 1.6;
+        }
     const end = cps[cps.length - 1].p;
     // Carnotaurus: short, deep, bulldog-like skull.
-    const hl = f.has('longSnout') ? 0.16 * L : sp.id === 'carnotaurus' ? 0.075 * L : apex ? 0.125 * L : hadro ? 0.12 * L : f.has('beak') && longNeck ? 0.07 * L : 0.1 * L;
+    const hl = f.has('longSnout') ? 0.16 * L : sp.id === 'carnotaurus' ? 0.075 * L : apex ? 0.125 * L : hadro ? 0.095 * L : f.has('beak') && longNeck ? 0.07 * L : 0.1 * L;
     const hh = apex ? 0.034 * L : hadro ? 0.027 * L : 0.024 * L;
     head = f.has('hookBeak')
       ? // Dodo: a big head with a long, heavy, hooked bill (about a third of the bird).
@@ -277,7 +285,7 @@ function blueprint(sp: SpeciesDef, juvenile = false): Blueprint {
         joints: [V(x, Hh * 1.0, 0.02 * L), V(x * 1.12, Hh * 0.56, 0.02 * L + 0.2 * legScale), V(x * 1.04, Hh * 0.22, 0.02 * L - 0.08 * legScale), V(x, Hh * 0.035, 0.02 * L + 0.02 * legScale), V(x, 0, 0.02 * L + 0.2 * legScale)],
         // Massive muscular thigh ("drumstick"), strong shin, slender metatarsus.
         // Hadrosaurs: strong but not theropod-sized thighs, stout shin and metatarsus.
-        radii: hadro ? [0.037 * L, 0.022 * L, 0.0135 * L, 0.0105 * L, 0.007 * L] : [0.046 * L * b * (apex ? 1.15 : 1), 0.024 * L * b * (apex ? 1.1 : 1), 0.0125 * L * b, 0.009 * L * b, 0.006 * L],
+        radii: hadro ? (sp.id === 'parasaurolophus' ? [0.047 * L, 0.028 * L, 0.016 * L, 0.012 * L, 0.008 * L] : [0.037 * L, 0.022 * L, 0.0135 * L, 0.0105 * L, 0.007 * L]) : [0.046 * L * b * (apex ? 1.15 : 1), 0.024 * L * b * (apex ? 1.1 : 1), 0.0125 * L * b, 0.009 * L * b, 0.006 * L],
         parent: 'pelvis',
         front: false,
         phase: side > 0 ? 0 : 0.5,
@@ -312,14 +320,14 @@ function blueprint(sp: SpeciesDef, juvenile = false): Blueprint {
     const stego = f.has('plates');
     const cera = f.has('frill');
     const Hh = H;
-    const wide = ankylo ? 1.35 : croc ? 1.0 : 1.0;
+    const wide = ankylo ? 1.55 : croc ? 1.0 : 1.0;
     // Tails are held clear of the ground (trackways show no tail drag).
     const tailY = stego ? 0.9 : croc ? 0.25 : ankylo ? 0.85 : 0.72;
     // Ankylosaurs: low, very broad body; the distal tail is a narrow, stiff "handle"
     // (interlocking vertebrae) carrying the club.
-    const ay = ankylo ? 0.82 : 1;
+    const ay = ankylo ? 0.74 : 1;
     // Film look: a high, domed ankylosaur back and a barrel-bodied triceratops.
-    const ar = ankylo ? 0.92 : cera ? 1.15 : 1;
+    const ar = ankylo ? 0.88 : cera ? 1.15 : 1;
     const hd = ankylo ? 0.6 : 1;
     // Ceratopsian tails are short and stout (no whip-like tip).
     // Ceratopsian tails are comparatively short and stout, ending in a blunt point.
@@ -343,9 +351,9 @@ function blueprint(sp: SpeciesDef, juvenile = false): Blueprint {
     // skull, ~0.6 m deep, broad cheeks), carried low with the beak pointing down and forward.
     // Alligatoroids (Deinosuchus) have a broad, shorter snout than the slender-snouted Sarcosuchus.
     const broad = croc && !f.has('longSnout');
-    const hl = croc ? (broad ? 0.15 * L : 0.22 * L) : cera ? (f.has('horns3') ? 0.155 * L : 0.15 * L) : ankylo ? 0.08 * L : stego ? 0.06 * L : 0.12 * L;
-    const hh = croc ? 0.018 * L : cera ? (f.has('horns3') ? 0.07 * L : 0.062 * L) : ankylo ? 0.03 * L : 0.022 * L;
-    head = { bone: 'head', at: end.clone(), len: hl, height: hh, width: croc ? hh * (broad ? 2.1 : 1.4) : ankylo ? hh * 1.8 : cera ? hh * 1.05 : hh * 0.95, pitch: croc ? 0.02 : cera ? 0.36 : ankylo ? 0.25 : 0.35 };
+    const hl = croc ? (broad ? 0.15 * L : 0.22 * L) : cera ? (f.has('horns3') ? 0.155 * L : 0.15 * L) : ankylo ? 0.095 * L : stego ? 0.06 * L : 0.12 * L;
+    const hh = croc ? 0.018 * L : cera ? (f.has('horns3') ? 0.07 * L : 0.062 * L) : ankylo ? 0.038 * L : 0.022 * L;
+    head = { bone: 'head', at: end.clone(), len: hl, height: hh, width: croc ? hh * (broad ? 2.1 : 1.4) : ankylo ? hh * 2.3 : cera ? hh * 1.05 : hh * 0.95, pitch: croc ? 0.02 : cera ? 0.36 : ankylo ? 0.25 : 0.35 };
     const legY = croc ? Hh * 0.95 : Hh;
     for (const [front, side] of [[false, 1], [false, -1], [true, 1], [true, -1]] as [boolean, number][]) {
       const z = front ? 0.15 * L : -0.04 * L;
@@ -634,7 +642,8 @@ export function scuteAmount(sp: SpeciesDef): number {
   if (f.has('armor')) return 0.75;
   const plan = sp.locomotion.plan;
   if (plan === 'crocodyliform') return 0.85;
-  if (plan === 'hadrosaur') return 0.6;
+  // Film-look parasaurolophus: smooth, finely wrinkled hide.
+  if (plan === 'hadrosaur') return sp.id === 'parasaurolophus' ? 0.12 : 0.6;
   if (f.has('plates')) return 0.5;
   if (plan === 'sauropod') return 0.25;
   if (plan === 'mosasaur' || plan === 'pterosaur') return 0;
@@ -672,8 +681,9 @@ function painter(sp: SpeciesDef) {
         const fade = smooth(0.35, -0.3, under);
         if (pattern === 'stripes') {
           // Irregular bands broken by noise (no ruler-straight stripes).
-          const s = Math.sin((p.z / L) * 46 + (nb - 0.5) * 5 + (nf - 0.5) * 1.5);
-          c.lerp(accent, 0.6 * smooth(0.15, 0.7, s) * fade);
+          const fineBands = sp.id === 'parasaurolophus';
+          const s = Math.sin((p.z / L) * (fineBands ? 230 : 46) + (nb - 0.5) * 5 + (nf - 0.5) * 1.5);
+          c.lerp(accent, (fineBands ? 0.55 : 0.6) * smooth(fineBands ? 0.45 : 0.15, 0.8, s) * (fineBands ? smooth(-0.2, -0.65, under) : fade));
         } else if (pattern === 'spots') {
           const sp2 = fbm(p.x * fine * 0.8 + 11, p.y * fine * 0.8, p.z * fine * 0.8);
           c.lerp(accent, 0.65 * smooth(0.6, 0.72, sp2) * fade);
@@ -1196,7 +1206,7 @@ function buildHead(sp: SpeciesDef, bp: Blueprint, parts: Part[], boneIndex: Map<
   const round = (t: number) => Math.sqrt(Math.max(0.0, smooth(-0.02, 0.16, t))) * 0.55 + 0.45 * smooth(-0.02, 0.1, t);
   const tipRound = (t: number) => (fam === 'ptero' ? 1 : 0.35 + 0.65 * Math.sqrt(Math.max(0, 1 - smooth(0.9, 1.0, t))));
   const keratin = (t: number) => beaked && t > (fam === 'ptero' ? 0.35 : fam === 'duck' ? 0.78 : fam === 'dodo' ? 0.42 : 0.82);
-  const KER: RGB = fam === 'duck' || fam === 'anky' ? BILL : fam === 'dodo' ? [0.5, 0.47, 0.33] : sp.id === 'gallimimus' || sp.id === 'quetzalcoatlus' ? [0.72, 0.42, 0.14] : KERATIN;
+  const KER: RGB = sp.id === 'parasaurolophus' ? [0.5, 0.42, 0.32] : fam === 'duck' || fam === 'anky' ? BILL : fam === 'dodo' ? [0.5, 0.47, 0.33] : sp.id === 'gallimimus' || sp.id === 'quetzalcoatlus' ? [0.72, 0.42, 0.14] : KERATIN;
 
   // ---- Upper skull: roof arch over the mouth line, closed by the palate.
   const skull: { p: THREE.Vector3; c: RGB }[][] = [];
@@ -1832,7 +1842,7 @@ function buildFeatures(sp: SpeciesDef, bp: Blueprint, parts: Part[], boneIndex: 
     const osteo = (root: THREE.Vector3, nrm: THREE.Vector3, r: number, h: number, bones: [number[], number[]], dark: number) =>
       tube(parts[DMAT.horn], [root.clone().addScaledVector(nrm, -h * 0.5), root.clone().addScaledVector(nrm, h * 0.55), root.clone().addScaledVector(nrm, h)], [r, r * 0.55, r * 0.1], detail ? 6 : 4, (q, t) => { const c = paint(q, -0.6, 'body'); const d = dark - 0.25 * t; return [c[0] * d, c[1] * d, c[2] * d]; }, () => bones, 1, true);
     const spike = (root: THREE.Vector3, nrm: THREE.Vector3, r: number, h: number, bones: [number[], number[]]) =>
-      tube(parts[DMAT.horn], [root.clone().addScaledVector(nrm, -h * 0.2), root.clone().addScaledVector(nrm, h * 0.45), root.clone().addScaledVector(nrm, h)], [r, r * 0.5, r * 0.06], detail ? 7 : 4, (_q, t) => [lerp(0.4, 0.52, t), lerp(0.37, 0.45, t), lerp(0.32, 0.41, t)], () => bones, 1, true);
+      tube(parts[DMAT.horn], [root.clone().addScaledVector(nrm, -h * 0.2), root.clone().addScaledVector(nrm, h * 0.45), root.clone().addScaledVector(nrm, h)], [r, r * 0.5, r * 0.06], detail ? 7 : 4, (_q, t) => [lerp(0.33, 0.5, t), lerp(0.28, 0.42, t), lerp(0.25, 0.4, t)], () => bones, 1, true);
     for (let i = 0; i < n; i++) {
       const s = lerp(0.08, 0.9, i / (n - 1));
       const sm = atS(s);
@@ -1847,18 +1857,21 @@ function buildFeatures(sp: SpeciesDef, bp: Blueprint, parts: Part[], boneIndex: 
         const sa = Math.sin(a);
         const nrm = V(ca / sm.rx, sa / sm.ry, 0).normalize();
         const root = sm.p.clone().add(V(ca * sm.rx, sa * sm.ry, 0));
-        const edge = Math.abs(ca) > 0.85 || (!neck && (c === 1 || c === cols - 2));
+        const edge = Math.abs(ca) > 0.85;
         if (tail) {
           // Tail plates shrink toward the club.
           const k = 0.5 + 0.5 * smooth(0.05, 0.4, s);
           osteo(root, nrm.clone().add(V(0, 0, -0.35)).normalize(), 0.02 * L * k, 0.03 * L * k * (0.85 + 0.3 * jit), bones, 0.72);
+        } else if (edge && i % 2 === 1) {
+          // Flank between the big spikes: a low keeled osteoderm.
+          osteo(root, nrm, 0.014 * L, 0.012 * L, bones, 0.7);
         } else if (edge) {
           // Big pale lateral spikes along the flank edge, swept back (film look).
-          spike(root, nrm.clone().add(V(0, -0.2, -0.45)).normalize(), 0.026 * L, 0.1 * L * (0.8 + 0.4 * jit), bones);
+          spike(root, V(Math.sign(ca), -0.15, -0.75).normalize(), 0.028 * L, 0.11 * L * (0.8 + 0.4 * jit), bones);
         } else {
           const r = (neck ? 0.026 : 0.019) * L * (0.75 + 0.5 * jit);
           // Rows of conical osteoderms over the back.
-          if (c % 2 === 0) spike(root, nrm.clone().add(V(0, 0, -0.3)).normalize(), r * 0.7, r * 1.05, bones);
+          if (c % 2 === 0) spike(root, nrm.clone().add(V(0, 0, -0.4)).normalize(), r * 0.65, r * 0.75, bones);
           else osteo(root, nrm, r, r * (neck ? 0.55 : 0.42), bones, neck ? 0.68 : 0.78);
         }
       }

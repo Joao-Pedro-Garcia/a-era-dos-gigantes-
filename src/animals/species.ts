@@ -128,7 +128,7 @@ const S: Record<string, Def> = {
     threat: { response: 'defend', flightDistance: 6 }, attack: { damage: 55, range: 4, cooldown: 2.5 }, health: 1800,
     taming: { possible: true, difficulty: 0.55, preferredFood: ['berries', 'herb'] }, habitat: ['plains', 'jungle'], tempRange: [10, 34],
     locomotion: { plan: 'quadruped', stride: 1.4, turnRate: 0.8, swims: false, flies: false },
-    audio: { pitch: 80, call: 'grunt' }, look: { base: 0x7e8260, belly: 0x9a967a, accent: 0x8c8c3a, pattern: 'spots', features: ['armor', 'club', 'scutes'] },
+    audio: { pitch: 80, call: 'grunt' }, look: { base: 0x7e8a5e, belly: 0xa09c7c, accent: 0xb0a640, pattern: 'spots', features: ['armor', 'club', 'scutes'] },
     huntsHumans: false,
   },
   spinosaurus: {
@@ -180,7 +180,7 @@ const S: Record<string, Def> = {
     threat: { response: 'flee', flightDistance: 40 }, attack: { damage: 15, range: 2.5, cooldown: 2 }, health: 700,
     taming: { possible: true, difficulty: 0.4, preferredFood: ['berries', 'cycad_fronds'] }, habitat: ['plains', 'swamp', 'jungle'], tempRange: [10, 36],
     locomotion: { plan: 'hadrosaur', stride: 2, turnRate: 1.3, swims: true, flies: false },
-    audio: { pitch: 140, call: 'honk' }, look: { base: 0xb8986e, belly: 0xe2d2b6, accent: 0x6a4a30, pattern: 'stripes', features: ['crestTube'] },
+    audio: { pitch: 140, call: 'honk' }, look: { base: 0xecb47a, belly: 0xf4e2c4, accent: 0x7a4a28, pattern: 'stripes', features: ['crestTube'] },
     huntsHumans: false,
   },
   stegosaurus: {
