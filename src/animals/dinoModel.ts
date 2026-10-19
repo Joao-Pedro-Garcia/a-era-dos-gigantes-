@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { SpeciesDef } from './species';
+import { RIG_FITS } from './rigFits';
 
 /**
  * Procedural skinned dinosaurs.
@@ -481,6 +482,18 @@ function blueprint(sp: SpeciesDef, juvenile = false): Blueprint {
     hd.len *= 1.15;
     for (const c of cps) if (c.p.z < -0.1 * L) c.p.z = -0.1 * L + (c.p.z + 0.1 * L) * 0.85;
   }
+  // Adults of species with a re-bound artist model: joints where the artist put them.
+  const fit = juvenile ? undefined : RIG_FITS[sp.id];
+  if (fit) {
+    for (const c of cps) if (c.bone && fit.cps[c.bone]) c.p.set(...fit.cps[c.bone]);
+    cps[0].p.set(...fit.tip);
+    hd.at.set(...fit.head);
+    cps[cps.length - 1].p.copy(hd.at);
+    for (const leg of legs) {
+      const j = fit.legs[leg.name];
+      if (j) leg.joints = j.map((v) => V(...v));
+    }
+  }
   const last = cps[cps.length - 1];
   const prev = cps[cps.length - 2];
   last.rx = Math.min(last.rx, hd.width * 0.7);
@@ -627,7 +640,8 @@ export function buildDinoTemplate(sp: SpeciesDef, juvenile = false): DinoTemplat
   const hp = bp.head.pitch;
   const hf = V(0, -Math.sin(hp), Math.cos(hp));
   const hu = V(0, Math.cos(hp), Math.sin(hp));
-  const jawHinge = bp.head.at.clone().addScaledVector(hf, -bp.head.len * 0.04).addScaledVector(hu, skullProfile(skullFamily(sp), 0.08).lip * bp.head.height);
+  const fit = juvenile ? undefined : RIG_FITS[sp.id];
+  const jawHinge = fit ? V(...fit.jaw) : bp.head.at.clone().addScaledVector(hf, -bp.head.len * 0.04).addScaledVector(hu, skullProfile(skullFamily(sp), 0.08).lip * bp.head.height);
   addBone('jaw', 'head', jawHinge);
   for (const leg of bp.legs) {
     const names = ['0', '1', '2', '3'].map((k) => `${leg.name}${k}`);
@@ -784,7 +798,7 @@ export function buildDinoTemplate(sp: SpeciesDef, juvenile = false): DinoTemplat
     lengths: [0, 1, 2, 3].map((k) => l.joints[k].distanceTo(l.joints[k + 1])),
     fingerTip: l.fingerTip?.clone(),
   }));
-  return { geometry: build(0), mid: build(1), low: build(2), bones, bp, legs: legsInfo, hipHeight: sp.hipHeightM * (juvenile ? 1.08 : 1) };
+  return { geometry: build(0), mid: build(1), low: build(2), bones, bp, legs: legsInfo, hipHeight: fit ? fit.legs[bp.legs.find((l) => !l.front)!.name][0][1] : sp.hipHeightM * (juvenile ? 1.08 : 1) };
 }
 
 /** Generic tapered tube along points, skinned rigidly or by segment. */

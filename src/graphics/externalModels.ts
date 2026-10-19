@@ -20,6 +20,13 @@ export interface ModelEntry {
   clipSpeeds: Partial<Record<'walk' | 'run', number>>;
   /** Author credit (required by CC-BY files). */
   credit: ModelCredit | null;
+  /**
+   * Re-binds the artist's skin to the game's procedural skeleton (artist bone →
+   * game bone), for models without usable clips: the game then animates them like
+   * its own (gait on the terrain, head, jaw, breathing, death). Uses `scale` as
+   * metres per model unit; the skeleton is fitted in `src/animals/rigFits.ts`.
+   */
+  rig?: Record<string, string>;
 }
 export interface ModelCredit {
   title: string;
@@ -59,7 +66,12 @@ export function parseManifest(raw: unknown): ModelManifest {
     const str = (v: unknown) => typeof v === 'string' && v.length > 0 && v.length <= 200;
     if (c && typeof c === 'object' && str(c.title) && str(c.author) && str(c.license) && str(c.url) && /^https:\/\/[\w.-]+\//.test(c.url as string))
       credit = { title: c.title as string, author: c.author as string, url: c.url as string, license: c.license as string };
-    return { url: x.url, scale: num(x.scale, 1, 0.001, 1000), strideM: num(x.strideM, 1, 0.05, 20), clips, clipSpeeds, credit };
+    let rig: Record<string, string> | undefined;
+    if (x.rig && typeof x.rig === 'object') {
+      rig = {};
+      for (const [k, v] of Object.entries(x.rig as Record<string, unknown>)) if (typeof v === 'string' && /^[\w.]{1,64}$/.test(k) && /^[a-zA-Z]\w{0,31}$/.test(v)) rig[k] = v;
+    }
+    return { url: x.url, scale: num(x.scale, 1, 0.001, 1000), strideM: num(x.strideM, 1, 0.05, 20), clips, clipSpeeds, credit, ...(rig ? { rig } : {}) };
   };
   if (r.species && typeof r.species === 'object')
     for (const [id, e] of Object.entries(r.species as Record<string, unknown>)) {
@@ -234,6 +246,72 @@ export async function warmupInstances(): Promise<ExternalInstance[]> {
     inst.mixer.update(0);
     out.push(inst);
   }
+  return out;
+}
+
+const rigged = new Map<string, { geometry: THREE.BufferGeometry; material: THREE.Material | THREE.Material[] } | null>();
+
+/**
+ * The artist's skinned mesh with its weights moved onto the game's skeleton
+ * (`boneIndex`: game bone name → index in the game skeleton), in game metres.
+ * Built once per species; null when the species has no rig entry, the file has
+ * no skinned mesh, or it is not loaded (yet).
+ */
+export function riggedMesh(id: string, boneIndex: Map<string, number>): { geometry: THREE.BufferGeometry; material: THREE.Material | THREE.Material[] } | null {
+  if (rigged.has(id)) return rigged.get(id)!;
+  const src = loaded.get(id);
+  if (!src?.entry.rig) return null;
+  let skinned: THREE.SkinnedMesh | null = null;
+  src.scene.traverse((o) => {
+    if (!skinned && (o as THREE.SkinnedMesh).isSkinnedMesh) skinned = o as THREE.SkinnedMesh;
+  });
+  if (!skinned) {
+    rigged.set(id, null);
+    return null;
+  }
+  const sm = skinned as THREE.SkinnedMesh;
+  // Artist bone (as GLTFLoader names it) → game bone index; unmapped bones follow the pelvis.
+  const map = new Map<string, number>();
+  for (const [k, v] of Object.entries(src.entry.rig)) {
+    const i = boneIndex.get(v);
+    if (i !== undefined) map.set(THREE.PropertyBinding.sanitizeNodeName(k), i);
+  }
+  const fallback = boneIndex.get('pelvis') ?? 0;
+  const target = sm.skeleton.bones.map((b) => map.get(b.name) ?? fallback);
+  const g = sm.geometry.clone();
+  const pos = g.attributes.position;
+  const s = src.entry.scale;
+  for (let i = 0; i < pos.count; i++) pos.setXYZ(i, pos.getX(i) * s, pos.getY(i) * s, pos.getZ(i) * s);
+  const si = g.attributes.skinIndex;
+  const sw = g.attributes.skinWeight;
+  const idx = new Uint16Array(si.count * 4);
+  const wts = new Float32Array(si.count * 4);
+  const acc = new Map<number, number>();
+  for (let v = 0; v < si.count; v++) {
+    acc.clear();
+    for (let k = 0; k < 4; k++) {
+      const w = sw.getComponent(v, k);
+      if (w <= 0) continue;
+      const b = target[si.getComponent(v, k)] ?? fallback;
+      acc.set(b, (acc.get(b) ?? 0) + w);
+    }
+    const top = [...acc.entries()].sort((a, b) => b[1] - a[1]).slice(0, 4);
+    const sum = top.reduce((t, e) => t + e[1], 0) || 1;
+    top.forEach(([b, w], k) => {
+      idx[v * 4 + k] = b;
+      wts[v * 4 + k] = w / sum;
+    });
+    if (!top.length) {
+      idx[v * 4] = fallback;
+      wts[v * 4] = 1;
+    }
+  }
+  g.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(idx, 4));
+  g.setAttribute('skinWeight', new THREE.Float32BufferAttribute(wts, 4));
+  g.computeBoundingSphere();
+  g.computeBoundingBox();
+  const out = { geometry: g, material: sm.material };
+  rigged.set(id, out);
   return out;
 }
 

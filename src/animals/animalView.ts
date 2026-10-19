@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import { clamp, damp } from '../core/math';
 import type { TextureLibrary } from '../graphics/textureLibrary';
 import { createContactShadow } from '../graphics/contactShadow';
-import { driveExternal, instantiate, setExternalShadows, type ExternalInstance } from '../graphics/externalModels';
+import { RIG_FITS } from './rigFits';
+import { driveExternal, instantiate, riggedMesh, setExternalShadows, type ExternalInstance } from '../graphics/externalModels';
 import type { AnimalData } from './animal';
 import { growthScale } from './animal';
 import { ALPHA } from './alpha';
@@ -50,6 +51,10 @@ export interface AnimalView {
   legInfo: LegRuntime[];
   /** Artist model replacing the procedural one (see externalModels.ts). */
   ext: ExternalInstance | null;
+  /** Artist skin re-bound to this skeleton (animated by the game), shown up close. */
+  rig: THREE.SkinnedMesh | null;
+  /** Jaw rest angle of the re-bound skin (closes a mouth bound open). */
+  jawRest: number;
   /** Built with juvenile proportions. */
   juvenile: boolean;
   /** Built as an alpha male (bigger, darker reddish tint, ember aura). */
@@ -332,12 +337,41 @@ export function createAnimalView(speciesId: string, individual = '', juvenile = 
   const size = (0.94 + hashId(individual || speciesId, 3) * 0.12) * (alpha ? ALPHA.size : 1);
   const aura = alpha ? createAlphaAura(sp) : null;
   if (aura) root.add(aura.points);
-  const view: AnimalView = { root, sp, tpl, meshHi, meshMid, meshLo, bones, rest, materials, shadow, size, posture: 0, flap: 0, jaw: 0, look: 0, pelvisDrop: 0, bodyPitch: 0, legInfo, ext: null, juvenile, alpha, aura, extMats: [], deadT: 99, scan: 0, turn: 0, lastHeading: NaN, hitT: 99, hitLX: 0, hitLZ: 0, hitAmp: 0 };
+  const view: AnimalView = { root, sp, tpl, meshHi, meshMid, meshLo, bones, rest, materials, shadow, size, posture: 0, flap: 0, jaw: 0, look: 0, pelvisDrop: 0, bodyPitch: 0, legInfo, ext: null, rig: null, jawRest: 0, juvenile, alpha, aura, extMats: [], deadT: 99, scan: 0, turn: 0, lastHeading: NaN, hitT: 99, hitLX: 0, hitLZ: 0, hitAmp: 0 };
   // Resolves after the optional models finish loading (null when the species has none).
   void instantiate(speciesId).then((inst) => {
     if (!inst) return;
     if (!root.parent) {
       inst.dispose();
+      return;
+    }
+    if (inst.entry.rig) {
+      // Driven by this skeleton instead of the file's clips (adults only: the
+      // skeleton is fitted to the artist's joints, juveniles keep their own build).
+      inst.dispose();
+      if (juvenile) return;
+      const boneIdx = new Map(tpl.bones.map((b, i) => [b.name, i] as [string, number]));
+      const rg = riggedMesh(speciesId, boneIdx);
+      if (!rg) return;
+      let mat = rg.material;
+      if (alpha) {
+        const tint = (m: THREE.Material) => {
+          const c = m.clone();
+          if ('color' in c && c.color instanceof THREE.Color) c.color.multiply(ALPHA_TINT);
+          view.extMats.push(c);
+          return c;
+        };
+        mat = Array.isArray(mat) ? mat.map(tint) : tint(mat);
+      }
+      const m = new THREE.SkinnedMesh(rg.geometry, mat);
+      m.castShadow = true;
+      m.receiveShadow = true;
+      m.frustumCulled = false;
+      m.visible = false;
+      root.add(m);
+      m.bind(skeleton, new THREE.Matrix4());
+      view.rig = m;
+      view.jawRest = RIG_FITS[speciesId]?.jawClosed ?? 0;
       return;
     }
     view.ext = inst;
@@ -389,6 +423,16 @@ export function poseAnimalView(v: AnimalView, a: AnimalData, stride: number, alt
   v.meshHi.castShadow = shadows;
   v.meshMid.castShadow = shadows;
   v.meshLo.castShadow = shadows;
+  if (v.rig) {
+    // Re-bound artist skin: same skeleton and procedural animation, so only the
+    // visible mesh changes with distance.
+    const near = camDist < lodDistance * EXTERNAL_LOD;
+    v.rig.visible = near;
+    if (near) {
+      v.meshHi.visible = v.meshMid.visible = v.meshLo.visible = false;
+      v.rig.castShadow = camDist < lodDistance * 0.65;
+    }
+  }
   if (v.ext) {
     // Far away the artist model gives way to the cheap procedural one (no mixer update).
     const near = camDist < lodDistance * EXTERNAL_LOD;
@@ -432,7 +476,7 @@ export function poseAnimalView(v: AnimalView, a: AnimalData, stride: number, alt
       if (b) b.rotation.x = (0.4 + i * 0.1) * fall;
     });
     const jw = bone('jaw');
-    if (jw) jw.rotation.x = 0.25 * fall;
+    if (jw) jw.rotation.x = 0.25 * fall + (v.rig?.visible ? v.jawRest : 0);
     ['tail1', 'tail2', 'tail3', 'tail4'].forEach((n) => {
       const b = bone(n);
       if (b) b.rotation.x = 0.08 * fall;
@@ -590,7 +634,7 @@ export function poseAnimalView(v: AnimalView, a: AnimalData, stride: number, alt
   const jawTarget = grazing ? 0.12 + Math.max(0, Math.sin(now * 6 + a.x)) * 0.18 : a.state === 'defend' || a.state === 'hunt' ? 0.5 : runF > 0.6 ? 0.18 : 0.02;
   v.jaw += (jawTarget - v.jaw) * k(8);
   const jaw = bone('jaw');
-  if (jaw) jaw.rotation.x = v.jaw;
+  if (jaw) jaw.rotation.x = v.jaw + (v.rig?.visible ? v.jawRest : 0);
   const chest = bone('chest');
   if (chest) chest.scale.setScalar(1 + Math.sin(now * 1.8 + a.x) * 0.012);
 

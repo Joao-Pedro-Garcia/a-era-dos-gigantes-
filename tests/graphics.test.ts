@@ -266,4 +266,30 @@ describe('external model manifest', () => {
     // Without one: a clip cycle covers two strides.
     expect(locomotionRate({ ...m.species.stegosaurus, strideM: 2 }, 'walk', 2, 1)).toBeCloseTo(0.5, 5);
   });
+
+  it('reads the bone map of models re-bound to the game skeleton, dropping unsafe names', async () => {
+    const { parseManifest } = await import('../src/graphics/externalModels');
+    const m = parseManifest({ version: 1, species: { spinosaurus: { url: 's.glb', scale: 1.03, rig: { 'Bone.003_025': 'neck1', Master_01: 'pelvis', 'bad name!': 'head', ok: '1abc', x: 42 } } } });
+    expect(m.species.spinosaurus.rig).toEqual({ 'Bone.003_025': 'neck1', Master_01: 'pelvis' });
+    expect(parseManifest({ version: 1, species: { a: { url: 'a.glb' } } }).species.a.rig).toBeUndefined();
+  });
+
+  it('every bone of the shipped re-bound models maps to a bone of the fitted game skeleton', async () => {
+    const fs = await import('fs');
+    const { parseManifest } = await import('../src/graphics/externalModels');
+    const { buildDinoTemplate } = await import('../src/animals/dinoModel');
+    const { RIG_FITS } = await import('../src/animals/rigFits');
+    const { SPECIES } = await import('../src/animals/species');
+    const m = parseManifest(JSON.parse(fs.readFileSync('public/models/manifest.json', 'utf8')));
+    for (const [id, e] of Object.entries(m.species)) {
+      if (!e.rig) continue;
+      expect(RIG_FITS[id], id).toBeDefined();
+      const t = buildDinoTemplate(SPECIES[id]);
+      const names = new Set(t.bones.map((b) => b.name));
+      for (const b of Object.values(e.rig)) expect(names.has(b), `${id}: ${b}`).toBe(true);
+      // The fitted skeleton stands where the artist's does: hips at the fitted height.
+      const hip = t.bp.legs.find((l) => !l.front)!.joints[0];
+      expect(t.hipHeight).toBeCloseTo(hip.y, 5);
+    }
+  });
 });
