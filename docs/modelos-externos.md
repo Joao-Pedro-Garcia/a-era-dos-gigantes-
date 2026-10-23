@@ -209,3 +209,24 @@ Fab, 3D CAD Browser). Fora do Sketchfab, tudo era pago ou de uso restrito ("Edit
 - *SammyTheCitipati* e reenvios de *slang107123456789*: sem fonte.
 - *ericksalinasr07*: montagem de modelos de outros autores.
 - Também recusados: "Dino Stalker", "Dino Hunter", "Dinosaur Hunting", "from unity".
+
+## Rodada de 23/10/2026 (2): troodonte, galimimo e mosassauro
+Busca no Sketchfab para nove espécies, com verificação da origem de cada conta.
+
+**Integrados** (CC BY 4.0, crédito no jogo; pele automática `autoSkin` e esqueleto em `RIG_FITS`):
+
+| Espécie | Modelo | Preparação |
+|---|---|---|
+| Troodonte | "Troodon", de *budiastuti1271* | Material spec/gloss convertido; simplificado para 40 mil triângulos. A cabeça está virada um pouco para o lado no arquivo; o encaixe segue essa posição. O "troodon" de *ShinGoji729* é cópia do mesmo arquivo (tem o mesmo número de vértices e foi publicado depois). |
+| Galimimo | "Blender \| Gallimimus", de *SkinnyDoesModels* | O arquivo está no meio de uma corrida: em nenhum quadro os dois pés tocam o chão, e na pose de repouso a pata esquerda fica levantada. A pele foi assada no quadro em que a pata direita está apoiada embaixo do corpo (0,78 s), e a direita foi espelhada na esquerda. O esqueleto do arquivo é simétrico (as matrizes de ligação conferem a 0,0000). Ferramenta: `tools/skin-bake.mjs src dst 0 0.78 r`. |
+| Mosassauro | "mosasaur", de *victory_* | Modelado ao longo de −x (`rigRotY` = π/2) e com a boca aberta (`closeMouth` 0,4). Não tinha textura de cor, só mapa de relevo. Foi gerada uma textura pelas UVs do próprio modelo: dorso azul-acinzentado escuro, barriga creme, manchas de ruído. Olho com material escuro, dentes em marfim. Simplificado para 68 mil triângulos. |
+
+**Sem modelo aceitável** (continuam procedurais):
+- **Sucuri:** o modelo de *ayoubbenz* é bom, mas a conta publica skins tiradas do PUBG. Os outros resultados são revólveres "Anaconda" ou modelos sem textura.
+- **Smilodonte:** só crânios fósseis, modelos de blocos ou de desenho animado. O "Sabre" é reenvio do slang107123456789, e o "Diego" é do filme Ice Age.
+- **Protocerátops e paquirrinossauro:** só modelos sem textura, de blocos, de Daz Studio ou reenvios.
+- **Microraptor:** o de *ShinGoji729* foi feito no Monster Mash (asas como placas infladas), e o de *Allosaurus28YT* vem de uma conta que edita modelos de outros autores.
+- **Iguanodonte:**
+  - *neopops* escaneia estátuas e bonecos de terceiros (Mickey, Hulk);
+  - *gutaro* não informa a origem;
+  - os demais vêm de Dinosaur Hunting, Jurassic World Dominion, do filme "Dinosaur" (Aladar) ou da conta Jurrassicgamer.

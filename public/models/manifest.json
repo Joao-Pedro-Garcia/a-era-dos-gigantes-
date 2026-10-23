@@ -640,6 +640,55 @@
     "url": "https://sketchfab.com/3d-models/triceratops-5e2fa21610ab4cd59abcbcb15007ffd5",
     "license": "CC BY 4.0"
    }
+  },
+  "troodon": {
+   "url": "troodon.glb",
+   "scale": 2.892,
+   "strideM": 1.2,
+   "clipSpeeds": {},
+   "clips": {},
+   "rig": {},
+   "autoSkin": true,
+   "credit": {
+    "title": "Troodon",
+    "author": "budiastuti1271",
+    "url": "https://sketchfab.com/3d-models/troodon-74adc44968d7491483b447aedf5a5b2a",
+    "license": "CC BY 4.0"
+   }
+  },
+  "gallimimus": {
+   "url": "gallimimus.glb",
+   "scale": 0.1762,
+   "strideM": 2.5,
+   "clipSpeeds": {},
+   "clips": {},
+   "rig": {},
+   "autoSkin": true,
+   "rigFloor": 0.05,
+   "credit": {
+    "title": "Blender | Gallimimus",
+    "author": "SkinnyDoesModels",
+    "url": "https://sketchfab.com/3d-models/blender-gallimimus-4993970ad48f41af813e65f202acaf41",
+    "license": "CC BY 4.0"
+   }
+  },
+  "mosasaurus": {
+   "url": "mosasaurus.glb",
+   "scale": 0.3947,
+   "strideM": 3,
+   "clipSpeeds": {},
+   "clips": {},
+   "rig": {},
+   "autoSkin": true,
+   "rigRotY": 1.570796,
+   "rigFloor": -3.29,
+   "closeMouth": 0.4,
+   "credit": {
+    "title": "mosasaur",
+    "author": "victory_",
+    "url": "https://sketchfab.com/3d-models/mosasaur-5b3d96edf4c946398a4687e57ecb3ec9",
+    "license": "CC BY 4.0"
+   }
   }
  },
  "player": {
