@@ -125,7 +125,8 @@ describe('realism pilot: triceratops and skin regions', () => {
   });
 
   it('the triceratops has a massive skull, brow horns ~1 m and a short tail', () => {
-    const sp = SPECIES.triceratops;
+    // Procedural body (see the parasaurolophus test).
+    const sp = { ...SPECIES.triceratops, id: 'triceratops_procedural' };
     const t = buildDinoTemplate(sp);
     expect(t.bp.head.height).toBeGreaterThan(0.06 * sp.lengthM);
     expect(t.bp.head.height).toBeLessThan(0.09 * sp.lengthM);
@@ -172,7 +173,8 @@ describe('realism pilot: triceratops and skin regions', () => {
   });
 
   it('the brachiosaurus stands higher at the shoulders, with a raised neck and a short tail', () => {
-    const sp = SPECIES.brachiosaurus;
+    // Procedural body (see the parasaurolophus test).
+    const sp = { ...SPECIES.brachiosaurus, id: 'brachiosaurus_procedural' };
     const t = buildDinoTemplate(sp);
     const front = t.bp.legs.find((l) => l.name === 'frontL')!;
     const hind = t.bp.legs.find((l) => l.name === 'hindL')!;

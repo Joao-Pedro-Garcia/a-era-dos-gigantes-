@@ -173,3 +173,39 @@ de origem; integrados com pele automática (`autoSkin`) e esqueleto encaixado (`
 Recusados na mesma busca: modelos tirados de Jurassic World Evolution/Dominion, ARK,
 Prehistoric Kingdom, LEGO, Turok, Carnivores, Dino Crisis, Dinosaur Hunting, "Amazing Dinoworld"
 (NHK) e reenvios de origem duvidosa.
+
+## Rodada de 23/10/2026: tricerátops, braquiossauro, dilofossauro e compsógnato
+Pedido do usuário com fotos de referência. Busca no Sketchfab (24 termos, com e sem animação),
+em contas de artistas já verificados e em outros sites (Free3D, CGTrader, TurboSquid, RenderHub,
+Fab, 3D CAD Browser). Fora do Sketchfab, tudo era pago ou de uso restrito ("Editorial Only").
+
+**Integrados** (CC BY 4.0, crédito no jogo; pele automática `autoSkin` e esqueleto em `RIG_FITS`):
+- **Braquiossauro**: "Animated Argentinosaurus (Free)" de *AneesAnimates*. É um titanossauro, não
+  um braquiossaurídeo, mas tem a mesma silhueta da foto (pescoço erguido, cabeça a ~12 m).
+  O nome do material (`tripo_mat`) indica que foi gerado com a ferramenta Tripo, não esculpido à
+  mão como diz a descrição; a licença continua sendo CC BY. Preparação: deitado no arquivo
+  (girado +90° em X), material spec/gloss convertido, mapa de oclusão retirado (escurecia
+  pela metade), textura recolorida de verde-acinzentado para **bronze-acinzentado**
+  (`tools/grey-texture.mjs`, ganho 1,7), simplificado para 56 mil triângulos (2,3 MB).
+  Diferença real: as patas da frente não são mais altas que as de trás, como no braquiossauro.
+- **Tricerátops**: "triceratops" de *victory_*. Três esferas soltas a milhares de unidades
+  foram retiradas; a pele foi assada na pose de repouso pelo próprio esqueleto
+  (`tools/skin-bake.mjs`), porque as partes ficavam espalhadas fora dele. Recolorido de
+  verde-azulado e laranja para **cinza-amarronzado** (`grey-texture.mjs ... all`), chifres em
+  marfim. O desenho do modelo é um pouco estilizado (olho e proporções de desenho animado).
+
+**Sem modelo livre de origem limpa: melhorados no procedural**
+- **Dilofossauro**: as cristas apareciam pretas. Cada crista era desenhada dos dois lados com
+  os mesmos vértices, e as normais opostas se anulavam. Agora cada face tem os seus vértices;
+  cristas na cor da pele da cabeça.
+- **Compsógnato**: pescoço longo em S, quase vertical, com a cabeça a ~2× a altura do quadril
+  (traço `sNeck`), corpo e cabeça mais finos, pernas mais longas (quadril 0,32 m), verde mais
+  claro e garganta avermelhada.
+
+**Recusados por origem** (contas que publicam personagens de jogos e filmes):
+- *CGreature*: Grievous, Skyrim, Saurian, Primal Carnage, King Kong.
+- *nobilishornet2*: Jurassic World Alive/Evolution, Prehistoric Kingdom.
+- *LilCick*: Monster Hunter, Godzilla, Indominus.
+- *SammyTheCitipati* e reenvios de *slang107123456789*: sem fonte.
+- *ericksalinasr07*: montagem de modelos de outros autores.
+- Também recusados: "Dino Stalker", "Dino Hunter", "Dinosaur Hunting", "from unity".

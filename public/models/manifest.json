@@ -608,6 +608,38 @@
     "url": "https://sketchfab.com/3d-models/dino-ankylosaurus-55b9adcbcf7846e8a833bfc77eaf3d3f",
     "license": "CC BY 4.0"
    }
+  },
+  "brachiosaurus": {
+   "url": "brachiosaurus.glb",
+   "scale": 1.354,
+   "strideM": 3,
+   "clipSpeeds": {},
+   "clips": {},
+   "rig": {},
+   "autoSkin": true,
+   "rigFloor": 1.77,
+   "credit": {
+    "title": "Animated Argentinosaurus (Free)",
+    "author": "AneesAnimates",
+    "url": "https://sketchfab.com/3d-models/animated-argentinosaurus-free-e5f130a58bb04eb18520bc25f9f01576",
+    "license": "CC BY 4.0"
+   }
+  },
+  "triceratops": {
+   "url": "triceratops.glb",
+   "scale": 0.1637,
+   "strideM": 2,
+   "clipSpeeds": {},
+   "clips": {},
+   "rig": {},
+   "autoSkin": true,
+   "rigFloor": -13.97,
+   "credit": {
+    "title": "triceratops",
+    "author": "victory_",
+    "url": "https://sketchfab.com/3d-models/triceratops-5e2fa21610ab4cd59abcbcb15007ffd5",
+    "license": "CC BY 4.0"
+   }
   }
  },
  "player": {

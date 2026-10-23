@@ -197,8 +197,9 @@ function blueprint(sp: SpeciesDef, juvenile = false): Blueprint {
     const hadro = plan === 'hadrosaur';
     const apex = sp.ecology === 'apexPredator' || sp.massKg > 1500;
     // Film-style Dilophosaurus: a slender, lightly built animal (thin body, neck and legs).
-    const slim = f.has('neckFrill');
-    const b = slim ? 0.68 : hadro ? 1.25 : sp.id === 'tyrannosaurus' ? 1.18 : sp.id === 'gallimimus' ? 0.82 : f.has('feathers') && L < 3 ? 0.95 : sp.id === 'therizinosaurus' ? 1.2 : 1;
+    const sNeck = f.has('sNeck');
+    const slim = f.has('neckFrill') || sNeck;
+    const b = slim ? (sNeck ? 0.74 : 0.68) : hadro ? 1.25 : sp.id === 'tyrannosaurus' ? 1.18 : sp.id === 'gallimimus' ? 0.82 : f.has('feathers') && L < 3 ? 0.95 : sp.id === 'therizinosaurus' ? 1.2 : 1;
     // Body breadth (back view): large theropods are broad at the hips and ribs, not slab-sided.
     // Hadrosaurs were deep- rather than broad-bodied.
     // Spinosaurids were narrow-bodied (deep, slab-sided chest).
@@ -227,6 +228,13 @@ function blueprint(sp: SpeciesDef, juvenile = false): Blueprint {
       cp(0.255 * L, Hh * 1.34, 0.028 * L * b, 0.032 * L * b, 0, 'neck2');
       cp(0.28 * L, Hh * 1.55, 0.024 * L * b, 0.026 * L * b, 0, 'neck3');
       cp(0.3 * L, Hh * 1.68, 0.022 * L, 0.024 * L, 0, null);
+    } else if (sNeck) {
+      // Film-style compsognathus: a thin neck rising almost upright from the shoulders, the
+      // small head carried about twice the hip height.
+      cp(0.205 * L, Hh * 1.2, 0.03 * L * b, 0.04 * L * b, 0.006 * L, 'neck1');
+      cp(0.222 * L, Hh * 1.55, 0.021 * L, 0.025 * L, 0, 'neck2');
+      cp(0.238 * L, Hh * 1.88, 0.018 * L, 0.021 * L, 0, 'neck3');
+      cp(0.262 * L, Hh * 2.05, 0.017 * L, 0.019 * L, 0, null);
     } else if (hadro) {
       // Film look: a long S-curved neck carrying the head high above the shoulders.
       cp(0.215 * L, Hh * 1.16, 0.047 * L * b, 0.06 * L * b, 0.01 * L, 'neck1');
@@ -268,12 +276,12 @@ function blueprint(sp: SpeciesDef, juvenile = false): Blueprint {
         }
     const end = cps[cps.length - 1].p;
     // Carnotaurus: short, deep, bulldog-like skull.
-    const hl = f.has('longSnout') ? 0.16 * L : sp.id === 'carnotaurus' ? 0.075 * L : apex ? 0.125 * L : hadro ? 0.095 * L : f.has('beak') && longNeck ? 0.07 * L : 0.1 * L;
-    const hh = apex ? 0.034 * L : hadro ? 0.027 * L : 0.024 * L;
+    const hl = f.has('longSnout') ? 0.16 * L : sNeck ? 0.085 * L : sp.id === 'carnotaurus' ? 0.075 * L : apex ? 0.125 * L : hadro ? 0.095 * L : f.has('beak') && longNeck ? 0.07 * L : 0.1 * L;
+    const hh = apex ? 0.034 * L : hadro ? 0.027 * L : sNeck ? 0.021 * L : 0.024 * L;
     head = f.has('hookBeak')
       ? // Dodo: a big head with a long, heavy, hooked bill (about a third of the bird).
         { bone: 'head', at: end.clone(), len: 0.3 * L, height: 0.1 * L, width: 0.075 * L, pitch: 0.25 }
-      : { bone: 'head', at: end.clone(), len: hl, height: hh, width: apex ? hh * 1.05 : hh * 0.8, pitch: longNeck ? 0.25 : hadro ? -0.08 : 0.12 };
+      : { bone: 'head', at: end.clone(), len: hl, height: hh, width: apex ? hh * 1.05 : hh * 0.8, pitch: longNeck ? 0.25 : hadro ? -0.08 : sNeck ? 0.2 : 0.12 };
     // Hind legs (digitigrade).
     for (const side of [1, -1]) {
       // Hip socket on the flank; the knee sits forward under the belly (thigh slants forward),
@@ -663,6 +671,7 @@ function painter(sp: SpeciesDef) {
   const pattern = sp.look.pattern;
   // Film-look triceratops: mossy green patches over the grey-brown hide.
   const moss = sp.id === 'triceratops';
+  const redNeck = sp.look.features.includes('sNeck');
   // Noise scales relative to the animal (patches a few per flank, fine mottling).
   const big = 1 / (L * 0.11);
   const fine = 1 / (L * 0.028);
@@ -693,6 +702,8 @@ function painter(sp: SpeciesDef) {
         }
       }
       if (part === 'limb') c.multiplyScalar(0.9);
+      // Film-style compsognathus: a rusty-red wash on the throat and sides of the neck.
+      if (redNeck && part !== 'limb' && p.z > 0.18 * L && p.y > hip * 1.05) c.lerp(accent, 0.4 * smooth(0.18 * L, 0.24 * L, p.z) * smooth(-0.25, 0.35, under) * (0.75 + 0.5 * nb));
     }
     // Mottling at two scales, and a slight hue drift between patches.
     const m = 0.8 + 0.28 * nb + 0.16 * (nf - 0.5);
@@ -1578,19 +1589,25 @@ function buildFeatures(sp: SpeciesDef, bp: Blueprint, parts: Part[], boneIndex: 
   if (f.has('dualCrest')) for (const s of [1, -1]) {
     const p = parts[DMAT.scales];
     const n = detail ? 10 : 4;
-    const b0 = p.pos.length / 3;
-    for (let i = 0; i <= n; i++) {
-      const t = i / n;
-      const base = at.clone().addScaledVector(fwd, len * (0.1 + t * 0.7)).addScaledVector(up, height * 0.55).addScaledVector(side, s * height * 0.25);
-      const h = height * 0.85 * Math.sin(Math.PI * (0.15 + t * 0.75)) * fs;
-      for (const k of [0, 1]) {
-        const q = base.clone().addScaledVector(up, k * h).addScaledVector(side, s * k * h * 0.15);
-        p.v(q, t, k, paint(q, -0.3, 'accent'), [hb], [1]);
+    // Two faces with their own vertices: sharing them, the opposite normals cancel out and
+    // the thin crest shades black.
+    for (const face of [0, 1]) {
+      const b0 = p.pos.length / 3;
+      for (let i = 0; i <= n; i++) {
+        const t = i / n;
+        const base = at.clone().addScaledVector(fwd, len * (0.1 + t * 0.7)).addScaledVector(up, height * 0.55).addScaledVector(side, s * height * 0.25);
+        const h = height * 0.85 * Math.sin(Math.PI * (0.15 + t * 0.75)) * fs;
+        for (const k of [0, 1]) {
+          const q = base.clone().addScaledVector(up, k * h).addScaledVector(side, s * k * h * 0.15);
+          // Skin-coloured crests (the film animal's are not darker than the head).
+          p.v(q, t, k, paint(q, 0.1, 'head'), [hb], [1]);
+        }
       }
-    }
-    for (let i = 0; i < n; i++) {
-      const a = b0 + i * 2;
-      p.idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3, a, a + 1, a + 2, a + 1, a + 3, a + 2);
+      for (let i = 0; i < n; i++) {
+        const a = b0 + i * 2;
+        if (face === 0) p.idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3);
+        else p.idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+      }
     }
   }
   if (f.has('sabers')) {

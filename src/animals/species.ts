@@ -22,7 +22,9 @@ export type Feature =
   | 'club' | 'armor' | 'longNeck' | 'feathers' | 'dualCrest' | 'dome' | 'longClaws' | 'longSnout'
   | 'wings' | 'beak' | 'thumbSpike' | 'browHorns' | 'headCrest' | 'scutes' | 'fluke'
   // Mammals and others of the expanded fauna.
-  | 'fur' | 'shaggy' | 'sabers' | 'plump' | 'hookBeak';
+  | 'fur' | 'shaggy' | 'sabers' | 'plump' | 'hookBeak'
+  // Film-style compsognathus: a long, slender S-curved neck held upright.
+  | 'sNeck';
 
 export interface SpeciesDef {
   id: string;
@@ -212,14 +214,14 @@ const S: Record<string, Def> = {
   compsognathus: {
     name: { 'pt-BR': 'Compsognato', en: 'Compsognathus' }, scientificName: 'Compsognathus longipes', clade: 'dinosaur',
     period: 'Jurássico Superior (~150 Ma)', diet: 'carnivore', ecology: 'smallPredator',
-    lengthM: 1, hipHeightM: 0.25, massKg: 3, walkSpeed: 1.5, runSpeed: 8, stamina: 10, foodNeed: 1.5, waterNeed: 1,
+    lengthM: 1, hipHeightM: 0.32, massKg: 3, walkSpeed: 1.5, runSpeed: 8, stamina: 10, foodNeed: 1.5, waterNeed: 1,
     social: { type: 'flock', size: [4, 9] }, senses: { sight: 50, hearing: 70, smell: 80, fovDeg: 220 },
     temperament: { aggression: 0.25, fearfulness: 0.65, curiosity: 0.9 }, territory: { radius: 250, defends: false },
     activity: 'cathemeral', reproduction: { clutch: [4, 8], incubationDays: 3, maturityDays: 8, parentalCare: 0.3, season: [4, 30] },
     threat: { response: 'flee', flightDistance: 9 }, attack: { damage: 2, range: 0.8, cooldown: 0.8 }, health: 12,
     taming: { possible: true, difficulty: 0.3, preferredFood: ['raw_meat', 'raw_fish'] }, habitat: ['jungle', 'plains', 'ruins', 'beach'], tempRange: [12, 38],
     locomotion: { plan: 'theropod', stride: 0.4, turnRate: 6, swims: false, flies: false },
-    audio: { pitch: 1400, call: 'chirp' }, look: { base: 0x6e7c3c, belly: 0xc4ac84, accent: 0xa04a32, pattern: 'countershade', features: [] },
+    audio: { pitch: 1400, call: 'chirp' }, look: { base: 0x86954c, belly: 0xd2c08e, accent: 0xa04a32, pattern: 'countershade', features: ['sNeck'] },
     huntsHumans: false,
   },
   archaeopteryx: {

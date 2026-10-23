@@ -4,7 +4,9 @@ import { NodeIO } from '@gltf-transform/core';
 import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
 import sharp from 'sharp';
 import { metalRough } from '@gltf-transform/functions';
-const [src, dst, gain = '1.8', tint = '0.98,1,1.03'] = process.argv.slice(2);
+// usage: node tools/grey-texture.mjs src.glb dst.glb [gain] [r,g,b tint] [all]  (all: recolour the
+// coloured details too)
+const [src, dst, gain = '1.8', tint = '0.98,1,1.03', mode = ''] = process.argv.slice(2);
 const k = Number(gain);
 const T = tint.split(',').map(Number);
 const io = new NodeIO().registerExtensions(ALL_EXTENSIONS);
@@ -22,7 +24,7 @@ for (const m of doc.getRoot().listMaterials()) {
     const r = data[i], g = data[i + 1], b = data[i + 2];
     const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
     const sat = mx ? (mx - mn) / mx : 0;
-    const w = Math.max(0, Math.min(1, 1 - (sat - 0.45) / 0.2)); // greys and browns
+    const w = mode === 'all' ? 1 : Math.max(0, Math.min(1, 1 - (sat - 0.45) / 0.2)); // greys and browns
     const lum = 0.3 * r + 0.59 * g + 0.11 * b;
     for (let c = 0; c < 3; c++) data[i + c] = Math.min(255, data[i + c] * (1 - w) + lum * k * T[c] * w);
   }
