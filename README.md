@@ -38,6 +38,18 @@ Páginas de diagnóstico:
 - `npm run shots` gera capturas de cenas fixas do jogo (início, floresta, dinossauro, entardecer, chuva, 1ª pessoa, noite, água, celular e espécies), para comparar antes e depois (ver *Testes*).
 - `F3` dentro do jogo exibe FPS, chamadas de desenho, geometrias e texturas na GPU e animais ativos/totais.
 
+## Multijogador (cooperativo)
+Até 8 pessoas no mesmo mundo: menu **Multijogador** → **Criar sala** (você hospeda) ou
+**Entrar na sala** com o código de convite. O servidor é `server/server.ts` (Node 22+), que também
+pode servir o jogo:
+
+```bash
+npm run build && STATIC_DIR=dist npm run server   # http://localhost:8787
+```
+
+Hospedagem (Docker, VPS com HTTPS, servidor separado), proteções, testes e números de carga:
+[docs/multiplayer.md](docs/multiplayer.md).
+
 ## Controles
 
 | Ação | Teclado/mouse | Toque | Gamepad |
