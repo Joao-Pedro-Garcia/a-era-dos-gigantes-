@@ -8,12 +8,28 @@ import type { TexRequest, TexResponse } from './texWorker';
  *     already has real materials;
  *  2. the full resolution chosen by the quality preset is read from an
  *     IndexedDB cache or generated in a Web Worker, and swapped in as each
- *     texture arrives (no frame hitch, no network).
+ *     texture arrives (no frame hitch); terrain layers in PHOTO_LAYERS come
+ *     from photographic maps instead, falling back to the procedural ones.
  * Materials register with `bind`/`terrainUniforms`, so swapping is a pointer
  * change and the old GPU textures are disposed.
  */
-// Bump when a generator changes so cached textures are regenerated.
-const TEX_VERSION = 'v4';
+// Bump when a generator or a photo layer changes so cached textures are regenerated.
+const TEX_VERSION = 'v5';
+/**
+ * Terrain layers built from photographs (public/textures, CC0, Poly Haven;
+ * see docs/modelos-externos.md). Their colour, height and roughness were
+ * matched to the procedural layers, which stay as the boot and offline fallback.
+ * Grass and leaf litter stay procedural (their photos looked worse in the
+ * game) and so does snow (no free snow photo without footprints).
+ */
+export const PHOTO_LAYERS = ['dirt', 'rock', 'sand', 'mud'];
+/** Source of each photo layer (CC0: credit not required, given anyway). */
+export const PHOTO_CREDITS: { layer: string; title: string; author: string; url: string }[] = [
+  { layer: 'dirt', title: 'Brown Mud Dry', author: 'Rob Tuytel', url: 'https://polyhaven.com/a/brown_mud_dry' },
+  { layer: 'rock', title: 'Rock Face 03', author: 'Dario Barresi, Rico Cilliers', url: 'https://polyhaven.com/a/rock_face_03' },
+  { layer: 'sand', title: 'Sand 01', author: 'Rob Tuytel', url: 'https://polyhaven.com/a/sand_01' },
+  { layer: 'mud', title: 'Brown Mud 02', author: 'Rob Tuytel', url: 'https://polyhaven.com/a/brown_mud_02' },
+];
 const BOOT_SIZE = 64;
 
 export interface MaterialMaps {
@@ -63,7 +79,7 @@ export class TextureLibrary {
   size = BOOT_SIZE;
   target = BOOT_SIZE;
   /** Diagnostics (shown by tests and the perf overlay). */
-  readonly stats = { bootMs: 0, generatedMs: 0, generated: 0, fromCache: 0, pending: 0 };
+  readonly stats = { bootMs: 0, generatedMs: 0, generated: 0, fromCache: 0, pending: 0, photoFallbacks: 0 };
 
   constructor() {
     const t0 = performance.now();
@@ -126,9 +142,12 @@ export class TextureLibrary {
           this.stats.generated++;
           this.stats.generatedMs += e.data.ms;
           this.accept(e.data.name, e.data.image);
-          void cachePut(`${TEX_VERSION}:${e.data.name}:${size}`, e.data.image);
+          if (e.data.fallback) this.stats.photoFallbacks++;
+          // A procedural stand-in for a photo is not cached: the photo is tried again next time.
+          else void cachePut(`${TEX_VERSION}:${e.data.name}:${size}`, e.data.image);
         };
-        const msg: TexRequest = { id, names: missing, size };
+        const base = new URL('textures/', document.baseURI).href;
+        const msg: TexRequest = { id, names: missing, size, photos: { base, names: PHOTO_LAYERS } };
         this.worker.postMessage(msg);
       } catch {
         this.stats.pending = 0; // keep the boot textures

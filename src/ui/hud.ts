@@ -10,6 +10,7 @@ import type { Action } from '../input/input';
 import type { Stack } from '../inventory/inventory';
 import { ITEMS, type EquipSlot } from '../inventory/items';
 import { modelCredits } from '../graphics/externalModels';
+import { PHOTO_CREDITS } from '../graphics/textureLibrary';
 import { language, setLanguage, t } from '../localization/i18n';
 import { BuildScreen } from './buildScreen';
 import { DOCS } from '../mysteries/mysteries';
@@ -1451,6 +1452,20 @@ export class Hud {
       ul.appendChild(li);
     }
     card.appendChild(ul);
+    card.appendChild(h('p', 'muted', t('credits.textures')));
+    const tl = h('ul', 'credits');
+    for (const c of PHOTO_CREDITS) {
+      const li = h('li', '');
+      li.appendChild(h('b', '', t(`credits.layer.${c.layer}`)));
+      li.appendChild(document.createTextNode(` — “${c.title}”, ${c.author} · CC0 · `));
+      const a = h('a', '', 'polyhaven.com') as HTMLAnchorElement;
+      a.href = c.url;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      li.appendChild(a);
+      tl.appendChild(li);
+    }
+    card.appendChild(tl);
     card.appendChild(h('p', 'muted', t('credits.procedural')));
     const b = h('button', 'primary', t('menu.back'));
     b.onclick = back;

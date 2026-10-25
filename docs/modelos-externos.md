@@ -252,3 +252,40 @@ As pernas dobravam demais ao andar, sobretudo nos modelos de artista e nos quadr
 Correções:
 - Na caminhada, a passada é a que a perna desenhada alcança com o pé no chão cerca de 55% do ciclo; na corrida, vale a passada da espécie.
 - A descida da pelve é medida a partir da extensão de repouso de cada perna, e parte dela é absorvida esticando a perna.
+
+## Texturas fotográficas do chão (25/10/2026)
+Algumas camadas do terreno passaram a usar fotos do [Poly Haven](https://polyhaven.com), todas em domínio público (CC0). Os créditos estão no menu **Créditos**.
+
+| Camada | Textura | Autor |
+|---|---|---|
+| Terra | Brown Mud Dry | Rob Tuytel |
+| Rocha | Rock Face 03 | Dario Barresi, Rico Cilliers |
+| Areia | Sand 01 | Rob Tuytel |
+| Lama | Brown Mud 02 | Rob Tuytel |
+
+**Como foram preparadas** (`tools/photo-textures.py`, com os números de `tools/procedural-stats.ts`):
+- De cada foto entram cor, relevo, rugosidade e normal (padrão OpenGL).
+- A cor média, a média e a variação do relevo, a rugosidade média e a força da normal foram igualadas às da camada gerada pelo jogo:
+  - assim a paleta, a mistura entre camadas e o brilho continuam calibrados;
+  - a foto acrescenta só o detalhe.
+- As manchas grandes de tom foram atenuadas em 30%, porque apareceriam repetidas a cada 2,6 m.
+- Terra e lama vêm de fotos de 1,3 m e foram repetidas 2×2 no ladrilho de 2,6 m, para que as pedrinhas não fiquem com o dobro do tamanho.
+- Os arquivos são gerados em 1024 e 512 px, em WebP, com redimensionamento sem emendas.
+  - O perfil "ultra" usa os de 1024; os demais usam os de 512.
+  - Os de 512 entram no cache offline na instalação. Os de 1024 só são guardados quando usados.
+
+**No jogo:**
+- As fotos são decodificadas no mesmo Worker das texturas, sem travar a tela.
+- Se uma foto não carregar, fica a camada gerada pelo jogo. Ela não é gravada no cache, para a foto ser tentada de novo na próxima visita.
+- O total para o perfil comum é de 1,1 MB (3,9 MB no ultra).
+
+**Comparação antes e depois** (capturas no jogo, mesma posição e mesma hora):
+- **Melhorou com foto:**
+  - rocha (os paredões do cânion perderam as rachaduras de desenho e ganharam aspecto de rocha sedimentar);
+  - terra e lama (as versões geradas eram, respectivamente, ladrilhos com bolinhas e uma mancha borrada);
+  - areia.
+- **Ficaram como estavam:**
+  - **Folhas secas:** na floresta, a foto escondia as manchas avermelhadas de serrapilheira que dão variedade ao chão.
+  - **Grama:** a foto, mesmo com o contraste igualado, ficou mais escura e chapada que as folhinhas desenhadas pelo jogo. Ela também é coberta pela grama 3D.
+  - **Neve:** todas as fotos livres de neve têm pegadas ou marcas de pneu, que se repetiriam no chão.
+- Imagens (à esquerda o procedural, à direita com fotos): `docs/visual/texturas-foto-canion.jpg` e `docs/visual/texturas-foto-floresta.jpg`. A do cânion foi tirada quando a grama e as folhas secas ainda eram foto; elas aparecem pouco nessa cena.

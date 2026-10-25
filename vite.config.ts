@@ -24,7 +24,9 @@ function offlinePrecache(): Plugin {
         for (const e of readdirSync(dir, { withFileTypes: true })) {
           if (e.isDirectory()) walk(`${dir}/${e.name}`, `${prefix}${e.name}/`);
           else {
-            files.add(`${prefix}${e.name}`);
+            // Full-size photo textures (ultra quality) are cached when first used, not
+            // on install, so phones on lower presets don't download them.
+            if (!`${prefix}`.startsWith('textures/1024/')) files.add(`${prefix}${e.name}`);
             hash.update(readFileSync(`${dir}/${e.name}`));
           }
         }

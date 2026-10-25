@@ -87,4 +87,7 @@ sem medição**: precisa de um celular ou PC com GPU (o painel F3 do jogo mostra
 - **Sem modelo de artista de origem limpa:** sucuri, smilodonte, protocerátops,
   paquirrinossauro, microraptor, iguanodonte, dilofossauro e compsógnato. Continuam com os
   modelos gerados pelo jogo, que foram melhorados.
-- **Texturas fotográficas do mundo** (Poly Haven/ambientCG): não feitas nesta rodada.
+- **Texturas fotográficas do chão:**
+  - terra, rocha, areia e lama usam fotos CC0 do Poly Haven;
+  - a grama, as folhas secas e a neve continuam procedurais, porque as fotos ficaram piores na comparação no jogo (veja `modelos-externos.md`);
+  - modelos 3D do mundo vindos dessas bibliotecas ainda não entraram.

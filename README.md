@@ -337,7 +337,13 @@ Português (padrão) e inglês, com seletor nas configurações. A escolha fica 
 
 ### Gráficos (v0.3: transformação visual)
 
-Não há arquivos de arte no projeto: **toda a geometria e todas as texturas são geradas pelo código**, a partir de regras e de ruído, no próprio jogo. Nada é baixado da internet (o ambiente de desenvolvimento não tinha acesso a bibliotecas de texturas CC0). Isso tem limites claros, descritos em *Recursos externos* e *Limitações*.
+Quase toda a geometria e as texturas são **geradas pelo código**, a partir de regras e de ruído, no próprio jogo. As exceções são os modelos de artista de algumas espécies (veja [`docs/modelos-externos.md`](docs/modelos-externos.md)) e, desde 25/10/2026, as **fotos de quatro camadas do chão**:
+- as camadas são terra, rocha, areia e lama;
+- vêm do Poly Haven, em domínio público (CC0);
+- ficam em `public/textures/` e são servidas junto com o jogo;
+- como foram preparadas está em *Texturas fotográficas do chão*, em `docs/modelos-externos.md`.
+
+Isso tem limites claros, descritos em *Recursos externos* e *Limitações*.
 
 - **Texturas PBR procedurais** (`src/graphics/texgen.ts`):
   - cor, mapa normal e rugosidade, sem emendas;
@@ -346,6 +352,9 @@ Não há arquivos de arte no projeto: **toda a geometria e todas as texturas sã
 - **Carregamento progressivo das texturas:**
   - versões de 64 px ficam prontas na hora;
   - a resolução do perfil (256 a 1024 px) é gerada num Web Worker e trocada sem travar;
+  - terra, rocha, areia e lama vêm de fotos:
+    - são decodificadas no mesmo Worker;
+    - se a foto não carregar, fica a versão procedural;
   - o resultado fica em cache no IndexedDB, então as visitas seguintes não geram de novo.
 - **Terreno:**
   - microrrelevo, montículos e trilhas de animais levemente afundadas;
@@ -457,7 +466,7 @@ Comparação com capturas reais das mesmas cenas, antes e depois, no perfil Méd
 - Os arquivos com hash são servidos do cache. A página tenta a rede primeiro, para receber atualizações, e cai no cache se estiver sem internet.
 - **Nada no jogo usa recursos externos:**
   - sem fontes de CDN;
-  - sem modelos, texturas ou sons baixados;
+  - sem modelos, texturas ou sons de outros sites: os arquivos vêm junto com o jogo;
   - sem APIs.
 - O teste ponta a ponta confirma isso (zero requisições externas).
 - **Testado de verdade:** página carregada, cache completo, rede desligada no navegador, página recarregada, mundo novo gerado, jogado e salvo — tudo sem rede.
@@ -698,9 +707,14 @@ Também verifica que nenhum erro aparece na página. Capturas reais em `docs/vis
     - esculturas com anatomia detalhada (músculos, pele com dobras, rosto humano realista);
     - texturas pintadas ou escaneadas;
     - animações capturadas ou feitas à mão.
-- **Texturas fotográficas ou escaneadas** (PBR com cor, normal, rugosidade e AO) de solo, rochas, casca e folhas. Hoje elas são geradas proceduralmente: convincentes de média distância, mas sem a riqueza de uma foto.
+- **Mais texturas fotográficas ou escaneadas** (PBR com cor, normal, rugosidade e AO):
+  - terra, rocha, areia e lama já usam fotos CC0;
+  - a grama, as folhas secas e a neve continuam procedurais, porque as fotos livres testadas ficaram piores no jogo;
+  - casca e folhas das árvores também continuam procedurais.
 - **Vegetação feita por artista** (folhas recortadas de fotos, *impostors* para longe), para substituir os cartões de folha gerados.
-- **Bibliotecas CC0** (Poly Haven, ambientCG): o acesso foi liberado na v0.5, mas as texturas e os modelos do mundo ainda não foram integrados.
+- **Bibliotecas CC0** (Poly Haven, ambientCG):
+  - quatro texturas de chão do Poly Haven já foram integradas;
+  - modelos 3D do mundo (pedras, troncos, plantas) ainda não.
 - **Sons gravados** (opcional). Todo o áudio atual é sintetizado; vocalizações gravadas ou desenhadas por um sound designer soariam mais naturais.
 - **Testes em aparelhos reais:** Android, iPhone (incluindo instalação como app pela tela inicial), tablets e PCs com GPU.
 
