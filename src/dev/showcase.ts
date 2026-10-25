@@ -90,6 +90,7 @@ export function runShowcase(canvas: HTMLCanvasElement): void {
     scene.add(v.root);
     return { a, v, sp, stride: 0, atk: move ? poses[idx] : null };
   });
+  (window as unknown as { __items: unknown }).__items = items;
   const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 1000);
   const total = x;
   const fit = () => {

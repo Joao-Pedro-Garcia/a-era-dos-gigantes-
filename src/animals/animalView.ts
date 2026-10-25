@@ -75,6 +75,9 @@ export interface AnimalView {
   hitLX: number;
   hitLZ: number;
   hitAmp: number;
+  /** Gait phase accumulated by the view (strides scaled to the legs actually drawn). */
+  cyc: number;
+  lastStride: number;
 }
 
 /**
@@ -347,7 +350,7 @@ export function createAnimalView(speciesId: string, individual = '', juvenile = 
   const size = (0.94 + hashId(individual || speciesId, 3) * 0.12) * (alpha ? ALPHA.size : 1);
   const aura = alpha ? createAlphaAura(sp) : null;
   if (aura) root.add(aura.points);
-  const view: AnimalView = { root, sp, tpl, meshHi, meshMid, meshLo, bones, rest, materials, shadow, size, posture: 0, flap: 0, jaw: 0, look: 0, pelvisDrop: 0, bodyPitch: 0, legInfo, ext: null, rig: null, jawRest: 0, juvenile, alpha, aura, extMats: [], deadT: 99, scan: 0, turn: 0, lastHeading: NaN, hitT: 99, hitLX: 0, hitLZ: 0, hitAmp: 0 };
+  const view: AnimalView = { root, sp, tpl, meshHi, meshMid, meshLo, bones, rest, materials, shadow, size, posture: 0, flap: 0, jaw: 0, look: 0, pelvisDrop: 0, bodyPitch: 0, legInfo, ext: null, rig: null, jawRest: 0, juvenile, alpha, aura, extMats: [], deadT: 99, scan: 0, turn: 0, lastHeading: NaN, hitT: 99, hitLX: 0, hitLZ: 0, hitAmp: 0, cyc: 0, lastStride: NaN };
   // Resolves after the optional models finish loading (null when the species has none).
   void instantiate(speciesId, individual).then((inst) => {
     if (!inst) return;
@@ -523,9 +526,17 @@ export function poseAnimalView(v: AnimalView, a: AnimalData, stride: number, alt
   const mv = moving && !airborne ? 1 : 0;
 
   // ---- Legs ----------------------------------------------------------------
-  const stepLen = sp.locomotion.stride;
+  // Walking strides as long as the legs drawn can take with each foot down about 55 % of the
+  // cycle (real walks); running keeps the species' stride. Short-legged artist models (fitted
+  // skeletons) would otherwise spend most of each cycle with the foot in the air.
+  const walkLeg = v.legInfo.find((l) => l.walking);
+  const reach0 = walkLeg ? (walkLeg.l0 + walkLeg.l1) * 0.62 : sp.locomotion.stride;
+  const stepLen = THREE.MathUtils.lerp(Math.min(sp.locomotion.stride, reach0 / 1.1), sp.locomotion.stride, runF);
+  const dS = stride - v.lastStride;
+  v.cyc += Number.isFinite(dS) && dS >= 0 && dS < 4 ? (dS * sp.locomotion.stride) / stepLen : 0;
+  v.lastStride = stride;
   const H = v.tpl.hipHeight;
-  const cycle = stride / 2;
+  const cycle = v.cyc / 2;
   const cy = Math.cos(a.heading);
   const sy = Math.sin(a.heading);
   // Ground under each walking foot (model units, relative to the animal's origin).
@@ -572,9 +583,14 @@ export function poseAnimalView(v: AnimalView, a: AnimalData, stride: number, alt
       }
     }
     // Pelvis must come down if the foot would be out of reach (also folds the legs when resting).
+    // Measured from the leg's own rest extension: pillar-like legs that stand almost straight
+    // (sauropods, artist models) would otherwise fold their knees deeply for a small drop. Only
+    // part of the excess lowers the body; the rest straightens the leg at the end of the stance.
     const A = T.clone().add(l.metaVec);
     const d = Math.hypot(A.y - l.hip.y, A.z - l.hip.z);
-    drop = Math.max(drop, d - (l.l0 + l.l1) * 0.97);
+    const A0 = l.toe.clone().add(l.metaVec);
+    const restD = Math.hypot(A0.y - l.hip.y, A0.z - l.hip.z);
+    drop = Math.max(drop, (d - Math.max(restD, (l.l0 + l.l1) * 0.97)) * 0.6);
     targets.push({ l, T, toeOff });
   }
   // Body pitch from the ground under front and hind feet (quadrupeds), smoothed.
