@@ -187,9 +187,11 @@ const fastSettings = () => localStorage.setItem('edg.settings.v1', JSON.stringif
   await page.waitForTimeout(500);
   // Keep the animal in front of the player while waiting (slow frames let it wander off).
   const hold = (id) => { const g = window.__edg; const a = g.eco.get(id); const p = g.player.s; a.x = p.x; a.z = p.z + 3; a.state = 'idle'; a.fear = 0; p.yaw = 0; return /Oferecer/.test(document.querySelector('.prompt')?.textContent ?? ''); };
-  await until(page, hold, tame, 20000);
+  // The first animal of a species builds its model on the spot: with software rendering that
+  // frame alone can take tens of seconds.
+  await until(page, hold, tame, 90000);
   await press(page, 'KeyE');
-  await until(page, (id) => !!window.__edg.eco.get(id)?.tame, tame, 30000);
+  await until(page, (id) => !!window.__edg.eco.get(id)?.tame, tame, 60000);
   const isTame = await ev(page, (id) => !!window.__edg.eco.get(id)?.tame, tame);
   check('taming: feeding with E completes taming', isTame);
   if (isTame) {
@@ -373,8 +375,10 @@ const fastSettings = () => localStorage.setItem('edg.settings.v1', JSON.stringif
   await page.waitForTimeout(1200);
   await page.getByRole('button', { name: 'Continuar' }).click();
   check('recovery: corrupted main save falls back to the backup', await waitState(page, 'playing'));
+  // The notice is shown once the world is on screen (slow first frames here): wait for it.
+  const told = await until(page, () => [...document.querySelectorAll('.note')].some((n) => /cópia de segurança/i.test(n.textContent ?? '')), null, 60000);
   const notes = await page.locator('.note').allTextContents();
-  check('recovery: the player is told the backup was used', notes.some((n) => /cópia de segurança/i.test(n)), notes.join(' | '));
+  check('recovery: the player is told the backup was used', told, notes.join(' | '));
   } catch (e) {
     check('main flow finished without script errors', false, String(e).split('\n')[0]);
     await page.screenshot({ path: `${out}/e2e-error.png` }).catch(() => {});
