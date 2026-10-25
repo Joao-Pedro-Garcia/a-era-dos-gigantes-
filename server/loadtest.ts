@@ -92,7 +92,7 @@ async function main(): Promise<void> {
       timers.push(setInterval(() => ws.send(JSON.stringify({ t: 'ping', at: Date.now() })), 1000));
       if (i === 0) {
         const list: AnimalTuple[] = [];
-        for (let a = 0; a < ANIMALS; a++) list.push([`a${a}`, 'triceratops', a * 3, 10, a * 2, 0.3, 1.2, 'wander', 900, 1, 0]);
+        for (let a = 0; a < ANIMALS; a++) list.push([`a${a}`, 'triceratops', a * 3, 10, a * 2, 0.3, 1.2, 'wander', 900, 1, 0, -1e6, 0]);
         const text = JSON.stringify({ t: 'animals', list });
         timers.push(setInterval(() => ws.send(text), 1000 / ANIMALS_HZ));
       }

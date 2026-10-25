@@ -84,7 +84,7 @@ self.addEventListener('message', (e) => {
 const BUILD = (() => {
   const d = new Date().toISOString().slice(0, 16).replace('T', ' ');
   try {
-    return `${d} · ${execSync('git rev-parse --short HEAD').toString().trim()}`;
+    return `${d} · ${process.env.BUILD_SHA || execSync('git rev-parse --short HEAD').toString().trim()}`;
   } catch {
     return d;
   }

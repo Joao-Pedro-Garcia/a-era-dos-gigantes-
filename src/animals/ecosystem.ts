@@ -70,6 +70,16 @@ export interface EcoContext {
   playerEvaded?: AIWorld['playerEvaded'];
   alphaRoar?: AIWorld['alphaRoar'];
   alphaDuel?: AIWorld['alphaDuel'];
+  /**
+   * Co-op: the other players in the world (simulated here by the host). Each animal perceives
+   * whichever player is nearest to it; attacks on a remote player go to `damageRemote`.
+   */
+  others?: RemotePercept[];
+  damageRemote?(id: string, amount: number, a: AnimalData, knock: { dx: number; dz: number; speed: number } | null): void;
+}
+
+export interface RemotePercept extends PlayerPercept {
+  id: string;
 }
 
 export type EcoEvent =
@@ -454,11 +464,39 @@ export class Ecosystem {
       alphaDuel: ctx.alphaDuel,
     };
 
+    // Co-op: each animal perceives the nearest living player; hooks that act on "the player"
+    // are routed to that player (remote ones over the network).
+    const others = ctx.others?.filter((o) => o.alive) ?? [];
+    const local = { player: ctx.player, damagePlayer: world.damagePlayer, knockPlayer: world.knockPlayer, holdPlayer: world.holdPlayer, playerEvaded: world.playerEvaded };
+    let knockOf: { dx: number; dz: number; speed: number } | null = null;
+
     // Distant active animals think and move at a reduced rate (accumulated time keeps them consistent).
     this.frame++;
     for (const a of this.active) {
       if (!a.alive) continue;
-      const d = Math.hypot(a.x - ctx.player.x, a.z - ctx.player.z);
+      let d = Math.hypot(a.x - ctx.player.x, a.z - ctx.player.z);
+      let remote: RemotePercept | null = null;
+      if (!ctx.player.alive) d = Infinity;
+      for (const o of others) {
+        const od = Math.hypot(a.x - o.x, a.z - o.z);
+        if (od < d) {
+          d = od;
+          remote = o;
+        }
+      }
+      if (!Number.isFinite(d)) d = Math.hypot(a.x - ctx.player.x, a.z - ctx.player.z);
+      if (remote) {
+        const id = remote.id;
+        world.player = remote;
+        world.damagePlayer = (amount, an) => {
+          ctx.damageRemote?.(id, amount, an, knockOf);
+          knockOf = null;
+        };
+        // The knock-back of a strike is reported before its damage: carry it along.
+        world.knockPlayer = (dx, dz, speed) => (knockOf = { dx, dz, speed });
+        world.holdPlayer = undefined;
+        world.playerEvaded = undefined;
+      } else Object.assign(world, local);
       const every = a.tame?.ridden ? 1 : d > 170 ? 4 : d > 100 ? 2 : 1;
       let step = dt;
       if (every > 1) {
@@ -473,6 +511,7 @@ export class Ecosystem {
       this.brain.update(a, world, step);
       if (!a.alive && a.cause === '') this.kill(a, 'unknown');
     }
+    Object.assign(world, local);
     this.separate();
 
     this.abstractAcc += dt;
@@ -484,13 +523,14 @@ export class Ecosystem {
   }
 
   private selectActive(ctx: EcoContext): void {
-    const px = ctx.player.x;
-    const pz = ctx.player.z;
+    const centres = [{ x: ctx.player.x, z: ctx.player.z }, ...(ctx.others ?? [])];
     const r2 = ACTIVE_RADIUS * ACTIVE_RADIUS;
     const living: [number, AnimalData][] = [];
     const dead: AnimalData[] = [];
     for (const a of this.animals.values()) {
-      const d2 = (a.x - px) ** 2 + (a.z - pz) ** 2;
+      // Distance to the nearest player (co-op: animals around every player stay active).
+      let d2 = Infinity;
+      for (const c of centres) d2 = Math.min(d2, (a.x - c.x) ** 2 + (a.z - c.z) ** 2);
       if (d2 > r2) continue;
       // Tamed animals near the player are always simulated first.
       if (a.alive) living.push([a.tame ? d2 * 0.01 : d2, a]);

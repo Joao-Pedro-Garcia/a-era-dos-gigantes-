@@ -357,20 +357,41 @@ export class Building {
 
   place(pl: Placement, inv: Inventory, costMult = 1): Piece | null {
     if (!pl.valid) return null;
-    const def = PIECES[pl.type];
     if (!inv.removeAll(Building.cost(pl.type, costMult))) return null;
-    const p: Piece = { id: `p${this.nextId++}`, type: pl.type, x: pl.x, y: pl.y, z: pl.z, rot: pl.rot };
-    if (pl.type === 'storage') p.storage = Array(20).fill(null);
-    if (pl.type === 'water_collector') p.water = 0;
-    if (pl.type === 'crop_plot') {
+    return this.create(`p${this.nextId++}`, pl.type, pl.x, pl.y, pl.z, pl.rot);
+  }
+
+  /**
+   * Co-op: a piece another player built (its materials were paid there). Returns null when
+   * the id is already present or the type is unknown.
+   */
+  addRemote(id: string, type: string, x: number, y: number, z: number, rot: number): Piece | null {
+    if (this.pieces.has(id) || !(type in PIECES)) return null;
+    return this.create(id, type as PieceType, x, y, z, rot);
+  }
+
+  /** Co-op: removes a piece another player demolished (no refund here). */
+  removeRemote(id: string): Piece | null {
+    const p = this.pieces.get(id);
+    if (!p) return null;
+    this.pieces.delete(id);
+    this.collision.remove(id);
+    return p;
+  }
+
+  private create(id: string, type: PieceType, x: number, y: number, z: number, rot: number): Piece {
+    const def = PIECES[type];
+    const p: Piece = { id, type, x, y, z, rot };
+    if (type === 'storage') p.storage = Array(20).fill(null);
+    if (type === 'water_collector') p.water = 0;
+    if (type === 'crop_plot') {
       p.growth = 0;
       p.crop = null;
     }
     if (def.slots) p.storage = Array(def.slots).fill(null);
-    if (pl.type === 'nest_box') p.egg = null;
-    if (pl.type === 'spike_trap') p.uses = 6;
-    if (pl.type === 'snare_trap') p.armed = true;
-    void def;
+    if (type === 'nest_box') p.egg = null;
+    if (type === 'spike_trap') p.uses = 6;
+    if (type === 'snare_trap') p.armed = true;
     this.pieces.set(p.id, p);
     this.addCollider(p);
     return p;

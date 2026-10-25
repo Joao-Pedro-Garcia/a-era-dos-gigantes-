@@ -160,6 +160,17 @@ export class AnimalBrain {
   }
 
   /** Strides travelled, used by the renderer so legs follow real displacement. */
+  /**
+   * Co-op guests: the host simulates this animal; here it only follows the snapshots, so
+   * advance what the view needs (gait phase, flight altitude) without any decision making.
+   */
+  puppet(a: AnimalData, dt: number, altitude: number, now: number): void {
+    const r = this.runtime(a);
+    const sp = SPECIES[a.speciesId];
+    r.stride += (a.speed * dt) / Math.max(0.1, sp.locomotion.stride * growthScale(a, now));
+    r.altitude += (altitude - r.altitude) * damp(4, dt);
+  }
+
   stridePhase(a: AnimalData): number {
     return this.rt.get(a.id)?.stride ?? 0;
   }

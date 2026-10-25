@@ -61,8 +61,13 @@ export interface PlayerState {
   act: number;
 }
 
-/** One animal in a host snapshot: [id, species, x, y, z, heading, speed, state, health, alive, altitude]. */
-export type AnimalTuple = [string, string, number, number, number, number, number, string, number, 0 | 1, number];
+/**
+ * One animal in a host snapshot: [id, species, x, y, z, heading, speed, state, health, alive,
+ * altitude, bornAt (game time), flags (A_ALPHA | A_TAME)].
+ */
+export type AnimalTuple = [string, string, number, number, number, number, number, string, number, 0 | 1, number, number, number];
+export const A_ALPHA = 1;
+export const A_TAME = 2;
 
 export interface PeerInfo {
   id: string;
@@ -80,6 +85,7 @@ export type ClientMsg =
   | { t: 'animals'; list: AnimalTuple[] }
   | { t: 'env'; time: number; weather: string }
   | { t: 'hit'; id: string; dmg: number; x: number; z: number }
+  | { t: 'damage'; to: string; amount: number; species: string; x: number; z: number; knock: [number, number, number] | null }
   | { t: 'build'; op: 'place' | 'remove'; data: unknown }
   | { t: 'chat'; text: string }
   | { t: 'ping'; at: number }
@@ -93,6 +99,7 @@ export type ServerMsg =
   | { t: 'animals'; list: AnimalTuple[] }
   | { t: 'env'; time: number; weather: string }
   | { t: 'hit'; from: string; id: string; dmg: number; x: number; z: number }
+  | { t: 'damage'; amount: number; species: string; x: number; z: number; knock: [number, number, number] | null }
   | { t: 'build'; from: string; op: 'place' | 'remove'; data: unknown }
   | { t: 'chat'; from: string; name: string; text: string }
   | { t: 'host'; id: string }
@@ -149,7 +156,7 @@ export function validState(s: unknown): s is PlayerState {
 }
 
 export function validAnimal(a: unknown): a is AnimalTuple {
-  if (!Array.isArray(a) || a.length !== 11) return false;
+  if (!Array.isArray(a) || a.length !== 13) return false;
   return (
     str(a[0], 40) &&
     str(a[1], 40) &&
@@ -161,7 +168,9 @@ export function validAnimal(a: unknown): a is AnimalTuple {
     str(a[7], 24) &&
     num(a[8], -1e6, 1e6) &&
     (a[9] === 0 || a[9] === 1) &&
-    num(a[10], 0, 2000)
+    num(a[10], 0, 2000) &&
+    num(a[11], -1e12, 1e12) &&
+    num(a[12], 0, 255)
   );
 }
 
@@ -198,6 +207,13 @@ export function parseClientMsg(text: string): ClientMsg | null {
       return num(m.time, -1e12, 1e12) && str(m.weather, 24) ? { t: 'env', time: m.time as number, weather: m.weather as string } : null;
     case 'hit':
       return str(m.id, 40) && num(m.dmg, 0, MAX_HIT_DAMAGE) && num(m.x, -WORLD_LIMIT, WORLD_LIMIT) && num(m.z, -WORLD_LIMIT, WORLD_LIMIT) ? { t: 'hit', id: m.id as string, dmg: m.dmg as number, x: m.x as number, z: m.z as number } : null;
+    case 'damage': {
+      const k = m.knock;
+      const knockOk = k === null || (Array.isArray(k) && k.length === 3 && num(k[0], -1.01, 1.01) && num(k[1], -1.01, 1.01) && num(k[2], 0, 60));
+      return str(m.to, 16) && num(m.amount, 0, 1000) && str(m.species, 40) && num(m.x, -WORLD_LIMIT, WORLD_LIMIT) && num(m.z, -WORLD_LIMIT, WORLD_LIMIT) && knockOk
+        ? { t: 'damage', to: m.to as string, amount: m.amount as number, species: m.species as string, x: m.x as number, z: m.z as number, knock: (k ?? null) as [number, number, number] | null }
+        : null;
+    }
     case 'build':
       return (m.op === 'place' || m.op === 'remove') && m.data !== undefined && JSON.stringify(m.data).length <= 4096 ? { t: 'build', op: m.op, data: m.data } : null;
     case 'chat': {

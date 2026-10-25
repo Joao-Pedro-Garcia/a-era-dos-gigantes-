@@ -291,6 +291,133 @@ export class Hud {
     if (text) this.perfEl.textContent = text;
   }
 
+  // ------------------------------------------------------------------ co-op
+
+  private coopEl: HTMLElement | null = null;
+  private coopLog: HTMLElement | null = null;
+  private coopInfo: HTMLElement | null = null;
+
+  /** Co-op overlay: room code (copyable), players and latency, chat log and input. */
+  private ensureCoop(): HTMLElement {
+    if (this.coopEl) return this.coopEl;
+    const el = this.add(h('div', 'coop interactive'));
+    const head = el.appendChild(h('div', 'coop-head'));
+    this.coopInfo = head.appendChild(h('span', 'coop-info'));
+    const copy = head.appendChild(h('button', 'coop-copy', t('coop.copy')));
+    copy.onclick = () => {
+      const code = this.game.coop?.code ?? '';
+      navigator.clipboard?.writeText(code).then(
+        () => this.notify(t('coop.copied', { code }), 'good'),
+        () => this.notify(code),
+      );
+    };
+    this.coopLog = el.appendChild(h('div', 'coop-log'));
+    const input = el.appendChild(h('input', 'coop-input')) as HTMLInputElement;
+    input.type = 'text';
+    input.maxLength = 200;
+    input.placeholder = t('coop.chatHint');
+    input.onkeydown = (e) => {
+      if (e.key === 'Enter') {
+        const text = input.value.trim();
+        if (text && this.game.coop) {
+          this.game.coop.chat(text);
+          this.chatLine(t('coop.you'), text);
+        }
+        input.value = '';
+        input.blur();
+      } else if (e.key === 'Escape') input.blur();
+      e.stopPropagation();
+    };
+    this.coopEl = el;
+    return el;
+  }
+
+  /** Refreshes the co-op overlay (called every frame; cheap when nothing changed). */
+  updateCoop(): void {
+    const c = this.game.coop;
+    if (!c || this.game.state === 'menu') {
+      this.coopEl?.classList.add('hidden');
+      return;
+    }
+    const el = this.ensureCoop();
+    el.classList.remove('hidden');
+    const players = 1 + [...c.remotes.values()].filter((r) => r.info.connected).length;
+    const txt = `${t(c.isHost ? 'coop.hostOf' : 'coop.guestOf', { code: c.code || '…' })} · ${t('coop.players', { n: players })} · ${c.status === 'online' ? `${Math.round(c.net.rtt)} ms` : t(`coop.status.${c.status}`)}`;
+    if (this.coopInfo && this.coopInfo.textContent !== txt) this.coopInfo.textContent = txt;
+  }
+
+  chatLine(name: string, text: string): void {
+    this.ensureCoop();
+    const line = h('div', 'coop-line');
+    const b = line.appendChild(h('b'));
+    b.textContent = `${name}: `;
+    line.appendChild(document.createTextNode(text));
+    this.coopLog!.appendChild(line);
+    while (this.coopLog!.children.length > 8) this.coopLog!.firstElementChild!.remove();
+    setTimeout(() => line.classList.add('old'), 20000);
+  }
+
+  /** Main menu → Multiplayer: create a room or join one with an invite code. */
+  coopMenu(back: () => void, status = ''): void {
+    const g = this.game;
+    const card = h('div', 'card');
+    card.appendChild(h('h2', '', t('coop.title')));
+    card.appendChild(h('p', 'muted', t('coop.intro')));
+    const field = (label: string, value: string, max: number): HTMLInputElement => {
+      const l = card.appendChild(h('label', '', label));
+      const i = l.appendChild(h('input')) as HTMLInputElement;
+      i.type = 'text';
+      i.maxLength = max;
+      i.value = value;
+      return i;
+    };
+    let saved: { name?: string; server?: string } = {};
+    try {
+      saved = JSON.parse(localStorage.getItem('edg.coop') ?? '{}');
+    } catch {
+      saved = {};
+    }
+    const name = field(t('coop.name'), saved.name ?? '', 16);
+    const server = field(t('coop.server'), saved.server ?? '', 200);
+    server.placeholder = t('coop.serverDefault');
+    const remember = () => {
+      try {
+        localStorage.setItem('edg.coop', JSON.stringify({ name: name.value.trim(), server: server.value.trim() }));
+      } catch {
+        /* private mode: not remembered */
+      }
+    };
+    const msg = h('p', 'muted coop-status', status);
+    const go = (o: { create?: { seed: number }; join?: { code: string } }) => {
+      const nm = name.value.trim();
+      if (!nm) {
+        msg.textContent = t('coop.needName');
+        return;
+      }
+      remember();
+      msg.textContent = t('coop.connecting');
+      g.startCoop({ name: nm, url: server.value.trim() || undefined, ...o }, (err) => this.coopMenu(back, t(`coop.error.${err}`) || err));
+    };
+    const create = card.appendChild(h('button', 'primary', t('coop.create')));
+    create.onclick = () => go({ create: { seed: Math.floor(Math.random() * 1e6) } });
+    const code = field(t('coop.code'), '', 8);
+    code.placeholder = 'ABC234';
+    code.style.textTransform = 'uppercase';
+    const join = card.appendChild(h('button', '', t('coop.join')));
+    join.onclick = () => {
+      const c = code.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+      if (c.length !== 6) {
+        msg.textContent = t('coop.badCode');
+        return;
+      }
+      go({ join: { code: c } });
+    };
+    card.appendChild(msg);
+    const b = card.appendChild(h('button', '', t('menu.back')));
+    b.onclick = back;
+    this.showMenu(card);
+  }
+
   notify(text: string, kind: 'info' | 'warn' | 'good' = 'info'): void {
     const n = h('div', `note ${kind}`);
     n.textContent = text;
@@ -1072,6 +1199,9 @@ export class Hud {
     setTimeout(paint, 1000);
     queueMicrotask(() => card.appendChild(ver));
     card.appendChild(k);
+    const mp = h('button', '', t('coop.title'));
+    mp.onclick = () => this.coopMenu(() => this.mainMenu());
+    card.appendChild(mp);
     const cr = h('button', '', t('menu.credits'));
     cr.onclick = () => this.creditsMenu(() => this.mainMenu());
     card.appendChild(cr);

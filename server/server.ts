@@ -261,6 +261,16 @@ export function startServer(opts: ServerOptions = {}): Promise<{ port: number; c
         if (host && host !== me) send(host, { t: 'hit', from: me.id, id: m.id, dmg: m.dmg, x: m.x, z: m.z });
         break;
       }
+      case 'damage': {
+        // Animals are simulated by the host: only it reports their attacks on other players.
+        const target = room.players.get(m.to);
+        if (!isHost || !target || target === me) {
+          strike(me, ws, 'cheat');
+          break;
+        }
+        send(target, { t: 'damage', amount: m.amount, species: m.species, x: m.x, z: m.z, knock: m.knock });
+        break;
+      }
       case 'build':
         broadcast(room, { t: 'build', from: me.id, op: m.op, data: m.data }, me);
         break;

@@ -654,7 +654,9 @@ export class Interactions {
     const g = this.g;
     const p = g.player!;
     const wasAlive = target.alive;
-    g.eco!.playerAttack(target, dmg, p.s.x, p.s.z);
+    // Co-op guests: the host owns the animals; the blow is sent there (the server checks reach).
+    if (g.coop?.isGuest) g.coop.sendHit(target.id, dmg, target.x, target.z);
+    else g.eco!.playerAttack(target, dmg, p.s.x, p.s.z);
     g.hostileUntil = g.env!.state.time + 10;
     if (!target.tame) g.setCompanionTarget(target.id);
     g.audio.sfx(sound, [target.x, target.y + 1, target.z]);

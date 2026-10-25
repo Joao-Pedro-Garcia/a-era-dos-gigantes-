@@ -5,7 +5,7 @@ import { makeAlpha } from '../animals/alpha';
 import { DinoCombatFx } from '../combat/dinoCombatFx';
 import * as THREE from 'three';
 import { AudioSystem, type Surface } from '../audio/audio';
-import { growthScale, lifeStage, maxHealth, type AIState, type AnimalData, type TameCommand } from '../animals/animal';
+import { createAnimal, growthScale, lifeStage, maxHealth, type AIState, type AnimalData, type TameCommand } from '../animals/animal';
 import { alphaMul } from '../animals/alpha';
 import { updateAlphaAura } from '../animals/alphaAura';
 import { LandmarkViews } from '../world/landmarks';
@@ -64,9 +64,13 @@ import { Rng } from './rng';
 import { BuildController, HoldRepeat, type NudgeDir } from '../building/buildMode';
 import { PieceThumbs } from '../building/pieceThumbs';
 import { Profiler } from '../performance/profiler';
+import { CoopSession, F_CROUCH, F_DEAD, F_MOUNTED, F_SPRINT, F_SWIM } from '../net/coop';
+import { defaultServerUrl } from '../net/client';
+import type { PlayerState } from '../net/protocol';
 
 type GameState = 'menu' | 'loading' | 'playing' | 'paused' | 'dead' | 'ending';
 const SAVE_SLOT = 'main';
+const COOP_SLOT = 'coop';
 const FOOTPRINT_MAX = 400;
 
 /**
@@ -196,6 +200,8 @@ export class Game {
   rng = new Rng(Date.now() & 0xffffffff);
   inCave: string | null = null;
   mountedId: string | null = null;
+  /** Co-op session (null in single player). */
+  coop: CoopSession | null = null;
   private companionTarget: { id: string; until: number } | null = null;
   private lastDay = -1;
   private xpToast = new Map<Tree, number>();
@@ -379,7 +385,10 @@ export class Game {
 
   private freshSave(seed: number): SaveData {
     const terrain = new Terrain(seed);
-    const spawn = terrain.findDryGround(SPAWN.x, SPAWN.z);
+    // Co-op guests arrive a few steps beside the host, not inside it.
+    const side = this.coop?.isGuest ? 3 + this.rng.next() * 3 : 0;
+    const ang = this.rng.next() * Math.PI * 2;
+    const spawn = terrain.findDryGround(SPAWN.x + Math.cos(ang) * side, SPAWN.z + Math.sin(ang) * side);
     const inv = new Inventory(createInventory());
     inv.add('field_journal', 1);
     inv.add('berries', 6);
@@ -403,6 +412,109 @@ export class Game {
 
   newGame(seed: number): void {
     this.startWorld(this.freshSave(seed));
+  }
+
+  /**
+   * Starts a co-op session: creates a room (host, with a new world from `seed`) or joins one by
+   * its invite code (guest, in the host's world). The world starts once the server welcomes us.
+   */
+  startCoop(o: { name: string; url?: string; create?: { seed: number }; join?: { code: string } }, onError?: (code: string) => void): void {
+    this.coop?.leave();
+    const game = this;
+    const ground = this.groundFn();
+    const session = new CoopSession(
+      {
+        get worldRoot() {
+          return game.worldRoot;
+        },
+        get textures() {
+          return game.textures;
+        },
+        get camera() {
+          return game.camera;
+        },
+        now: () => game.env?.state.time ?? 0,
+        localState: (): PlayerState => {
+          const p = game.player!;
+          const flags = (p.crouching ? F_CROUCH : 0) | (p.sprinting ? F_SPRINT : 0) | (p.swimming ? F_SWIM : 0) | (game.mountedId ? F_MOUNTED : 0) | (game.survival?.alive === false ? F_DEAD : 0);
+          return { x: p.s.x, y: p.visualY, z: p.s.z, yaw: p.bodyYaw, speed: Math.min(60, p.horizontalSpeed), flags, held: game.combat.shown.slice(0, 40), act: game.combat.stats.swings };
+        },
+        ground: (x, z) => (game.terrain ? ground(x, z) : 0),
+        animalsNear: (pts, r) => {
+          const out: [number, AnimalData][] = [];
+          for (const a of game.eco?.active ?? []) {
+            let d = Infinity;
+            for (const q of pts) d = Math.min(d, Math.hypot(a.x - q.x, a.z - q.z));
+            if (d <= r) out.push([d, a]);
+          }
+          return out.sort((x, y) => x[0] - y[0]).map((x) => x[1]);
+        },
+        altitude: (a) => game.eco?.brain.altitude(a) ?? 0,
+        animals: () => game.eco!.animals,
+        setActive: (list) => {
+          if (game.eco) game.eco.active = list;
+        },
+        puppet: (a, dt, alt) => game.eco?.brain.puppet(a, dt, alt, game.env?.state.time ?? 0),
+        env: () => (game.env ? { time: game.env.state.time, weather: game.env.state.weather } : null),
+        setEnv: (time, weather) => {
+          const e = game.env;
+          if (!e) return;
+          // Small drifts are eased out; big ones (sleep, joining late) jump.
+          e.state.time = Math.abs(time - e.state.time) > 30 ? time : e.state.time + (time - e.state.time) * 0.25;
+          e.state.weather = weather;
+        },
+        applyHit: (id, dmg, fx, fz) => {
+          const a = game.eco?.get(id);
+          if (a && a.alive) game.eco!.playerAttack(a, dmg, fx, fz);
+        },
+        takeDamage: (amount, speciesId, x, z, knock) => {
+          const p = game.player;
+          if (!p || !game.survival?.alive) return;
+          let a: AnimalData | undefined;
+          let best = 40;
+          for (const o of game.eco?.active ?? []) {
+            const d = Math.hypot(o.x - x, o.z - z);
+            if (o.speciesId === speciesId && d < best) {
+              best = d;
+              a = o;
+            }
+          }
+          a ??= createAnimal({ id: 'net-attacker', speciesId, x, z, bornAt: -1e9, groupId: 'net', rng: game.rng });
+          if (knock && !game.mountedId) p.knock(knock[0], knock[1], knock[2]);
+          game.animalDamagesPlayer(amount, a);
+        },
+        notify: (key, params, kind) => game.notify(key, params ?? {}, kind ?? 'info'),
+        chat: (name, text) => game.hud.chatLine(name, text),
+        pieces: () => [...(game.buildingSys?.pieces.values() ?? [])].map((p) => ({ id: p.id, type: p.type, x: p.x, y: p.y, z: p.z, rot: p.rot })),
+        addPiece: (id, type, x, y, z, rot) => {
+          const p = game.buildingSys?.addRemote(id, type, x, y, z, rot);
+          if (p) game.addPieceView(p);
+        },
+        removePiece: (id) => {
+          if (!game.buildingSys?.removeRemote(id)) return;
+          if (game.storageOpen?.id === id) game.storageOpen = null;
+          const view = game.pieceViews.get(id);
+          if (view) {
+            view.removeFromParent();
+            disposeObject(view);
+          }
+          game.pieceViews.delete(id);
+        },
+      },
+      { url: o.url || defaultServerUrl(), name: o.name, create: o.create, join: o.join },
+      (seed) => this.newGame(seed),
+    );
+    this.coop = session;
+    const check = setInterval(() => {
+      if (this.coop !== session) return clearInterval(check);
+      if (session.status === 'closed') {
+        clearInterval(check);
+        if (this.state === 'menu' || this.state === 'loading') {
+          this.coop = null;
+          onError?.(String(session.error ?? 'closed'));
+        }
+      }
+    }, 250);
   }
 
   async continueGame(): Promise<void> {
@@ -586,13 +698,16 @@ export class Game {
 
   async save(silent = false): Promise<void> {
     if (!this.player || this.state === 'loading' || this.state === 'menu') return;
+    // Co-op: the world belongs to the host, saved apart from the single-player world.
+    if (this.coop?.isGuest) return;
+    const slot = this.coop ? COOP_SLOT : SAVE_SLOT;
     try {
       this.sectors!.pruneHarvested(this.env!.state.time);
       // structuredClone detaches the snapshot from live objects mutated during the async write.
       const snap = structuredClone(this.snapshot());
       for (const a of snap.eco.animals) if (a.tame) a.tame.ridden = false;
-      await writeSave(SAVE_SLOT, snap);
-      this.hasSave = true;
+      await writeSave(slot, snap);
+      if (slot === SAVE_SLOT) this.hasSave = true;
       if (!silent) this.hud.notify(t('menu.saved'), 'good');
     } catch (e) {
       console.error(e);
@@ -635,6 +750,8 @@ export class Game {
 
   quitToMenu(): void {
     void this.save(true).then(() => {
+      this.coop?.leave();
+      this.coop = null;
       this.teardown();
       this.player = null;
       this.state = 'menu';
@@ -865,7 +982,7 @@ export class Game {
     const young = [...this.eco!.animals.values()].filter((a) => lifeStage(a, now) === 'juvenile' && Math.hypot(a.x - p.s.x, a.z - p.s.z) < 260).map((a) => a.speciesId);
     const modelsReady = prewarmPlants(25) && prewarmAnimals([...new Set([...this.eco!.animals.values()].map((a) => a.speciesId))], 25, [...new Set(young)]) && this.warmupStep();
     this.sectors!.update(p.s.x, p.s.z, q, this.env!.state.time, 40);
-    this.eco!.seedAround(p.s.x, p.s.z);
+    if (!this.coop?.isGuest) this.eco!.seedAround(p.s.x, p.s.z);
     const total = (q.loadRadius * 2 + 1) ** 2;
     this.hud.loading(Math.min(1, this.sectors!.loadedCount / total));
     this.rig.update(0.016, p, this.settings.firstPerson, this.groundFn(), this.collision);
@@ -1081,9 +1198,18 @@ export class Game {
         this.notify('combat.dodged', {}, 'good');
       },
     };
-    const steps = this.sleeping ? 6 : 1;
-    for (let i = 0; i < steps; i++) this.eco!.update(Math.min(dt / steps, 0.5), ecoCtx);
-    this.eco!.seedAround(p.s.x, p.s.z);
+    // Co-op guests do not simulate animals: the host's snapshots drive them (coop.update).
+    if (!this.coop?.isGuest) {
+      if (this.coop) {
+        ecoCtx.others = this.coop.percepts();
+        ecoCtx.damageRemote = (id, amount, a, knock) => this.coop?.sendDamage(id, amount, a, knock);
+      }
+      const steps = this.sleeping ? 6 : 1;
+      for (let i = 0; i < steps; i++) this.eco!.update(Math.min(dt / steps, 0.5), ecoCtx);
+      this.eco!.seedAround(p.s.x, p.s.z);
+      for (const o of ecoCtx.others ?? []) this.eco!.seedAround(o.x, o.z);
+    }
+    this.coop?.update(realDt);
     this.profiler.begin('taming');
     this.taming.update(dt, {
       eco: this.eco!,
@@ -1764,6 +1890,7 @@ export class Game {
   // ------------------------------------------------------------------ HUD & audio per frame
 
   private updateHud(ctx: { airTemp: number }, overweight: boolean, biome: BiomeId): void {
+    this.hud.updateCoop();
     const env = this.env!;
     const p = this.player!;
     const surv = this.survival!;
@@ -2221,6 +2348,7 @@ export class Game {
         const piece = this.buildingSys!.place(pl, this.inventory, this.progression.buildCost());
         if (piece) {
           this.addPieceView(piece);
+          this.coop?.sendPlace(piece);
           this.audio.sfx('place', [piece.x, piece.y, piece.z]);
           this.xp('building', 5);
           bc.placed();
@@ -2264,6 +2392,7 @@ export class Game {
       if (target) {
         if (this.storageOpen?.id === target.id) this.storageOpen = null;
         const res = this.buildingSys!.demolish(target.id, this.inventory);
+        this.coop?.sendRemove(target.id);
         const view = this.pieceViews.get(target.id);
         if (view) {
           view.removeFromParent();
@@ -2323,6 +2452,7 @@ export class Game {
         disposeObject(view);
       }
       this.pieceViews.delete(d.id);
+      this.coop?.sendRemove(d.id);
       if (this.storageOpen?.id === d.id) this.storageOpen = null;
       if (this.respawnPoint?.pieceId === d.id) this.respawnPoint = null;
       this.fx.spawn(materialOf(d.type) === 'stone' ? 'stone' : 'wood', new THREE.Vector3(d.x, d.y + 1, d.z), new THREE.Vector3(0, 1, 0), 1.5);

@@ -134,7 +134,7 @@ describe('co-op server', () => {
   it('only the host may send animal snapshots and the clock', async () => {
     const h = await host();
     const g = await guest(h.code);
-    const list = [['a1', 'dodo', 1, 2, 3, 0, 0.5, 'wander', 40, 1, 0]];
+    const list = [['a1', 'dodo', 1, 2, 3, 0, 0.5, 'wander', 40, 1, 0, -1000, 0]];
     h.c.send({ t: 'animals', list });
     expect((await g.c.next('animals')).list[0][0]).toBe('a1');
     h.c.send({ t: 'env', time: 1234, weather: 'rain' });

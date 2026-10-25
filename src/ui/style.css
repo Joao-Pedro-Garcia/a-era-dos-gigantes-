@@ -372,3 +372,17 @@ input.search::-webkit-search-cancel-button { display: none; }
   .big-ico { width: 40px; height: 40px; font-size: 24px; }
   .skills-head b { font-size: 14px; }
 }
+
+/* Co-op: room code, players, latency and chat (top right, under the graphics button) */
+.coop { position: absolute; right: calc(10px + var(--safe-r)); top: calc(58px + var(--safe-t)); width: min(300px, 62vw); display: grid; gap: 4px; z-index: 6; pointer-events: auto; font-size: 12px; }
+.coop-head { display: flex; gap: 6px; align-items: center; justify-content: flex-end; flex-wrap: wrap; }
+.coop-info { background: var(--bg); border: 1px solid var(--line); border-radius: 999px; padding: 4px 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.coop-copy { min-height: 28px; padding: 2px 10px; font-size: 12px; }
+.coop-log { display: grid; gap: 2px; justify-items: end; }
+.coop-line { background: rgba(0,0,0,.55); border-radius: 6px; padding: 3px 8px; max-width: 100%; overflow-wrap: anywhere; transition: opacity 1s; }
+.coop-line.old { opacity: .35; }
+.coop-line b { color: var(--accent); font-weight: 600; }
+.coop-input { width: 100%; min-height: 32px; font-size: 13px; background: rgba(0,0,0,.55); border: 1px solid var(--line); color: var(--text); border-radius: 8px; padding: 4px 8px; }
+.coop-status { min-height: 1.2em; }
+body.building .coop { display: none; }
+.coop-tag { position: absolute; left: 0; top: 0; pointer-events: none; font-size: 13px; font-weight: 600; color: #f4ead2; text-shadow: 0 1px 2px #000, 0 0 4px #000; white-space: nowrap; z-index: 3; will-change: transform; }

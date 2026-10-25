@@ -31,8 +31,8 @@ describe('co-op protocol', () => {
     expect(parseClientMsg(JSON.stringify({ t: 'state', s: { ...state(), x: 1e9 } }))).toBeNull();
     expect(parseClientMsg(JSON.stringify({ t: 'state', s: { ...state(), held: 'x'.repeat(200) } }))).toBeNull();
     expect(parseClientMsg(JSON.stringify({ t: 'hit', id: 'a1', dmg: 1e6, x: 0, z: 0 }))).toBeNull();
-    expect(parseClientMsg(JSON.stringify({ t: 'animals', list: [['a1', 'dodo', 1, 2, 3, 0, 1, 'wander', 50, 1, 0]] }))).not.toBeNull();
-    expect(parseClientMsg(JSON.stringify({ t: 'animals', list: [['a1', 'dodo', 1, 2, 3, 0, 1, 'wander', 50, 2, 0]] }))).toBeNull();
+    expect(parseClientMsg(JSON.stringify({ t: 'animals', list: [['a1', 'dodo', 1, 2, 3, 0, 1, 'wander', 50, 1, 0, -1000, 0]] }))).not.toBeNull();
+    expect(parseClientMsg(JSON.stringify({ t: 'animals', list: [['a1', 'dodo', 1, 2, 3, 0, 1, 'wander', 50, 2, 0, -1000, 0]] }))).toBeNull();
     expect(parseClientMsg('{not json')).toBeNull();
     expect(parseClientMsg(JSON.stringify({ t: 'nope' }))).toBeNull();
     expect(parseClientMsg(JSON.stringify({ t: 'chat', text: 'x'.repeat(60000) }))).toBeNull();
