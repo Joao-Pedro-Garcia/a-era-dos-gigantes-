@@ -235,6 +235,12 @@ function blueprint(sp: SpeciesDef, juvenile = false): Blueprint {
       cp(0.222 * L, Hh * 1.55, 0.021 * L, 0.025 * L, 0, 'neck2');
       cp(0.238 * L, Hh * 1.88, 0.018 * L, 0.021 * L, 0, 'neck3');
       cp(0.262 * L, Hh * 2.05, 0.017 * L, 0.019 * L, 0, null);
+    } else if (hadro && f.has('thumbSpike')) {
+      // Iguanodon: a short, thick neck held forward and slightly up (no swan-like S).
+      cp(0.215 * L, Hh * 1.14, 0.05 * L * b, 0.062 * L * b, 0.01 * L, 'neck1');
+      cp(0.245 * L, Hh * 1.28, 0.042 * L, 0.05 * L, 0.004 * L, 'neck2');
+      cp(0.268 * L, Hh * 1.38, 0.037 * L, 0.044 * L, 0, 'neck3');
+      cp(0.288 * L, Hh * 1.43, 0.034 * L, 0.04 * L, 0, null);
     } else if (hadro) {
       // Film look: a long S-curved neck carrying the head high above the shoulders.
       cp(0.215 * L, Hh * 1.16, 0.047 * L * b, 0.06 * L * b, 0.01 * L, 'neck1');
@@ -448,27 +454,28 @@ function blueprint(sp: SpeciesDef, juvenile = false): Blueprint {
       cp(0.33 * L, Hh * 1.02, 0.043 * L, 0.047 * L, 0, 'neck3');
       cp(0.36 * L, Hh * 1.0, 0.037 * L, 0.041 * L, 0, null);
     } else {
-      // Short bobtail, deep chest, thick neck carried low.
-      cp(-0.4 * L, Hh * 0.82, 0.02 * L, 0.022 * L, 0, null);
-      cp(-0.37 * L, Hh * 0.9, 0.028 * L, 0.03 * L, 0, 'tail4');
-      cp(-0.34 * L, Hh * 0.96, 0.036 * L, 0.038 * L, 0, 'tail3');
-      cp(-0.31 * L, Hh * 1.0, 0.046 * L, 0.05 * L, 0, 'tail2');
-      cp(-0.27 * L, Hh * 1.03, 0.064 * L, 0.07 * L, 0.004 * L, 'tail1');
-      cp(-0.19 * L, Hh * 1.02, 0.092 * L, 0.11 * L, 0.012 * L, 'pelvis');
-      cp(-0.03 * L, Hh * 0.98, 0.1 * L, 0.13 * L, 0.03 * L, 'torso');
-      cp(0.11 * L, Hh * 1.02, 0.104 * L, 0.148 * L, 0.036 * L, 'chest');
-      cp(0.19 * L, Hh * 1.08, 0.075 * L, 0.088 * L, 0.014 * L, 'neck1');
-      cp(0.24 * L, Hh * 1.12, 0.062 * L, 0.07 * L, 0, 'neck2');
-      cp(0.275 * L, Hh * 1.13, 0.054 * L, 0.06 * L, 0, 'neck3');
-      cp(0.295 * L, Hh * 1.12, 0.048 * L, 0.054 * L, 0, null);
+      // Big cat: short bobtail, shoulders above the hips, a deep chest and a tucked-in waist
+      // (narrow flanks, not a barrel), a thick, muscular neck carrying the head forward.
+      cp(-0.4 * L, Hh * 0.86, 0.018 * L, 0.02 * L, 0, null);
+      cp(-0.37 * L, Hh * 0.93, 0.024 * L, 0.026 * L, 0, 'tail4');
+      cp(-0.34 * L, Hh * 0.98, 0.03 * L, 0.033 * L, 0, 'tail3');
+      cp(-0.31 * L, Hh * 1.0, 0.04 * L, 0.044 * L, 0, 'tail2');
+      cp(-0.27 * L, Hh * 1.02, 0.055 * L, 0.06 * L, 0.004 * L, 'tail1');
+      cp(-0.19 * L, Hh * 1.02, 0.075 * L, 0.09 * L, 0.01 * L, 'pelvis');
+      cp(-0.04 * L, Hh * 1.04, 0.078 * L, 0.098 * L, 0.018 * L, 'torso');
+      cp(0.1 * L, Hh * 1.1, 0.088 * L, 0.132 * L, 0.04 * L, 'chest');
+      cp(0.18 * L, Hh * 1.18, 0.066 * L, 0.08 * L, 0.012 * L, 'neck1');
+      cp(0.225 * L, Hh * 1.24, 0.056 * L, 0.063 * L, 0, 'neck2');
+      cp(0.258 * L, Hh * 1.26, 0.05 * L, 0.056 * L, 0, 'neck3');
+      cp(0.278 * L, Hh * 1.25, 0.045 * L, 0.05 * L, 0, null);
     }
     const end = cps[cps.length - 1].p;
     head = sloth
       ? { bone: 'head', at: end.clone(), len: 0.11 * L, height: 0.043 * L, width: 0.04 * L, pitch: 0.35 }
-      : { bone: 'head', at: end.clone(), len: 0.15 * L, height: 0.075 * L, width: 0.072 * L, pitch: 0.22 };
+      : { bone: 'head', at: end.clone(), len: 0.13 * L, height: 0.072 * L, width: 0.078 * L, pitch: 0.25 };
     for (const [front, side] of [[false, 1], [false, -1], [true, 1], [true, -1]] as [boolean, number][]) {
       const z = sloth ? (front ? 0.13 * L : -0.1 * L) : front ? 0.1 * L : -0.18 * L;
-      const x = side * (sloth ? 0.105 : 0.058) * L;
+      const x = side * (sloth ? 0.105 : front ? 0.06 : 0.054) * L;
       let joints: THREE.Vector3[];
       if (sloth) {
         const top = V(x, Hh * (front ? 1.0 : 1.02), z);
@@ -478,7 +485,7 @@ function blueprint(sp: SpeciesDef, juvenile = false): Blueprint {
       } else {
         // Digitigrade: the cat walks on its toes, the hock and wrist well off the ground.
         joints = front
-          ? [V(x, Hh * 1.06, z), V(x, Hh * 0.6, z - 0.1 * Hh), V(x, Hh * 0.14, z), V(x, 0.04 * Hh, z + 0.05 * Hh), V(x, 0, z + 0.14 * Hh)]
+          ? [V(x, Hh * 1.12, z), V(x, Hh * 0.62, z - 0.1 * Hh), V(x, Hh * 0.15, z + 0.01 * Hh), V(x, 0.04 * Hh, z + 0.06 * Hh), V(x, 0, z + 0.15 * Hh)]
           : [V(x, Hh * 1.0, z), V(x, Hh * 0.6, z + 0.14 * Hh), V(x, Hh * 0.27, z - 0.12 * Hh), V(x, 0.04 * Hh, z - 0.02 * Hh), V(x, 0, z + 0.1 * Hh)];
       }
       legs.push({
@@ -486,7 +493,8 @@ function blueprint(sp: SpeciesDef, juvenile = false): Blueprint {
         joints,
         radii: sloth
           ? front ? [0.062 * L, 0.046 * L, 0.034 * L, 0.03 * L, 0.024 * L] : [0.09 * L, 0.062 * L, 0.042 * L, 0.04 * L, 0.034 * L]
-          : front ? [0.078 * L, 0.054 * L, 0.036 * L, 0.032 * L, 0.028 * L] : [0.085 * L, 0.052 * L, 0.03 * L, 0.028 * L, 0.025 * L],
+          : // Powerful but not tubular: thick forearms for grappling, lean shins.
+            front ? [0.064 * L, 0.046 * L, 0.03 * L, 0.028 * L, 0.024 * L] : [0.072 * L, 0.044 * L, 0.026 * L, 0.024 * L, 0.022 * L],
         parent: front ? 'chest' : 'pelvis',
         front,
         phase: (front ? 0.25 : 0) + (side > 0 ? 0 : 0.5),
@@ -672,6 +680,7 @@ function painter(sp: SpeciesDef) {
   // Film-look triceratops: mossy green patches over the grey-brown hide.
   const moss = sp.id === 'triceratops';
   const redNeck = sp.look.features.includes('sNeck');
+  const snake = sp.locomotion.plan === 'serpent';
   // Noise scales relative to the animal (patches a few per flank, fine mottling).
   const big = 1 / (L * 0.11);
   const fine = 1 / (L * 0.028);
@@ -695,7 +704,8 @@ function painter(sp: SpeciesDef) {
           c.lerp(accent, (fineBands ? 0.55 : 0.6) * smooth(fineBands ? 0.45 : 0.15, 0.8, s) * (fineBands ? smooth(-0.2, -0.65, under) : fade));
         } else if (pattern === 'spots') {
           const sp2 = fbm(p.x * fine * 0.8 + 11, p.y * fine * 0.8, p.z * fine * 0.8);
-          c.lerp(accent, 0.65 * smooth(0.6, 0.72, sp2) * fade);
+          // Anaconda: bold black oval blotches packed along the back and flanks.
+          c.lerp(accent, snake ? 0.88 * smooth(0.5, 0.58, sp2) * fade : 0.65 * smooth(0.6, 0.72, sp2) * fade);
         } else {
           // Plain: large soft blotches of the accent colour.
           c.lerp(accent, (moss ? 0.6 : 0.3) * smooth(moss ? 0.45 : 0.55, 0.8, nb) * fade);
@@ -1073,7 +1083,8 @@ function skullFamily(sp: SpeciesDef): SkullFamily {
   if (plan === 'serpent') return 'snake';
   if (f.has('hookBeak')) return 'dodo';
   if (f.has('longSnout')) return 'longSnout';
-  if (plan === 'hadrosaur') return 'duck';
+  // Iguanodon: a narrow, horse-like snout ending in a beak, not a broad duck bill.
+  if (plan === 'hadrosaur') return f.has('thumbSpike') ? 'beak' : 'duck';
   if (plan === 'sauropod') return 'sauropod';
   if (f.has('frill')) return 'cera';
   if (f.has('armor')) return 'anky';
@@ -1134,7 +1145,9 @@ function skullProfile(fam: SkullFamily, t: number): { top: number; hw: number; l
     case 'felid':
       // Big cat: short, rounded skull, high forehead, broad cheeks, short muzzle with a
       // deep upper lip (the sabre-tooth's "flange" chin below).
-      return { top: 1.05 - 0.1 * smooth(0.2, 0.5, t) - 0.45 * smooth(0.55, 1, t), hw: 1.0 + 0.08 * bump(0.35, 0.15) - 0.45 * smooth(0.45, 1, t), lip: -0.32 - 0.06 * smooth(0.6, 1, t), jaw: 0.38 - 0.12 * t + 0.1 * bump(0.85, 0.08) };
+      // Domed forehead over the eyes, then a steep drop to the short muzzle (the face of a
+      // cat, not the long flat snout of a rodent).
+      return { top: 1.0 + 0.14 * bump(0.32, 0.18) - 0.3 * smooth(0.42, 0.72, t) - 0.28 * smooth(0.82, 1, t), hw: 1.04 + 0.12 * bump(0.42, 0.14) - 0.38 * smooth(0.55, 0.85, t) - 0.18 * smooth(0.88, 1, t), lip: -0.34 - 0.08 * smooth(0.55, 0.9, t), jaw: 0.4 - 0.14 * t + 0.1 * bump(0.85, 0.08) };
     case 'sloth':
       // Ground sloth: small braincase, long, deep, tubular snout, deep lower jaw.
       return { top: 0.9 - 0.25 * smooth(0.25, 1, t), hw: 0.85 - 0.3 * smooth(0.2, 1, t), lip: -0.3, jaw: 0.45 - 0.15 * t };

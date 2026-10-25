@@ -230,3 +230,25 @@ Busca no Sketchfab para nove espécies, com verificação da origem de cada cont
   - *neopops* escaneia estátuas e bonecos de terceiros (Mickey, Hulk);
   - *gutaro* não informa a origem;
   - os demais vêm de Dinosaur Hunting, Jurassic World Dominion, do filme "Dinosaur" (Aladar) ou da conta Jurrassicgamer.
+
+## Melhorias no procedural das seis espécies sem modelo livre (25/10/2026)
+- **Sucuri:** cores da sucuri-verde real (oliva, manchas pretas ovais, barriga amarelada); deitada em curvas em S quando parada.
+- **Smilodonte:** proporção de felino:
+  - ombros acima do quadril, peito fundo e cintura recolhida;
+  - pernas longas e musculosas (antes eram tubos grossos);
+  - crânio com testa abaulada e focinho curto (antes parecia de capivara).
+- **Paquirrinossauro:** quadril de 2,0 para 1,75 m; marrom-acinzentado com faixas (antes azul-acinzentado).
+- **Iguanodonte:** pescoço curto e grosso, erguido para a frente (deixou de usar o pescoço em S dos hadrossauros); focinho de cavalo com bico em vez do bico de pato; verde-acinzentado com faixas.
+- **Microraptor:** penas pretas com tom de destaque azulado (iridescência), em vez de avermelhado.
+- **Protocerátops:** já tinha proporções corretas; sem mudança.
+
+Imagem: `docs/visual/seis-especies-procedurais.jpg`.
+
+## Caminhada (25/10/2026)
+As pernas dobravam demais ao andar, sobretudo nos modelos de artista e nos quadrúpedes. Duas causas:
+- **Passada da espécie maior que o alcance da perna:** o pé passava até 80% do ciclo no ar.
+- **Pelve descendo cedo demais:** o corpo baixava assim que a perna passava de 97% de extensão, mesmo em pernas que ficam quase retas no repouso.
+
+Correções:
+- Na caminhada, a passada é a que a perna desenhada alcança com o pé no chão cerca de 55% do ciclo; na corrida, vale a passada da espécie.
+- A descida da pelve é medida a partir da extensão de repouso de cada perna, e parte dela é absorvida esticando a perna.

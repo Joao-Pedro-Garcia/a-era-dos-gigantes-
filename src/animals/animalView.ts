@@ -679,7 +679,8 @@ export function poseAnimalView(v: AnimalView, a: AnimalData, stride: number, alt
     // advances (each point of the body follows the path of the one ahead); at rest the
     // body keeps a gentle S and only breathes. The head stays pointed forward.
     const chain = ['neck3', 'neck2', 'neck1', 'chest', 'torso', 'pelvis', 'tail1', 'tail2', 'tail3', 'tail4'];
-    const amp = moving ? 0.32 + runF * 0.12 : 0.12;
+    // At rest the snake lies in loose S-bends, not a straight line.
+    const amp = moving ? 0.32 + runF * 0.12 : 0.4;
     const ph = moving ? cycle * Math.PI * 2 : 0.6 + Math.sin(now * 0.4 + a.x) * 0.15;
     let acc = 0;
     chain.forEach((n, i) => {

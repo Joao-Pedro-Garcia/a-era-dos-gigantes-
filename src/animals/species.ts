@@ -247,7 +247,7 @@ const S: Record<string, Def> = {
     threat: { response: 'flee', flightDistance: 10 }, attack: { damage: 1, range: 0.6, cooldown: 1 }, health: 6,
     taming: { possible: true, difficulty: 0.5, preferredFood: ['raw_fish', 'insects'] }, habitat: ['jungle'], tempRange: [14, 36],
     locomotion: { plan: 'bird', stride: 0.25, turnRate: 5, swims: false, flies: true },
-    audio: { pitch: 2000, call: 'chirp' }, look: { base: 0x18181a, belly: 0x2a2a2e, accent: 0x6a2a1e, pattern: 'plain', features: ['feathers', 'wings'] },
+    audio: { pitch: 2000, call: 'chirp' }, look: { base: 0x15181e, belly: 0x2a2c32, accent: 0x24386a, pattern: 'plain', features: ['feathers', 'wings'] },
     huntsHumans: false,
   },
   gallimimus: {
@@ -286,7 +286,7 @@ const S: Record<string, Def> = {
     threat: { response: 'defend', flightDistance: 28 }, attack: { damage: 25, range: 2.5, cooldown: 1.8 }, health: 850,
     taming: { possible: true, difficulty: 0.45, preferredFood: ['fern_fronds', 'berries'] }, habitat: ['plains', 'jungle'], tempRange: [10, 34],
     locomotion: { plan: 'hadrosaur', stride: 2, turnRate: 1.2, swims: true, flies: false },
-    audio: { pitch: 120, call: 'bellow' }, look: { base: 0x6c6c66, belly: 0xb4a284, accent: 0x4a4a44, pattern: 'stripes', features: ['thumbSpike'] },
+    audio: { pitch: 120, call: 'bellow' }, look: { base: 0x6a7058, belly: 0xc0b08a, accent: 0x3e4232, pattern: 'stripes', features: ['thumbSpike'] },
     huntsHumans: false,
   },
   allosaurus: {
@@ -370,14 +370,14 @@ const S: Record<string, Def> = {
   pachyrhinosaurus: {
     name: { 'pt-BR': 'Paquirrinossauro', en: 'Pachyrhinosaurus' }, scientificName: 'Pachyrhinosaurus perotorum', clade: 'dinosaur',
     period: 'Cretáceo Superior (~70–69 Ma, Ártico)', diet: 'herbivore', ecology: 'largeHerbivore',
-    lengthM: 6, hipHeightM: 2, massKg: 3000, walkSpeed: 1.6, runSpeed: 6, stamina: 12, foodNeed: 1, waterNeed: 0.8,
+    lengthM: 6, hipHeightM: 1.75, massKg: 3000, walkSpeed: 1.6, runSpeed: 6, stamina: 12, foodNeed: 1, waterNeed: 0.8,
     social: { type: 'herd', size: [4, 10] }, senses: { sight: 70, hearing: 100, smell: 110, fovDeg: 230 },
     temperament: { aggression: 0.3, fearfulness: 0.35, curiosity: 0.2 }, territory: { radius: 1000, defends: false },
     activity: 'diurnal', reproduction: { clutch: [4, 8], incubationDays: 6, maturityDays: 26, parentalCare: 0.6, season: [14, 22] },
     threat: { response: 'charge', flightDistance: 20 }, attack: { damage: 35, range: 3, cooldown: 2 }, health: 1000,
     taming: { possible: true, difficulty: 0.55, preferredFood: ['berries', 'fern_fronds'] }, habitat: ['snow', 'mountain'], tempRange: [-12, 22],
     locomotion: { plan: 'quadruped', stride: 1.8, turnRate: 1, swims: true, flies: false },
-    audio: { pitch: 110, call: 'bellow' }, look: { base: 0x8a9598, belly: 0xd2cab0, accent: 0x4a5250, pattern: 'stripes', features: ['nasalBoss', 'frill', 'frillSpikes'] },
+    audio: { pitch: 110, call: 'bellow' }, look: { base: 0x7c705c, belly: 0xd0c4a2, accent: 0x463a2c, pattern: 'stripes', features: ['nasalBoss', 'frill', 'frillSpikes'] },
     huntsHumans: false,
   },
   troodon: {
@@ -471,7 +471,7 @@ const S: Record<string, Def> = {
     threat: { response: 'defend', flightDistance: 3 }, attack: { damage: 30, range: 1.8, cooldown: 2 }, health: 260,
     taming: { possible: false, difficulty: 1, preferredFood: ['raw_meat'] }, habitat: ['swamp', 'jungle'], tempRange: [20, 40],
     locomotion: { plan: 'serpent', stride: 0.8, turnRate: 1.6, swims: true, flies: false },
-    audio: { pitch: 400, call: 'hiss' }, look: { base: 0x6a4a2e, belly: 0xb8a070, accent: 0x1e1610, pattern: 'spots', features: [] },
+    audio: { pitch: 400, call: 'hiss' }, look: { base: 0x56602e, belly: 0xc8b460, accent: 0x161408, pattern: 'spots', features: [] },
     huntsHumans: true,
   },
 };
